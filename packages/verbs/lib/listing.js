@@ -1,0 +1,121 @@
+/**
+ * `buildListing` — regenerate the OKF directory listing in the root `index.md`.
+ *
+ * [[toolbox-decisions]] 14 cut this down to one job. There is no in-file TOC verb
+ * (Quartz renders one at the side, from the same headings) and no generated Map of
+ * Content (a MoC is a curated reading path, which is the whole point of it). What
+ * is left is the table of every note with its topic and its one-line description —
+ * a pure function of the tree that drifts by hand, and did: a topic rename rewrote
+ * every row of it.
+ *
+ * **Only the region between the markers is touched.** Everything else in the file —
+ * the prose, the Maps of Content table, the reading paths — is curated and is left
+ * exactly as it is. That is decision 31's contract, and `meta/conventions.md` states
+ * it for authors.
+ */
+import {createContext, finish, refuse} from './context.js'
+
+export const MARKER_START = '<!-- awt:listing:start -->'
+export const MARKER_END = '<!-- awt:listing:end -->'
+
+const AREA_TITLES = {
+  analysis: 'Analysis — how things are',
+  design: 'Design — what we will do',
+  implementation: 'Implementation — what exists today',
+  worklog: 'Worklog — dated activity',
+  meta: 'Meta',
+}
+
+/**
+ * @param path     the listing file, default `index.md`.
+ * @param areas    the order areas appear in; anything else follows, sorted.
+ * @param columns  `['note', 'topic', 'about']` by default; drop `topic` for a wiki
+ *                 that has no topic axis.
+ */
+export function buildListing(root, {path = 'index.md', areas, columns, workspace, dryRun} = {}) {
+  const verb = 'buildListing'
+  const context = createContext(root, {workspace, dryRun})
+  const index = context.workspace
+
+  if (!context.edit.exists(path)) throw refuse(verb, `no listing file at ${path}`)
+
+  const source = context.edit.load(path).source
+  const start = source.indexOf(MARKER_START)
+  const end = source.indexOf(MARKER_END)
+  if (start === -1 || end === -1 || end < start) {
+    throw refuse(
+      verb,
+      `${path} has no managed block. Add ${MARKER_START} and ${MARKER_END} where the listing belongs.`,
+    )
+  }
+
+  const wanted = columns ?? ['note', 'topic', 'about']
+  const order = areas ?? ['analysis', 'design', 'implementation', 'worklog', 'meta']
+  const withoutSelf = index.resources.filter((resource) => resource.path !== path)
+
+  const byArea = new Map()
+  const missing = []
+  for (const resource of withoutSelf) {
+    const area = resource.properties.area ?? resource.path.split('/')[0]
+    if (!byArea.has(area)) byArea.set(area, [])
+    byArea.get(area).push(resource)
+    if (!resource.properties.description) missing.push(resource.path)
+  }
+
+  const known = order.filter((area) => byArea.has(area))
+  const extra = [...byArea.keys()].filter((area) => !order.includes(area)).sort()
+
+  const blocks = []
+  for (const area of [...known, ...extra]) {
+    blocks.push(`### ${AREA_TITLES[area] ?? area}`, '')
+    blocks.push(...table(byArea.get(area), wanted))
+    blocks.push('')
+  }
+
+  const body = `${MARKER_START}\n\n${blocks.join('\n').trimEnd()}\n\n${MARKER_END}`
+  // Straight through the serializer like everything else, so the table comes out in
+  // the estate's own table style rather than in this file's idea of one — and so
+  // the comparison below is against what would actually be written.
+  const next = formatDocument(context, source.slice(0, start) + body + source.slice(end + MARKER_END.length))
+
+  const notes = []
+  if (missing.length > 0) {
+    notes.push(
+      `${missing.length} note(s) have no front-matter description, so their row is blank: ${missing.join(', ')}`,
+    )
+  }
+
+  if (next === source) {
+    notes.push('the listing was already current')
+    return finish(verb, context, {notes})
+  }
+
+  context.edit.update(path, next)
+  return finish(verb, context, {notes})
+}
+
+function formatDocument(context, source) {
+  return String(context.processor.stringify(context.processor.parse(source)))
+}
+
+const HEADERS = {note: 'Note', topic: 'Topic', about: 'About'}
+
+function table(resources, columns) {
+  const cell = (resource, column) => {
+    if (column === 'note') return `[[${resource.slug.split('/').pop()}]]`
+    if (column === 'topic') return String(resource.properties.topic ?? '')
+    return escapePipes(String(resource.properties.description ?? ''))
+  }
+
+  const rows = [...resources].sort((a, b) => (a.path < b.path ? -1 : 1))
+  return [
+    `| ${columns.map((column) => HEADERS[column] ?? column).join(' | ')} |`,
+    `|${columns.map(() => '---').join('|')}|`,
+    ...rows.map((resource) => `| ${columns.map((column) => cell(resource, column)).join(' | ')} |`),
+  ]
+}
+
+/** A description containing a pipe would otherwise end the cell. */
+function escapePipes(text) {
+  return text.replace(/\|/g, '\\|')
+}

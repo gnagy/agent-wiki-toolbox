@@ -158,6 +158,7 @@ export function buildWorkspace(root, resources, stats = {}) {
       return byPath.get(path)
     },
     resolve,
+    resolveRelative,
     edges,
     crossWikiLinks,
     ambiguities,
