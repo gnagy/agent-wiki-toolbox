@@ -48,6 +48,32 @@ function markdownLinkOf(node) {
   return {kind: 'markdown', target: path, anchor: anchor || null, line: node.position?.start.line ?? 0}
 }
 
+/**
+ * A `[[` that survived into a text node was never tokenised — which almost always
+ * means it never closed. Decision 19 records why this needs a lint of its own: a
+ * wikilink cannot span a newline, and `[[target-` / `note]]` across two lines yields
+ * **no link and no placeholder**. It is not a broken edge, it is an invisible one,
+ * and nothing else warns.
+ *
+ * A deliberately escaped `\[\[` is not that. The escape is gone from the text node
+ * by the time we see it, so the raw source is what tells them apart.
+ */
+function suspectLinksIn(node, source) {
+  const found = []
+  const start = node.position?.start.offset
+  if (start === undefined) return found
+
+  const raw = source.slice(start, node.position.end.offset)
+  for (const match of raw.matchAll(/\[\[/g)) {
+    if (match.index > 0 && raw[match.index - 1] === '\\') continue // written as an escape
+    found.push({
+      line: node.position.start.line,
+      text: raw.slice(Math.max(0, match.index - 20), match.index + 40).replace(/\n/g, ' '),
+    })
+  }
+  return found
+}
+
 function headingText(node) {
   let text = ''
   visit(node, (child) => {
@@ -65,6 +91,7 @@ export function parseNote({path, source, parser}) {
   const anchorOf = createAnchorSlugger()
   const headings = []
   const links = []
+  const suspect = []
   let firstHeading = null
 
   visit(tree, (node) => {
@@ -77,6 +104,8 @@ export function parseNote({path, source, parser}) {
     } else if (node.type === 'link') {
       const link = markdownLinkOf(node)
       if (link) links.push(link)
+    } else if (node.type === 'text') {
+      suspect.push(...suspectLinksIn(node, source))
     }
   })
 
@@ -90,6 +119,7 @@ export function parseNote({path, source, parser}) {
   return {
     path,
     slug,
+    suspect,
     stem: slug.split('/').pop(),
     title: properties.title ?? firstHeading ?? slug.split('/').pop(),
     type: properties.type ?? 'note',

@@ -140,6 +140,10 @@ export function buildWorkspace(root, resources, stats = {}) {
     else outbound.set(edge.from, new Set([edge.to]))
   }
 
+  const unclosedLinks = resources.flatMap((resource) =>
+    (resource.suspect ?? []).map((entry) => ({from: resource.path, ...entry})),
+  )
+
   const tags = new Map()
   for (const resource of resources) {
     for (const tag of resource.tags) {
@@ -164,6 +168,7 @@ export function buildWorkspace(root, resources, stats = {}) {
     ambiguities,
     brokenAnchors,
     brokenLinks,
+    unclosedLinks,
     tags,
 
     /** Distinct notes linking *to* this one. */

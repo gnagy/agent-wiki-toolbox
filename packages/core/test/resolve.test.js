@@ -163,3 +163,21 @@ test('a relative segment in a wikilink is kept, and matches nothing', () => {
   const workspace = wiki({'a/one.md': 'to [[../two]]', 'two.md': '# Two'})
   assert.deepEqual(workspace.placeholders().map((placeholder) => placeholder.target), ['../two'])
 })
+
+test('a `[[` that never closed is a lint, not a link and not a placeholder', () => {
+  const workspace = wiki({'a/one.md': 'A link to [[target-\nnote]] across a newline.\n'})
+  assert.deepEqual(workspace.edges, [])
+  assert.deepEqual(workspace.placeholders(), [])
+  assert.equal(workspace.unclosedLinks.length, 1)
+  assert.equal(workspace.unclosedLinks[0].from, 'a/one.md')
+})
+
+test('a deliberately escaped `\\[\\[` is not that', () => {
+  const workspace = wiki({'a/one.md': 'Written as \\[\\[stem]] it stays literal.\n'})
+  assert.deepEqual(workspace.unclosedLinks, [])
+})
+
+test('a `[[` inside code is not that either', () => {
+  const workspace = wiki({'a/one.md': 'Inline `[[stem]]` and:\n\n```\n[[stem]]\n```\n'})
+  assert.deepEqual(workspace.unclosedLinks, [])
+})

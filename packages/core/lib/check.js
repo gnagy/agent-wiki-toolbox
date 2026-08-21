@@ -41,6 +41,16 @@ export function check(workspace) {
     })
   }
 
+  for (const site of workspace.unclosedLinks) {
+    problems.push({
+      severity: 'warning',
+      rule: 'unclosed-wikilink',
+      path: site.from,
+      line: site.line,
+      message: `a "[[" that never became a link — it yields no edge and no placeholder: …${site.text}…`,
+    })
+  }
+
   return {
     root: workspace.root,
     notes: workspace.resources.length,
@@ -51,6 +61,6 @@ export function check(workspace) {
     deadends: workspace.deadends(),
     unreferenced: workspace.unreferenced(),
     crossWikiLinks: workspace.crossWikiLinks.length,
-    healthy: problems.length === 0,
+    healthy: problems.every((problem) => problem.severity !== 'error'),
   }
 }
