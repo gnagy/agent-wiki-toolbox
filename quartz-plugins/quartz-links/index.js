@@ -20,8 +20,8 @@
  * **Zero dependencies, deliberately.** Quartz symlinks a local plugin directory
  * into `.quartz/plugins/`, so anything imported here would have to resolve from
  * outside the Quartz tree. It reads the toolbox index as an artifact instead —
- * emit that immediately before the build, or the comparison is against a stale
- * answer, which is worse than no comparison at all.
+ * run `awt index --out <path>` immediately before the build, or the comparison is
+ * against a stale answer, which is worse than no comparison at all.
  */
 import fs from 'fs'
 import path from 'path'
@@ -68,7 +68,7 @@ export const AwtLinks = (userOptions) => {
         artifact = JSON.parse(fs.readFileSync(file, 'utf-8'))
       } catch {
         console.warn(
-          `⚠ awt-links: no index at ${file} — nothing to compare against. Run \`awt index\` before the build.`,
+          `⚠ awt-links: no index at ${file} — nothing to compare against. Run \`awt index --out\` before the build.`,
         )
         return []
       }

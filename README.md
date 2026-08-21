@@ -3,8 +3,8 @@
 One toolbox for a markdown wiki whose notes are connected by `[[wikilinks]]` — the link graph,
 structural edits that keep it intact, formatting, and the build that renders it as a site.
 
-**Only the bottom layer works so far.** `syntax` is built; everything above it is a package with a
-name. The code arrives milestone by milestone.
+**Everything but `publish` is built.** `syntax`, `core`, `format`, `verbs`, `mcp` and `cli` all work;
+`publish` is a package with a name. The code arrives milestone by milestone.
 
 ## What it replaces
 
@@ -61,8 +61,20 @@ Resolution lives in `core`. This package deliberately does not know what a targe
 
 ## The binary
 
-One command, `awt`, with everything as a subcommand — the verbs, formatting, the site build. There is
-no second binary to reach for.
+One command, `awt`, with everything as a subcommand — the verbs, formatting, the graph, the MCP
+server, and (once `publish` lands) the site build. There is no second binary to reach for.
+
+```shell
+awt --help                       # every operation, in one list
+awt check -w docs/wiki           # everything wrong with the link graph, in one call
+awt search 'unique basenames'    # note bodies, titles, front matter and tags
+awt move docs/a.md docs/b.md     # …rewriting every link into it
+awt index -w docs/wiki --out site/.awt-index.json
+awt mcp -w docs/wiki --allow-writes
+```
+
+Install it with `bin/install`, which is the only step that exposes a change: builds and agent jobs
+read `~/.local/lib/agent-wiki-toolbox`, never this working copy.
 
 ## Where the reasoning lives
 

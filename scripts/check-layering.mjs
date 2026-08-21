@@ -15,7 +15,11 @@ const ALLOWED = {
   format: ["syntax"],
   verbs: ["syntax", "core", "format"],
   mcp: ["syntax", "core", "format", "verbs"],
-  cli: ["syntax", "core", "format", "verbs"],
+  // cli reaches mcp and publish because decision 22 says there is one binary and
+  // everything hangs off it — `awt mcp`, `awt publish`. That is a sideways edge
+  // between three packages that sit at the top together, not a downward one:
+  // nothing *below* any of them depends on any of them, which is the rule.
+  cli: ["syntax", "core", "format", "verbs", "mcp", "publish"],
   publish: ["syntax", "core"],
 }
 
