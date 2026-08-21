@@ -32,12 +32,17 @@ test('a folder-qualified link is a suffix match', () => {
   assert.equal(workspace.edges.length, 1)
 })
 
-test('a folder target matches that folder\'s index', () => {
-  const workspace = wiki({
-    'a/one.md': 'links to [[topic]]',
-    'notes/topic/index.md': '# Topic',
-  })
+test('only a link that names a folder gets that folder\'s index', () => {
+  const notes = {'a/one.md': 'to [[topic]] and [[notes/topic/]]', 'notes/topic/index.md': '# Topic'}
+  const workspace = wiki(notes)
+  // `[[topic]]` is single-segment, so Quartz compares it against the basename
+  // `index` and finds nothing. Resolving it here would beat the renderer.
+  assert.deepEqual(workspace.placeholders().map((placeholder) => placeholder.target), ['topic'])
   assert.deepEqual(workspace.edges.map((edge) => edge.to), ['notes/topic/index.md'])
+})
+
+test('a note named after its own folder collapses to that folder\'s index', () => {
+  assert.equal(slugifyPath('design/toolbox/toolbox.md'), 'design/toolbox/index')
 })
 
 test('two matches is an error, not a guess', () => {
@@ -146,4 +151,15 @@ test('front matter tags become the tag index', () => {
   })
   assert.deepEqual([...workspace.tags.keys()].sort(), ['one', 'two'])
   assert.deepEqual(workspace.tags.get('two'), ['a.md', 'b.md'])
+})
+
+test('`[[index]]` is the wiki root, which Quartz reaches by falling through', () => {
+  const workspace = wiki({'index.md': '# Wiki', 'a/one.md': 'back to [[index]]'})
+  assert.deepEqual(workspace.edges.map((edge) => edge.to), ['index.md'])
+  assert.deepEqual(workspace.placeholders(), [])
+})
+
+test('a relative segment in a wikilink is kept, and matches nothing', () => {
+  const workspace = wiki({'a/one.md': 'to [[../two]]', 'two.md': '# Two'})
+  assert.deepEqual(workspace.placeholders().map((placeholder) => placeholder.target), ['../two'])
 })

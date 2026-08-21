@@ -1,50 +1,97 @@
 /**
  * Resolution: Quartz's `shortest`, with one deliberate difference.
  *
- * Quartz resolves only on a unique match and otherwise **falls through silently** to
- * a root-relative path — which, for an ambiguous stem, is a URL that 404s. A
- * source-level resolver can do better, so here two matches is an authoring error
- * reported at edit time, and the emitted URL stays byte-compatible with Quartz's
- * either way (toolbox decision 7).
+ * The matching rule below is `transformLink`'s, mirrored rather than approximated —
+ * a single-segment link matches on **basename alone**, a multi-segment one is a
+ * *suffix* match, and only a link that names a folder gets the `index` variant. An
+ * earlier version of this file registered every `x/index` note under `x`, which is
+ * more generous than Quartz and would have resolved links the renderer 404s.
  *
- * There is no confidence threshold and no "best" candidate. One match is a link;
- * anything else is a question for the author.
+ * **Where we differ, on purpose:** Quartz resolves only on a unique match and
+ * otherwise falls through *silently* to a root-relative path — which, for an
+ * ambiguous stem, is a URL that 404s. Here two matches is an authoring error
+ * reported at edit time (toolbox decision 7). There is no confidence threshold and
+ * no "best" candidate: one match is a link, anything else is a question for the
+ * author.
  */
-import {slugifyPath} from './slug.js'
+import {isFolderPath, simplifySlug, slugifyPath, stripSlashes} from './slug.js'
+
+const RELATIVE_SEGMENT = /^\.{0,2}$/
 
 /**
- * Index every suffix of every slug, which is exactly what `shortest` matches on:
- * `slug === target` or `slug.endsWith('/' + target)`. A folder target additionally
- * matches that folder's `index`, so `a/b/index` registers under `a/b` as well.
+ * The written target, reduced to what Quartz compares against `allSlugs`, plus
+ * whether it names a folder.
+ */
+export function canonicaliseTarget(target) {
+  const written = String(target ?? '')
+  const segments = written.split('/').filter((segment) => segment.length > 0)
+  const prefix = segments.filter((segment) => RELATIVE_SEGMENT.test(segment)).join('/')
+  const filePath = segments.filter((segment) => !RELATIVE_SEGMENT.test(segment)).join('/')
+
+  const slugged = slugifyPath(filePath)
+  const simple = simplifySlug(slugged)
+  const folder = isFolderPath(written) || isFolderPath(slugged)
+  const canonical = stripSlashes([prefix, simple].filter(Boolean).join('/'))
+
+  return {canonical, folder}
+}
+
+/** Keep the old name working for callers that only want the comparison key. */
+export function normaliseTarget(target) {
+  return canonicaliseTarget(target).canonical
+}
+
+/**
+ * Index every `/`-suffix of every slug, which is exactly what `shortest` matches
+ * on. A one-segment suffix *is* the basename, so both branches of Quartz's rule
+ * read the same map.
  */
 export function createResolver(resources) {
   const bySuffix = new Map()
-
-  const register = (key, resource) => {
-    const existing = bySuffix.get(key)
-    if (existing) existing.push(resource)
-    else bySuffix.set(key, [resource])
-  }
+  const bySlug = new Map()
 
   for (const resource of resources) {
+    bySlug.set(resource.slug, resource)
     const segments = resource.slug.split('/')
     for (let index = 0; index < segments.length; index++) {
-      register(segments.slice(index).join('/'), resource)
-    }
-    if (segments.at(-1) === 'index' && segments.length > 1) {
-      const folder = segments.slice(0, -1)
-      for (let index = 0; index < folder.length; index++) {
-        register(folder.slice(index).join('/'), resource)
-      }
+      const key = segments.slice(index).join('/')
+      const known = bySuffix.get(key)
+      if (known) known.push(resource)
+      else bySuffix.set(key, [resource])
     }
   }
 
-  const bySlug = new Map(resources.map((resource) => [resource.slug, resource]))
+  const resolve = (target) => {
+    const {canonical, folder} = canonicaliseTarget(target)
+
+    // `[[index]]` canonicalises to nothing, because Quartz reads a trailing
+    // `index` as the folder holding it and the folder here is the wiki root. The
+    // renderer still lands on the root page — by falling through rather than by
+    // matching — so the root note is the answer, and saying "placeholder" would be
+    // a broken link the site does not have.
+    if (!canonical) {
+      if (!String(target ?? '').trim()) return {status: 'empty', candidates: []}
+      const root = bySlug.get('index')
+      return root
+        ? {status: 'resolved', resource: root, candidates: [root]}
+        : {status: 'placeholder', candidates: []}
+    }
+
+    const direct = bySuffix.get(canonical) ?? []
+    // The `index` variant is Quartz's, and only for a multi-segment folder target.
+    const viaIndex =
+      folder && canonical.includes('/') ? (bySuffix.get(`${canonical}/index`) ?? []) : []
+    const candidates = [...new Set([...direct, ...viaIndex])]
+
+    if (candidates.length === 1) return {status: 'resolved', resource: candidates[0], candidates}
+    if (candidates.length === 0) return {status: 'placeholder', candidates}
+    return {status: 'ambiguous', candidates: [...candidates].sort(byPath)}
+  }
 
   return {
     bySuffix,
     bySlug,
-    resolve: (target) => resolveTarget(bySuffix, target),
+    resolve,
 
     /**
      * An ordinary `[text](../other/note.md)` link. A relative path is not a stem
@@ -61,27 +108,12 @@ export function createResolver(resources) {
 /** `..` and `.` resolved against the linking note's directory. */
 export function joinRelative(from, target) {
   const out = from.split('/').slice(0, -1)
-  for (const segment of target.split('/')) {
+  for (const segment of stripSlashes(target).split('/')) {
     if (segment === '' || segment === '.') continue
     if (segment === '..') out.pop()
     else out.push(segment)
   }
   return out.join('/')
-}
-
-/** The written target, reduced to the key the suffix index is built on. */
-export function normaliseTarget(target) {
-  return slugifyPath(String(target ?? '').replace(/^\.?\//, '').replace(/\/+$/, ''))
-}
-
-function resolveTarget(bySuffix, target) {
-  const key = normaliseTarget(target)
-  if (!key) return {status: 'empty', candidates: []}
-
-  const candidates = bySuffix.get(key) ?? []
-  if (candidates.length === 1) return {status: 'resolved', resource: candidates[0], candidates}
-  if (candidates.length === 0) return {status: 'placeholder', candidates}
-  return {status: 'ambiguous', candidates: [...candidates].sort(byPath)}
 }
 
 function byPath(a, b) {

@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Install this working copy onto the machine, where jobs and builds can see it.
+#
+# This is the ONLY step that exposes changes. Editing the working copy affects
+# nothing until you run this — which is what lets agent jobs and Quartz builds
+# keep running against the installed version while the toolbox is being changed
+# here.
+#
+#   working copy  ──install──▶  ~/.local/lib/agent-wiki-toolbox  ──▶  jobs, builds
+#
+# Pushing to GitHub is a separate act, for backup and for other machines. No
+# project depends on the git repo.
+#
+# Usage:  bin/install            # install (or reinstall) onto this machine
+#         bin/install --dry-run  # show what would happen
+
+set -euo pipefail
+
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIB="$HOME/.local/lib/agent-wiki-toolbox"
+BIN="$HOME/.local/bin"
+
+DRY=""
+[[ "${1:-}" == "--dry-run" ]] && DRY="1"
+
+say() { printf '%s\n' "$*"; }
+do_() { if [[ -n "$DRY" ]]; then say "  would: $*"; else "$@"; fi; }
+
+# Running the copy of this script that lives inside the install would make SRC
+# and LIB the same directory, and the rm below would delete its own source.
+if [[ "$SRC" == "$LIB" ]]; then
+  say "refusing to install $LIB onto itself."
+  say "Run bin/install from the working copy, not from the installed copy."
+  exit 1
+fi
+
+if [[ -n "$(git -C "$SRC" status --porcelain 2>/dev/null)" ]]; then
+  say "note: the working copy has uncommitted changes — they will be installed."
+  say "      Commit first if you want the installed copy to match a commit."
+fi
+
+say "installing $SRC"
+say "       -> $LIB"
+
+do_ mkdir -p "$BIN"
+
+# Replace wholesale rather than merging, so a deleted file cannot survive an
+# install and keep being loaded.
+if [[ -z "$DRY" ]]; then
+  rm -rf "$LIB"
+  mkdir -p "$LIB"
+  # Everything git tracks plus everything it would track — the working copy as
+  # it stands, minus what .gitignore excludes. `git archive HEAD` was the first
+  # try and it silently shipped nothing new: a brand-new directory is untracked,
+  # so the whole Quartz plugin was missing from the install while every test in
+  # the repo passed.
+  git -C "$SRC" ls-files --cached --others --exclude-standard -z |
+    tar -C "$SRC" --null -T - -cf - | tar -C "$LIB" -xf -
+  ( cd "$LIB" && npm install --omit=dev --silent --no-audit --no-fund >/dev/null )
+else
+  say "  would: replace $LIB with the working tree (git ls-files -co), then npm install --omit=dev"
+fi
+
+# The `awt` binary arrives with the cli package (milestone M7). Link it when it
+# is there rather than failing before it is.
+if [[ -f "$SRC/packages/cli/bin/awt.mjs" ]]; then
+  do_ ln -sfn "$LIB/packages/cli/bin/awt.mjs" "$BIN/awt"
+  say "  $BIN/awt -> $LIB/packages/cli/bin/awt.mjs"
+else
+  say "  (no cli package yet — nothing linked onto PATH)"
+fi
+
+if [[ -z "$DRY" ]]; then
+  stamp="$(git -C "$SRC" describe --always --dirty 2>/dev/null || echo unknown)"
+  printf '%s\n' "$stamp" > "$LIB/INSTALLED_FROM"
+  say ""
+  say "installed $stamp"
+  say ""
+  say "The Quartz plugins live at $LIB/quartz-plugins/<name>."
+  say "A project takes a new install by re-running bootstrap-quartz: Quartz never"
+  say "re-resolves a plugin directory it has already installed."
+  case ":$PATH:" in
+    *":$BIN:"*) ;;
+    *) say ""; say "WARNING: $BIN is not on PATH." ;;
+  esac
+fi

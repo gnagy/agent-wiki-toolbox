@@ -7,9 +7,10 @@
  * than architecturally privileged (toolbox decision 9).
  */
 export {loadWorkspace, buildWorkspace} from './lib/workspace.js'
-export {createResolver, normaliseTarget, checkAnchor} from './lib/resolve.js'
-export {slugifyPath, slugifySegment, createAnchorSlugger} from './lib/slug.js'
+export {createResolver, canonicaliseTarget, normaliseTarget, checkAnchor, joinRelative} from './lib/resolve.js'
+export {slugifyPath, slugifySegment, sluggify, simplifySlug, isFolderPath, createAnchorSlugger} from './lib/slug.js'
 export {parseNote} from './lib/note.js'
 export {walkNotes} from './lib/walk.js'
 export {check} from './lib/check.js'
+export {materialiseIndex, writeIndexArtifact, ARTIFACT_VERSION} from './lib/artifact.js'
 export {INDEX_VERSION, cachePathFor, cacheDirectory, hashSource, readCache, writeCache} from './lib/cache.js'
