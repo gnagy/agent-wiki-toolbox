@@ -1,10 +1,19 @@
 {
   "name": "@agent-wiki-toolbox/publish",
   "version": "0.0.0",
-  "description": "Building and releasing a wiki as a Quartz site",
+  "description": "Building and releasing a wiki as a Quartz site: the pinned clone, the staged release, the handoff copy, and mermaid rendered without a browser",
   "type": "module",
   "main": "index.js",
-  "exports": { ".": "./index.js" },
-  "dependencies": { "@agent-wiki-toolbox/core": "*" },
+  "exports": {
+    ".": "./index.js",
+    "./project-root": "./lib/project-root.js"
+  },
+  "dependencies": {
+    "@agent-wiki-toolbox/core": "*",
+    "@resvg/resvg-js": "^2.6.2",
+    "fontkit": "^2.0.4",
+    "jsdom": "^27.4.0",
+    "mermaid": "^11.17.0"
+  },
   "license": "MIT"
 }

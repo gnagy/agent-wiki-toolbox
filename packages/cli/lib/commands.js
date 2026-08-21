@@ -337,6 +337,65 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'bootstrap-quartz',
+    summary: 'Set up (or re-pin) the Quartz clone a site builds from, and link the toolbox plugins into it',
+    usage: 'awt bootstrap-quartz [--site path] [--force]',
+    options: {site: {type: 'string'}, force: {type: 'boolean', default: false}},
+    async run({values, positionals}) {
+      const {bootstrap} = await import('@agent-wiki-toolbox/publish')
+      return bootstrap([
+        ...(values.site ? ['--site', values.site] : []),
+        ...(values.force ? ['--force'] : []),
+        ...positionals,
+      ])
+    },
+  },
+  {
+    name: 'publish',
+    summary: 'Build the site into a release, or a handoff copy with --offline. Emits the index first',
+    usage: 'awt publish [--wiki docs/wiki] [--site site] [--offline] [--nginx]',
+    options: {
+      wiki: {type: 'string'},
+      site: {type: 'string'},
+      out: {type: 'string'},
+      offline: {type: 'boolean', default: false},
+      diagrams: {type: 'string'},
+      nginx: {type: 'boolean', default: false},
+      'skip-index': {type: 'boolean', default: false},
+    },
+    async run({values}) {
+      const {publish} = await import('@agent-wiki-toolbox/publish')
+
+      // The index is emitted here rather than left to whoever runs the build,
+      // because the shadow compares against it: an artifact one edit out of date
+      // reports a disagreement that is not real, or an agreement that is not
+      // either. Same resolution rule the build uses, so both find the same
+      // project from anywhere inside it.
+      if (!values.nginx && !values['skip-index']) {
+        const {findProjectRoot} = await import('@agent-wiki-toolbox/publish/project-root')
+        const root = values.wiki && values.site ? null : findProjectRoot()
+        if (!root && !(values.wiki && values.site)) {
+          process.stderr.write('awt publish: no site/quartz.config.yaml here or in any parent\n')
+          return 2
+        }
+        const wiki = values.wiki ? resolvePath(values.wiki) : resolvePath(root, 'docs/wiki')
+        const site = values.site ? resolvePath(values.site) : resolvePath(root, 'site')
+        const workspace = loadWorkspace(wiki)
+        writeIndexArtifact(workspace, resolvePath(site, '.awt-index.json'))
+        process.stdout.write(`index: ${workspace.resources.length} notes, ${workspace.edges.length} links\n`)
+      }
+
+      return publish([
+        ...(values.wiki ? ['--wiki', values.wiki] : []),
+        ...(values.site ? ['--site', values.site] : []),
+        ...(values.out ? ['--out', values.out] : []),
+        ...(values.offline ? ['--offline'] : []),
+        ...(values.diagrams ? ['--diagrams', values.diagrams] : []),
+        ...(values.nginx ? ['--nginx'] : []),
+      ])
+    },
+  },
+  {
     name: 'mcp',
     summary: 'Run the MCP server over stdio, for an agent to talk to',
     usage: 'awt mcp [--workspace dir] [--allow-writes]',

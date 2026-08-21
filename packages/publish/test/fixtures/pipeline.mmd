@@ -1,0 +1,5 @@
+flowchart TD
+  A[The working copy] -->|bin/install| B[~/.local/lib]
+  B --> C{Which consumer?}
+  C -->|agent job| D[awt on PATH]
+  C -->|quartz build| E[the plugins]

@@ -1,0 +1,68 @@
+/**
+ * awt-headings — publish each page's heading anchors, so a *cross-wiki* anchor
+ * becomes checkable.
+ *
+ * [[cross-wiki-link-resolution]] names this as the one thing that design cannot
+ * do: `contentIndex.json` carries `filePath`, `slug`, `title` and `content`, but no
+ * heading list, so `handbook:foo.md#a-heading` can be resolved to a page and never
+ * to a place on it. Substring-matching the page text is a hack, which is why it was
+ * left open ([[open-questions]] 17).
+ *
+ * The toolbox index carries headings — that is the thing Foam's index lacked — so
+ * publishing them beside `contentIndex.json` costs one file and closes it. The
+ * shape mirrors `contentIndex.json` deliberately: keyed by slug, with the file path
+ * beside it, so a consumer that already reads one can read the other the same way.
+ *
+ * **Zero dependencies**, like the other two: a symlinked plugin directory cannot
+ * resolve a bare specifier from outside the Quartz tree, so it reads the
+ * materialised index as data.
+ */
+import fs from 'fs'
+import path from 'path'
+
+const DEFAULTS = {
+  index: './.awt-index.json',
+  indexBase: '..',
+  outputPath: 'static/awtHeadings.json',
+}
+
+export const AwtHeadings = (userOptions) => {
+  const options = {...DEFAULTS, ...userOptions}
+
+  return {
+    name: 'AwtHeadings',
+
+    async emit(ctx, content) {
+      const file = path.isAbsolute(options.index)
+        ? options.index
+        : path.resolve(process.cwd(), options.indexBase, options.index)
+
+      let artifact
+      try {
+        artifact = JSON.parse(fs.readFileSync(file, 'utf-8'))
+      } catch {
+        console.warn(`⚠ awt-headings: no index at ${file}; emitting nothing. Run \`awt index --out\` first.`)
+        return []
+      }
+
+      // Only pages that actually got built: a note excluded from publishing has no
+      // anchors anyone can link to, and listing it would answer *does this note
+      // exist* where the question is *is this page served*.
+      const published = new Set(content.map(([, vfile]) => vfile.data?.slug).filter(Boolean))
+
+      const headings = {}
+      for (const [slug, page] of Object.entries(artifact.pages ?? {})) {
+        if (!published.has(slug)) continue
+        headings[slug] = {filePath: page.path, headings: page.headings ?? []}
+      }
+
+      const out = path.join(ctx.argv.output, options.outputPath)
+      fs.mkdirSync(path.dirname(out), {recursive: true})
+      fs.writeFileSync(out, JSON.stringify(headings))
+      console.log(`✓ awt-headings: ${Object.keys(headings).length} pages in ${options.outputPath}`)
+      return [out]
+    },
+  }
+}
+
+export default AwtHeadings
