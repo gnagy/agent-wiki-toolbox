@@ -3,8 +3,8 @@
 One toolbox for a markdown wiki whose notes are connected by `[[wikilinks]]` — the link graph,
 structural edits that keep it intact, formatting, and the build that renders it as a site.
 
-**Nothing here works yet.** This is the package skeleton and the layering check; the code arrives
-milestone by milestone.
+**Only the bottom layer works so far.** `syntax` is built; everything above it is a package with a
+name. The code arrives milestone by milestone.
 
 ## What it replaces
 
@@ -38,6 +38,26 @@ Two of its rules are load-bearing rather than tidy:
   with no wiki anywhere in sight.
 - **`core` must not depend on `mcp` or `cli`.** It is what keeps the index a pure function of the
   file tree — which is what makes it cacheable on disk with no watcher.
+
+## What `syntax` settles
+
+The dialect is **ours**, not `remark-wiki-link`'s. One micromark construct covers `[[stem]]`,
+`[[folder/stem]]`, `[[stem#anchor]]`, `[[#anchor]]`, `![[embed]]` and the aliased form the estate
+bans, producing one node type:
+
+```js
+{type: 'wikiLink', embed: false, target: 'folder/stem', anchor: 'a-heading', alias: null}
+```
+
+Three consequences the layers above depend on:
+
+- **An embed is a link.** It is a node rather than escaped text, so it is a graph edge and a rename
+  rewrites it through the serialiser like anything else.
+- **An anchor is a field**, which is what makes it checkable against the heading index.
+- **Nothing un-escapes anything.** A serialised document needs no repair pass, so a note *about* this
+  syntax survives being formatted.
+
+Resolution lives in `core`. This package deliberately does not know what a target points at.
 
 ## The binary
 

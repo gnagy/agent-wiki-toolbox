@@ -6,7 +6,7 @@
   "type": "module",
   "workspaces": ["packages/*"],
   "scripts": {
-    "test": "node --test packages/*/test/*.test.mjs",
+    "test": "node --test",
     "layering": "node scripts/check-layering.mjs"
   },
   "license": "MIT"

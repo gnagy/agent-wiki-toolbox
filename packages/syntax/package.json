@@ -4,7 +4,18 @@
   "description": "The mdast dialect: the remark plugin stack, wikilinks, embeds and front matter",
   "type": "module",
   "main": "index.js",
-  "exports": { ".": "./index.js" },
-  "dependencies": {},
+  "exports": {
+    ".": "./index.js"
+  },
+  "dependencies": {
+    "micromark-util-character": "^2.1.1",
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.1.0",
+    "yaml": "^2.9.0"
+  },
   "license": "MIT"
 }
