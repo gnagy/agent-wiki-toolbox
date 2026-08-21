@@ -4,7 +4,12 @@
   "description": "Resolution, the index, the graph and the content-addressed cache",
   "type": "module",
   "main": "index.js",
-  "exports": { ".": "./index.js" },
-  "dependencies": { "@agent-wiki-toolbox/syntax": "*" },
+  "exports": {
+    ".": "./index.js"
+  },
+  "dependencies": {
+    "@agent-wiki-toolbox/syntax": "*",
+    "github-slugger": "^2.0.0"
+  },
   "license": "MIT"
 }
