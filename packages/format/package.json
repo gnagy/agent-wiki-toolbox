@@ -1,0 +1,10 @@
+{
+  "name": "@agent-wiki-toolbox/format",
+  "version": "0.0.0",
+  "description": "mdfmt's formatter: IntelliJ-identical markdown serialisation. Must never depend on core",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js" },
+  "dependencies": { "@agent-wiki-toolbox/syntax": "*" },
+  "license": "MIT"
+}

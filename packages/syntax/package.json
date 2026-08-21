@@ -1,0 +1,10 @@
+{
+  "name": "@agent-wiki-toolbox/syntax",
+  "version": "0.0.0",
+  "description": "The mdast dialect: the remark plugin stack, wikilinks, embeds and front matter",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js" },
+  "dependencies": {},
+  "license": "MIT"
+}

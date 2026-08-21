@@ -1,0 +1,10 @@
+{
+  "name": "@agent-wiki-toolbox/publish",
+  "version": "0.0.0",
+  "description": "Building and releasing a wiki as a Quartz site",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js" },
+  "dependencies": { "@agent-wiki-toolbox/core": "*" },
+  "license": "MIT"
+}

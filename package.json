@@ -1,0 +1,13 @@
+{
+  "name": "agent-wiki-toolbox",
+  "version": "0.0.0",
+  "private": true,
+  "description": "One toolbox for a wikilinked markdown wiki: the link graph, structural edits, formatting, and the site build",
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test": "node --test packages/*/test/*.test.mjs",
+    "layering": "node scripts/check-layering.mjs"
+  },
+  "license": "MIT"
+}

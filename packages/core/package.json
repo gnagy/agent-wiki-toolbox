@@ -1,0 +1,10 @@
+{
+  "name": "@agent-wiki-toolbox/core",
+  "version": "0.0.0",
+  "description": "Resolution, the index, the graph and the content-addressed cache",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js" },
+  "dependencies": { "@agent-wiki-toolbox/syntax": "*" },
+  "license": "MIT"
+}
