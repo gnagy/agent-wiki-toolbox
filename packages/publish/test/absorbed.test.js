@@ -195,8 +195,8 @@ test('an existing .gitignore is reported against rather than rewritten', (t) => 
  * match and otherwise falls through silently to a root-relative slug — usually a
  * 404, occasionally a real page. Reading either as drift failed a build over a
  * difference the design put there, which is what `[[README]]` did on the first
- * real run against a 139-note wiki: four notes of that basename, and the
- * fallthrough landing on the root one.
+ * real run against a 139-note wiki: four notes carried that basename, and the
+ * fallthrough landed on the root one.
  */
 test('an ambiguous link is a deliberate difference, not drift', async (t) => {
   const box = site(t, {links: [], rendered: ['readme'], ambiguous: ['readme']})

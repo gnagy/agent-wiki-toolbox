@@ -14,9 +14,9 @@
  * Keys nothing recognises are inert, which is what lets one file serve several
  * subcommands without any of them validating the others' half.
  *
- * **`markdown-toolbox.config.mjs` is still read**, and not out of nostalgia:
- * a project this toolbox did not write carries one, and we do not get to
- * rename another project's files. New projects write `awt.config.mjs`.
+ * **`markdown-toolbox.config.mjs` is still read**, and not out of nostalgia: a
+ * project this toolbox did not write carries one, and renaming another project's
+ * files is not ours to do. New projects write `awt.config.mjs`.
  */
 import {existsSync, readdirSync, statSync} from 'node:fs'
 import {dirname, join, parse as parsePath, resolve as resolvePath} from 'node:path'
