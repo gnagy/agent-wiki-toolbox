@@ -5,7 +5,7 @@
  * vocabulary here ([[toolbox-decisions]] 8), and Foam never treated it as one
  * either, so there is nothing else to rewrite.
  */
-import {getFrontmatter, setFrontmatter} from '@agent-wiki-toolbox/syntax'
+import {editFrontmatter, sequenceItems} from '@agent-wiki-toolbox/syntax'
 
 import {createContext, finish, parseNote, refuse, serialize} from './context.js'
 
@@ -28,17 +28,28 @@ export function renameTag(root, {from, to, workspace, dryRun} = {}) {
 
   for (const path of carriers) {
     const tree = parseNote(context, path)
-    const properties = getFrontmatter(tree)
-    if (!Array.isArray(properties?.tags)) continue
 
-    // A note already carrying both ends up with one, not a duplicate.
-    const tags = []
-    for (const tag of properties.tags) {
-      const next = tag === from ? to : tag
-      if (!tags.includes(next)) tags.push(next)
-    }
-    setFrontmatter(tree, {...properties, tags})
-    context.edit.update(path, serialize(tree))
+    // Through the YAML document rather than through the parsed object: a rename
+    // of one tag is not permission to reformat the block around it. Rewriting
+    // `tags: [a, b]` as a block sequence and dropping the author's comments is
+    // a change nobody asked for, and `awt fmt` leaves front matter alone for the
+    // same reason.
+    const changed = editFrontmatter(tree, (document) => {
+      const tags = sequenceItems(document, 'tags')
+      if (!tags) return false
+
+      // A note already carrying both ends up with one, not a duplicate.
+      const seen = new Set()
+      tags.items = tags.items.filter((item) => {
+        const next = item.value === from ? to : item.value
+        if (seen.has(next)) return false
+        seen.add(next)
+        item.value = next
+        return true
+      })
+    })
+
+    if (changed) context.edit.update(path, serialize(tree))
   }
 
   return finish(verb, context, {notes})

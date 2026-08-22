@@ -3,8 +3,9 @@
 One toolbox for a markdown wiki whose notes are connected by `[[wikilinks]]` — the link graph,
 structural edits that keep it intact, formatting, and the build that renders it as a site.
 
-**Everything but `publish` is built.** `syntax`, `core`, `format`, `verbs`, `mcp` and `cli` all work;
-`publish` is a package with a name. The code arrives milestone by milestone.
+**All seven packages are built.** `syntax`, `core`, `format`, `verbs`, `mcp`, `cli` and `publish` all
+work, and both local sites build through them. What is outstanding is the switch: Foam and the old
+site tooling still run alongside, and retiring them waits on a soak of the shadow resolver.
 
 ## What it replaces
 
@@ -62,7 +63,7 @@ Resolution lives in `core`. This package deliberately does not know what a targe
 ## The binary
 
 One command, `awt`, with everything as a subcommand — the verbs, formatting, the graph, the MCP
-server, and (once `publish` lands) the site build. There is no second binary to reach for.
+server and the site build. There is no second binary to reach for.
 
 ```shell
 awt --help                       # every operation, in one list
@@ -71,6 +72,16 @@ awt search 'unique basenames'    # note bodies, titles, front matter and tags
 awt move docs/a.md docs/b.md     # …rewriting every link into it
 awt index -w docs/wiki --out site/.awt-index.json
 awt mcp -w docs/wiki --allow-writes
+awt bootstrap-quartz             # clone or re-pin the renderer a site builds from
+awt serve                        # emit the index, then Quartz's dev server
+awt publish                      # build, then swap into site/release
+```
+
+A project keeps its own settings in `awt.config.mjs` at its root — the formatter's, and the ports
+`awt serve` uses, so serving a wiki is `awt serve` and nothing else:
+
+```js
+export default {serve: {port: 8101}}   // wsPort defaults to port + 100
 ```
 
 Install it with `bin/install`, which is the only step that exposes a change: builds and agent jobs
@@ -78,7 +89,7 @@ read `~/.local/lib/agent-wiki-toolbox`, never this working copy.
 
 ## Where the reasoning lives
 
-This repo carries the code. The design, the twenty-seven decisions behind it and the measurements
+This repo carries the code. The design, the thirty-three decisions behind it and the measurements
 they rest on are in the AiSandbox workspace wiki, under the `agent-wiki-toolbox` topic —
 `docs/wiki/design/agent-wiki-toolbox/toolbox-shape.md` is the entry point, and `docs/awt-plan.md` is
 the milestone-by-milestone plan.

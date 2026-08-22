@@ -5,10 +5,10 @@
  * source is gone and the destination is there, the move already happened and the
  * verb finishes the link rewriting instead of failing.
  */
-import {slugifyPath} from '@agent-wiki-toolbox/core'
+import {createResolver, slugifyPath} from '@agent-wiki-toolbox/core'
 
 import {createContext, finish, parseNote, refuse, serialize} from './context.js'
-import {rewriteLinksInTree} from './rewrite.js'
+import {ambiguousStems, rebaseRelativeLinks, rewriteLinksInTree} from './rewrite.js'
 
 /** Move a note to a new path, rewriting every link into it. */
 export function moveNote(root, {from, to, workspace, dryRun} = {}) {
@@ -44,22 +44,46 @@ function relocate(verb, root, {from, to, workspace, dryRun}) {
   const moved = source ?? destination
   const newSlug = slugifyPath(to)
 
-  // [[conventions]] requires globally unique basenames, and decision 7 makes a
-  // duplicate a hard error rather than a warning. Catch it before writing, not
-  // after.
-  const clash = index.resources.find(
-    (resource) => resource.path !== moved.path && resource.slug.split('/').pop() === newSlug.split('/').pop(),
+  // The wiki this move *produces*, and its resolver. A link is written as the
+  // shortest form that resolves to the note, and "resolves" has to mean in the tree
+  // that will exist — the note is not where it used to be, and a form checked
+  // against the old tree can name something that has moved away.
+  const after = index.resources.map((resource) =>
+    resource.path === moved.path ? {...resource, path: to, slug: newSlug} : resource,
   )
-  if (clash) {
-    notes.push(
-      `the basename "${newSlug.split('/').pop()}" is already used by ${clash.path}; ` +
-        'links to it will have to name a folder segment',
+  const {resolve: resolveAfter} = createResolver(after)
+
+  // [[conventions]] requires globally unique basenames and decision 7 makes a
+  // duplicate a hard error rather than a guess — so a move that *creates* one is
+  // refused, the way `splitByHeading` refuses the same thing. The comment here used
+  // to say exactly this while the code pushed a note and carried on.
+  //
+  // Refused rather than reported because of *whose* links break: this verb rewrites
+  // the links pointing at the note it moved, and the ones that break are the other
+  // ones — every note that already wrote `[[stem]]` about the note whose name this
+  // one just took. Those are not this move's to rewrite, and nothing would have
+  // told anyone until the next `awt check`.
+  const wasAmbiguous = ambiguousStems(index.resources, index.resolve)
+  const introduced = [...ambiguousStems(after, resolveAfter)].filter((stem) => !wasAmbiguous.has(stem)).sort()
+  if (introduced.length > 0) {
+    const matched = introduced
+      .map((stem) => `[[${stem}]] (${resolveAfter(stem).candidates.map((c) => c.path).join(' and ')})`)
+      .join(', ')
+    throw refuse(
+      verb,
+      `${to} takes a name already in the wiki: ${matched}. Every note already linking by that bare ` +
+        'stem would break, and those are not this move to rewrite. Nothing was written',
     )
   }
 
-  const slugsAfter = index.resources
-    .map((resource) => (resource.path === moved.path ? newSlug : resource.slug))
-    .sort()
+  // An ambiguity that was already there is not this move's doing, and explains why
+  // the links it rewrites come out naming a folder segment.
+  if (wasAmbiguous.has(newSlug.split('/').pop())) {
+    notes.push(
+      `[[${newSlug.split('/').pop()}]] already matched more than one note, so links to this one ` +
+        'name a folder segment',
+    )
+  }
 
   const unresolved = []
   const oldSlug = slugifyPath(from)
@@ -87,10 +111,11 @@ function relocate(verb, root, {from, to, workspace, dryRun}) {
     return oldSlug === written || oldSlug.endsWith(`/${written}`)
   }
 
-  // Every note that links to this one, plus the note itself: its own relative
-  // markdown links are written from a directory that is about to change. After a
-  // half-done move the links resolve to nothing, so the placeholder sites are
-  // where the remaining work is.
+  // Every note that links to this one, plus the note itself: all of its own
+  // relative markdown links are written from a directory that is about to change,
+  // and get rebased on the destination. After a half-done move the file already
+  // sits at its new path with its links rebased, and what is left is the inbound
+  // ones — which resolve to nothing now, so the placeholder sites are the work.
   const inbound = new Set(alreadyMoved ? [] : index.backlinks(moved.path))
   if (alreadyMoved) {
     for (const placeholder of index.placeholders()) {
@@ -102,18 +127,34 @@ function relocate(verb, root, {from, to, workspace, dryRun}) {
   }
 
   for (const notePath of [...inbound].sort()) {
-    const readFrom = notePath === moved.path && !alreadyMoved ? from : notePath
+    const isMoved = notePath === moved.path && !alreadyMoved
+    const readFrom = isMoved ? from : notePath
     if (!context.edit.exists(readFrom)) continue
 
     currentNote = readFrom
     const tree = parseNote(context, readFrom)
-    const {rewritten, unresolved: residue} = rewriteLinksInTree({
+    const links = rewriteLinksInTree({
       tree,
       notePath: readFrom,
       pointsAtMoved,
       movedTo: to,
-      slugsAfter,
+      resolveAfter,
+      rebasing: isMoved,
     })
+    const rewritten = [...links.rewritten]
+    const residue = [...links.unresolved]
+
+    if (isMoved) {
+      const rebased = rebaseRelativeLinks({
+        tree,
+        from,
+        to,
+        resolveRelative: (notePath, target) => index.resolveRelative(notePath, target),
+      })
+      rewritten.push(...rebased.rewritten)
+      residue.push(...rebased.unresolved)
+    }
+
     unresolved.push(...residue.map((entry) => ({from: notePath, ...entry})))
 
     // A file whose links did not change is not rewritten: decision 19 says every
@@ -122,6 +163,8 @@ function relocate(verb, root, {from, to, workspace, dryRun}) {
     context.edit.update(readFrom, serialize(tree))
   }
 
+  // The moved note's rewrite and its move are one operation, keyed by one path:
+  // `edit.move` picks up whatever was staged for `from` and carries it across.
   if (!alreadyMoved) context.edit.move(from, to)
   else notes.push(`${from} was already at ${to}; only the links needed finishing`)
 

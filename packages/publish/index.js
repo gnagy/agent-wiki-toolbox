@@ -10,8 +10,9 @@
  * It also owns the three zero-dependency Quartz plugins in `quartz-plugins/`, which
  * stay dependency-free by consuming the materialised index as data.
  */
-export {bootstrap} from './lib/bootstrap.js'
+export {bootstrap, gitignoreGaps} from './lib/bootstrap.js'
 export {publish} from './lib/release.js'
+export {serve, DEFAULT_PORT, wsPortFor} from './lib/serve.js'
 export {renderDiagrams, rasterize, disposeRenderer} from './lib/diagrams.js'
 export {prerenderDiagrams} from './lib/diagrams-pass.js'
 export {findFont, loadFont} from './lib/font-metrics.js'

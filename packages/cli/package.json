@@ -12,7 +12,6 @@
     "@agent-wiki-toolbox/format": "*",
     "@agent-wiki-toolbox/mcp": "*",
     "@agent-wiki-toolbox/publish": "*",
-    "@agent-wiki-toolbox/syntax": "*",
     "@agent-wiki-toolbox/verbs": "*"
   },
   "license": "MIT",

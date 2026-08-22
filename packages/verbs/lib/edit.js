@@ -59,9 +59,20 @@ export function createEdit(root) {
       return pending.get(path)?.source ?? load(path).source
     },
 
-    /** Replace a file's contents. `source` must already be serialized output. */
+    /**
+     * Replace a file's contents. `source` must already be serialized output.
+     *
+     * Staged operations are keyed by path, so an update to a file already staged
+     * for a move is not a second operation on that path — it is the content the
+     * move carries. Keeping them separate would drop one of the two.
+     */
     update(path, source) {
       load(path)
+      const staged = pending.get(path)
+      if (staged?.kind === 'move') {
+        pending.set(path, {...staged, source})
+        return
+      }
       pending.set(path, {kind: 'update', path, source})
     },
 
@@ -75,10 +86,15 @@ export function createEdit(root) {
       pending.set(path, {kind: 'remove', path})
     },
 
-    /** Move a file without rewriting it: content the verb did not change is not re-serialized. */
-    move(from, to) {
+    /**
+     * Move a file, carrying content when the verb rewrote it on the way. Content
+     * the verb did not change is not re-serialized: the plain move renames.
+     */
+    move(from, to, source) {
       load(from)
-      pending.set(from, {kind: 'move', path: from, to})
+      const staged = pending.get(from)
+      const carried = source ?? (staged?.kind === 'update' ? staged.source : undefined)
+      pending.set(from, {kind: 'move', path: from, to, source: carried})
     },
 
     /**
@@ -127,8 +143,10 @@ export function createEdit(root) {
         if (dryRun) {
           if (kind === 'create') created.push(path)
           else if (kind === 'remove') deleted.push(path)
-          else if (kind === 'move') created.push(operation.to)
-          else changed.push(path)
+          else if (kind === 'move') {
+            created.push(operation.to)
+            if (operation.source !== undefined) changed.push(operation.to)
+          } else changed.push(path)
           continue
         }
 
@@ -146,6 +164,14 @@ export function createEdit(root) {
             deleted.push(path)
             break
           case 'move':
+            // A carried rewrite is written to the *old* path and then renamed, so
+            // that at every instant exactly one of the two paths exists. Writing
+            // the new one first would leave both behind after a crash, and a
+            // re-run would refuse the move it was meant to finish.
+            if (operation.source !== undefined) {
+              writeAtomically(absolute(path), operation.source)
+              changed.push(operation.to)
+            }
             mkdirSync(dirname(absolute(operation.to)), {recursive: true})
             renameSync(absolute(path), absolute(operation.to))
             deleted.push(path)

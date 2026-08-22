@@ -14,18 +14,58 @@
 import {slugifyPath} from '@agent-wiki-toolbox/core'
 
 /**
- * The shortest `folder/.../stem` form of `slug` that no other slug in `all` also
- * ends with. `null` when even the full slug is ambiguous, which cannot happen for
- * a real file but can for a caller-supplied plan.
+ * The shortest way of writing a link to `{path, slug}` that resolution leads back
+ * to it. **The one way a verb names a note in a link it writes.**
+ *
+ * The obvious implementation asks the string question — which suffix of the slug
+ * no other slug shares — and that is not the same question, which is what an
+ * earlier `shortestUniqueForm` got wrong in three verbs at once. A note named
+ * after its own folder has the slug `x/y/index`, whose unique suffix `y/index` the
+ * resolver reads as the folder `y` and does not find; the root note's slug is
+ * `index`, unique and canonicalising to nothing. Both produced a link that was
+ * written confidently and resolved to nothing.
+ *
+ * So candidates are generated shortest-first and each is put **back through
+ * resolution**, and the first that comes back to this very resource wins. `resolve`
+ * has to be the resolver of the wiki that will exist *after* the edit — the note
+ * may be about to move, or may not be written yet.
+ *
+ * `null` when no form resolves, which a caller reports rather than guesses at
+ * (decision 3).
  */
-export function shortestUniqueForm(slug, all) {
-  const segments = slug.split('/')
+export function shortestResolvingForm(resource, resolve) {
+  const segments = resource.slug.split('/')
   for (let index = segments.length - 1; index >= 0; index--) {
     const candidate = segments.slice(index).join('/')
-    const matches = all.filter((other) => other === candidate || other.endsWith(`/${candidate}`))
-    if (matches.length === 1) return candidate
+    const outcome = resolve(candidate)
+    if (outcome.status === 'resolved' && outcome.resource.path === resource.path) return candidate
   }
   return null
+}
+
+/**
+ * The bare stems that match more than one note.
+ *
+ * Decision 7's uniqueness rule, asked of the **resolver** rather than of the
+ * strings. Comparing last slug segments is a different question and gets two cases
+ * wrong at once: a note named after its own folder has the slug `x/y/index`, whose
+ * last segment is `index` — a segment nobody chose and nothing resolves by — so a
+ * string comparison called it a clash with the wiki's root note, while a stem that
+ * genuinely resolves to two notes is what actually breaks a link.
+ *
+ * A verb diffs this across its own edit: a stem that is ambiguous afterwards and
+ * was not before is an ambiguity the verb *created*, and the links it breaks are
+ * in notes the verb never touches — every note that already wrote `[[stem]]` about
+ * the other one. One that was already ambiguous is not the verb's doing.
+ */
+export function ambiguousStems(resources, resolve) {
+  const found = new Set()
+  for (const resource of resources) {
+    const stem = resource.slug.split('/').pop()
+    if (found.has(stem)) continue
+    if (resolve(stem).status === 'ambiguous') found.add(stem)
+  }
+  return found
 }
 
 /** Relative path from the directory holding `from` to the file `to`. */
@@ -52,10 +92,10 @@ export function relativePathFrom(from, to) {
  * to *nothing*, so "which links pointed at the old note" can no longer be answered
  * by resolution. Finishing a partial completion has to match on the written target.
  */
-export function rewriteLinksInTree({tree, notePath, pointsAtMoved, movedTo, slugsAfter}) {
+export function rewriteLinksInTree({tree, notePath, pointsAtMoved, movedTo, resolveAfter, rebasing = false}) {
   const rewritten = []
   const unresolved = []
-  const wanted = shortestUniqueForm(slugifyPath(movedTo), slugsAfter)
+  const wanted = shortestResolvingForm({path: movedTo, slug: slugifyPath(movedTo)}, resolveAfter)
 
   visitLinks(tree, (node) => {
     const line = node.position?.start.line ?? 0
@@ -85,7 +125,11 @@ export function rewriteLinksInTree({tree, notePath, pointsAtMoved, movedTo, slug
     }
 
     if (node.type === 'link' && typeof node.url === 'string' && /\.md(#|$)/i.test(node.url)) {
-      if (/^[a-z][a-z0-9+.-]*:/i.test(node.url)) return // a URL, or a cross-wiki reference
+      // The note being moved carries *every* relative link from a directory that is
+      // about to change, not only the ones aimed at itself. `rebaseRelativeLinks`
+      // takes all of them, so this branch would only compute a second, wrong answer.
+      if (rebasing) return
+      if (isExternal(node.url)) return // a URL, or a cross-wiki reference
       if (pointsAtMoved(node, 'markdown') !== true) return
       const [, anchor] = node.url.split('#')
       const next = relativePathFrom(notePath, movedTo)
@@ -96,6 +140,55 @@ export function rewriteLinksInTree({tree, notePath, pointsAtMoved, movedTo, slug
   })
 
   return {rewritten, unresolved}
+}
+
+/**
+ * Recompute a moved note's own outbound relative links against its new directory.
+ *
+ * `[text](../b/other.md)` is written from where the note sits, so a note that
+ * changes folder arrives carrying paths computed from a directory it no longer
+ * occupies — including the ones that point back at itself, which have to follow it
+ * to its new path rather than resolve to the old one.
+ *
+ * A link that resolved to nothing before the move cannot be rebased: there is no
+ * correct new form to compute, so it is reported rather than guessed at.
+ */
+export function rebaseRelativeLinks({tree, from, to, resolveRelative}) {
+  const rewritten = []
+  const unresolved = []
+
+  visitLinks(tree, (node) => {
+    if (node.type !== 'link' || typeof node.url !== 'string') return
+    if (!/\.md(#|$)/i.test(node.url)) return
+    if (isExternal(node.url)) return
+
+    const [path, anchor] = node.url.split('#')
+    const line = node.position?.start.line ?? 0
+    const outcome = resolveRelative(from, path)
+    if (outcome.status !== 'resolved') {
+      unresolved.push({
+        line,
+        target: node.url,
+        reason: 'a relative link that resolved to nothing, written from a folder that has changed',
+        candidates: [],
+      })
+      return
+    }
+
+    const destination = outcome.resource.path === from ? to : outcome.resource.path
+    const next = relativePathFrom(to, destination)
+    const url = anchor === undefined ? next : `${next}#${anchor}`
+    if (node.url === url) return
+    rewritten.push({from: node.url, to: url})
+    node.url = url
+  })
+
+  return {rewritten, unresolved}
+}
+
+/** A URL or a cross-wiki reference: a scheme-like prefix that is not a path. */
+function isExternal(url) {
+  return /^[a-z][a-z0-9+.-]*:/i.test(url)
 }
 
 /** Every link-bearing node, in document order. */

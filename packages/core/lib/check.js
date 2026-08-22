@@ -21,6 +21,22 @@ export function check(workspace) {
     })
   }
 
+  // Open-questions 37, answered: an aliased link is an error, with the same weight
+  // as an ambiguous one. Decision 27's reasoning is that a link needing a label is
+  // a naming failure, so the fix is nearly always the filename rather than the
+  // link — and a rule that only warns is a ban nobody ever finishes applying.
+  for (const site of workspace.aliasedLinks) {
+    problems.push({
+      severity: 'error',
+      rule: 'aliased-link',
+      path: site.from,
+      line: site.line,
+      message:
+        `[[${site.target}|${site.alias}]] carries a label. A link that needs one is a naming ` +
+        'failure (decision 27): rename the note so its own name reads in the sentence',
+    })
+  }
+
   for (const site of workspace.brokenLinks) {
     problems.push({
       severity: 'error',
@@ -38,6 +54,22 @@ export function check(workspace) {
       path: site.from,
       line: site.line,
       message: `${site.to} has no heading "#${site.anchor}"`,
+    })
+  }
+
+  // A note that should be its folder's landing page and cannot be, because
+  // another note already holds that address. Both pages are then served and one
+  // shadows the other in the explorer and the breadcrumbs, which is not something
+  // any tool gets to resolve on the author's behalf.
+  for (const note of workspace.shadowedNotes) {
+    problems.push({
+      severity: 'error',
+      rule: 'shadowed-folder-note',
+      path: note.path,
+      line: 1,
+      message:
+        `it sits beside a folder of its own name, so it should be served at ${note.address} — ` +
+        `but ${note.heldBy} already is. One of the two has to go`,
     })
   }
 

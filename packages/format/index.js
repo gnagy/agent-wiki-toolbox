@@ -15,6 +15,7 @@ export {runFormat} from './lib/engine.js'
 export {
   CONFIG_NAMES,
   IGNORE_NAMES,
+  detectIgnoreName,
   DEFAULT_SETTINGS,
   loadProjectConfig,
 } from './lib/config.js'

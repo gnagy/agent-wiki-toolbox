@@ -8,7 +8,7 @@
  *
  * The point is not that ours is right. It is that the incumbent gets to validate
  * the replacement across real edits and real Quartz bumps before anything is
- * switched off — the on-demand check that `check-link-graph` performs becomes one
+ * switched off — the on-demand check that `awt check` performs becomes one
  * that runs on every build. **Do not read a clean first run as a result**: what
  * this is here to catch is Quartz's slug semantics moving under us, and that only
  * happens when the pinned SHA moves.
@@ -19,9 +19,14 @@
  *
  * **Zero dependencies, deliberately.** Quartz symlinks a local plugin directory
  * into `.quartz/plugins/`, so anything imported here would have to resolve from
- * outside the Quartz tree. It reads the toolbox index as an artifact instead —
- * run `awt index --out <path>` immediately before the build, or the comparison is
- * against a stale answer, which is worse than no comparison at all.
+ * outside the Quartz tree. It reads the toolbox index as an artifact instead.
+ *
+ * **A missing or stale index is an error, not a shrug.** Comparing against an
+ * artifact one edit out of date is worse than not comparing: it reports a
+ * disagreement that is not real, and hides one that is. This used to warn and
+ * return `[]`, so a build with no index went green while the check this plugin
+ * exists for had not run. `awt publish` and `awt serve` emit the index
+ * immediately before the build; anything else has to run `awt index --out` first.
  */
 import fs from 'fs'
 import path from 'path'
@@ -52,6 +57,34 @@ function difference(left, right) {
   return [...left].filter((value) => !right.has(value)).sort()
 }
 
+/**
+ * The newest mtime among the wiki's notes, or `null` when the tree cannot be read
+ * — an index emitted on another machine, which is a reason to say so rather than
+ * to fail. `fs` only: nothing may be imported here.
+ */
+function newestNote(root) {
+  let newest = null
+  const walk = (dir) => {
+    let entries
+    try {
+      entries = fs.readdirSync(dir, {withFileTypes: true})
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.name.toLowerCase().endsWith('.md')) {
+        const {mtimeMs} = fs.statSync(full)
+        if (newest === null || mtimeMs > newest) newest = mtimeMs
+      }
+    }
+  }
+  walk(root)
+  return newest
+}
+
 export const AwtLinks = (userOptions) => {
   const options = {...DEFAULTS, ...userOptions}
 
@@ -63,14 +96,49 @@ export const AwtLinks = (userOptions) => {
         ? options.index
         : path.resolve(process.cwd(), options.indexBase, options.index)
 
+      // One switch decides whether this build is allowed to fail on what the
+      // plugin finds, and a check that did not run is one of those things.
+      const refuse = (message) => {
+        if (options.failOnDisagreement) throw new Error(`awt-links: ${message}`)
+        console.warn(`⚠ awt-links: ${message}`)
+      }
+
       let artifact
+      let emitted
       try {
+        emitted = fs.statSync(file).mtimeMs
         artifact = JSON.parse(fs.readFileSync(file, 'utf-8'))
       } catch {
-        console.warn(
-          `⚠ awt-links: no index at ${file} — nothing to compare against. Run \`awt index --out\` before the build.`,
+        refuse(
+          `no index at ${file}, so the comparison this plugin exists for did not run.\n` +
+            '  Build with `awt serve` or `awt publish`, which emit it first, or run\n' +
+            `  \`awt index -w <wiki> --out ${file}\` immediately before the build.`,
         )
         return []
+      }
+
+      const newest = artifact.root ? newestNote(artifact.root) : null
+      if (newest === null) {
+        console.warn(
+          `⚠ awt-links: cannot read ${artifact.root} to tell whether ${file} is current; comparing anyway.`,
+        )
+      } else if (newest > emitted) {
+        refuse(
+          `${file} is older than the newest note in ${artifact.root}.\n` +
+            '  Comparing against a stale index reports disagreements that are not real and\n' +
+            '  hides ones that are. Build with `awt serve` or `awt publish`.',
+        )
+        return []
+      }
+
+      // Keyed by the address a page is *served* at, which is not always its slug:
+      // `awt-folder-notes` moves a note beside a folder of its own name onto that
+      // folder's landing page, and `vfile.data.slug` is the moved one by the time
+      // an emitter sees it. Looking pages up by slug alone dropped every moved
+      // note out of the comparison — silently, and without counting it.
+      const byAddress = new Map()
+      for (const [slug, page] of Object.entries(artifact.pages ?? {})) {
+        byAddress.set(page.address ?? slug, page)
       }
 
       const disagreements = []
@@ -78,7 +146,7 @@ export const AwtLinks = (userOptions) => {
 
       for (const [tree, vfile] of content) {
         const slug = vfile.data?.slug
-        const page = artifact.pages?.[slug]
+        const page = byAddress.get(slug)
         if (!page) {
           // Tag pages, folder pages and the 404 are Quartz's own, not notes.
           continue
@@ -97,18 +165,25 @@ export const AwtLinks = (userOptions) => {
         })
 
         const ours = new Set(page.links)
-        // A link we call ambiguous is one Quartz cannot resolve either: it falls
-        // through to a root-relative slug and marks it broken. Same outcome in the
-        // site — named at the source instead of discovered by a reader, which is
-        // the whole of what decision 7 buys.
-        const oursBroken = new Set([...page.unresolved, ...page.ambiguous])
+        const oursBroken = new Set(page.unresolved)
+
+        // An ambiguous link is where the two resolvers differ ON PURPOSE, so
+        // whatever Quartz did with it is not drift. We report two matches as an
+        // authoring error at edit time (decision 7); Quartz resolves only on a
+        // unique match and otherwise falls through *silently* to a root-relative
+        // slug — usually a 404, and occasionally a real page, which is what
+        // `[[README]]` does in a wiki holding four of them. The shadow cannot
+        // predict which, so it excludes the landing slug from the comparison in
+        // both directions rather than guessing. `awt check` is what reports these.
+        const undecided = new Set(page.ambiguousSlugs ?? [])
+        const without = (slugs) => slugs.filter((value) => !undecided.has(value))
 
         const row = {
           slug,
           missing: difference(ours, rendered),
-          extra: difference(rendered, ours),
+          extra: without(difference(rendered, ours)),
           brokenMissing: difference(oursBroken, renderedBroken),
-          brokenExtra: difference(renderedBroken, oursBroken),
+          brokenExtra: without(difference(renderedBroken, oursBroken)),
         }
         if (row.missing.length || row.extra.length || row.brokenMissing.length || row.brokenExtra.length) {
           disagreements.push(row)

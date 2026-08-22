@@ -14,6 +14,7 @@
  * it for authors.
  */
 import {createContext, finish, refuse} from './context.js'
+import {shortestResolvingForm} from './rewrite.js'
 
 export const MARKER_START = '<!-- awt:listing:start -->'
 export const MARKER_END = '<!-- awt:listing:end -->'
@@ -65,10 +66,24 @@ export function buildListing(root, {path = 'index.md', areas, columns, workspace
   const known = order.filter((area) => byArea.has(area))
   const extra = [...byArea.keys()].filter((area) => !order.includes(area)).sort()
 
+  // A row names a note the way a person would link to it, so the generated block
+  // has to obey decision 7 like any other: a bare stem where the basename is
+  // unique, a folder segment where it is not. Writing the stem unconditionally put
+  // two `ambiguous-link` errors into a block this verb had just reported `ok`.
+  const unnameable = []
+  const linkTo = (resource) => {
+    const form = shortestResolvingForm(resource, index.resolve)
+    if (form === null) {
+      unnameable.push(resource.path)
+      return escapePipes(resource.path)
+    }
+    return `[[${form}]]`
+  }
+
   const blocks = []
   for (const area of [...known, ...extra]) {
     blocks.push(`### ${AREA_TITLES[area] ?? area}`, '')
-    blocks.push(...table(byArea.get(area), wanted))
+    blocks.push(...table(byArea.get(area), wanted, linkTo))
     blocks.push('')
   }
 
@@ -79,6 +94,12 @@ export function buildListing(root, {path = 'index.md', areas, columns, workspace
   const next = formatDocument(context, source.slice(0, start) + body + source.slice(end + MARKER_END.length))
 
   const notes = []
+  if (unnameable.length > 0) {
+    notes.push(
+      `${unnameable.length} note(s) have no link form that resolves to them, so their row names the path ` +
+        `instead: ${unnameable.join(', ')}`,
+    )
+  }
   if (missing.length > 0) {
     notes.push(
       `${missing.length} note(s) have no front-matter description, so their row is blank: ${missing.join(', ')}`,
@@ -100,10 +121,10 @@ function formatDocument(context, source) {
 
 const HEADERS = {note: 'Note', topic: 'Topic', about: 'About'}
 
-function table(resources, columns) {
+function table(resources, columns, linkTo) {
   const cell = (resource, column) => {
-    if (column === 'note') return `[[${resource.slug.split('/').pop()}]]`
-    if (column === 'topic') return String(resource.properties.topic ?? '')
+    if (column === 'note') return linkTo(resource)
+    if (column === 'topic') return escapePipes(String(resource.properties.topic ?? ''))
     return escapePipes(String(resource.properties.description ?? ''))
   }
 
@@ -115,7 +136,7 @@ function table(resources, columns) {
   ]
 }
 
-/** A description containing a pipe would otherwise end the cell. */
+/** A cell containing a pipe would otherwise end early. */
 function escapePipes(text) {
   return text.replace(/\|/g, '\\|')
 }

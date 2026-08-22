@@ -67,6 +67,12 @@ test('a file touched but not changed is not reparsed', (t) => {
   const after = loadWorkspace(box.root)
   assert.equal(after.stats.parsed, 0, 'the hash is the tiebreak when mtime moves')
   assert.equal(after.stats.hashed, 1, 'and it is only read because mtime moved')
+
+  // And the refreshed mtime is kept. Writing the cache only when something was
+  // parsed left this file failing the `stat` fast path on every load, for good.
+  const again = loadWorkspace(box.root)
+  assert.equal(again.stats.hashed, 0, 'the new mtime was persisted, so stat is enough now')
+  assert.equal(again.stats.reused, 1)
 })
 
 test('a deleted note leaves the index', (t) => {

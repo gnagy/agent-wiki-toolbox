@@ -11,6 +11,7 @@ import {join} from 'node:path'
 
 import {createParser} from '@agent-wiki-toolbox/syntax'
 
+import {computeAddresses} from './address.js'
 import {hashSource, readCache, writeCache} from './cache.js'
 import {checkAnchor, createResolver, normaliseTarget} from './resolve.js'
 import {parseNote} from './note.js'
@@ -32,6 +33,10 @@ export function loadWorkspace(root, {cache = true} = {}) {
   const entries = new Map()
   const resources = []
   const stats = {parsed: 0, reused: 0, hashed: 0}
+  // A `stat` that moved is a cache write even when nothing was parsed: without it
+  // a touched-but-unchanged file fails the `stat` fast path on every load from
+  // then on, and is re-read and re-hashed forever.
+  let restatted = false
 
   for (const path of walkNotes(root)) {
     const absolute = join(root, path)
@@ -56,6 +61,7 @@ export function loadWorkspace(root, {cache = true} = {}) {
       entries.set(path, entry)
       resources.push(entry.resource)
       stats.reused++
+      restatted = true
       continue
     }
 
@@ -65,7 +71,7 @@ export function loadWorkspace(root, {cache = true} = {}) {
     stats.parsed++
   }
 
-  if (cache && (stats.parsed > 0 || entries.size !== previous.size)) writeCache(root, entries)
+  if (cache && (stats.parsed > 0 || restatted || entries.size !== previous.size)) writeCache(root, entries)
 
   return buildWorkspace(root, resources, stats)
 }
@@ -81,11 +87,16 @@ export function buildWorkspace(root, resources, stats = {}) {
   const brokenAnchors = []
   const brokenLinks = []
   const crossWikiLinks = []
+  const aliasedLinks = []
   const backlinks = new Map()
 
   for (const resource of resources) {
     for (const link of resource.links) {
       const site = {from: resource.path, line: link.line, target: link.target, kind: link.kind}
+
+      // `[[target|label]]`. Collected whatever the link resolves to, and whichever
+      // wiki it points at: the objection is to the label, not to the target.
+      if (link.alias) aliasedLinks.push({...site, alias: link.alias})
 
       if (link.kind === 'crossWiki') {
         crossWikiLinks.push({...site, prefix: link.prefix, anchor: link.anchor})
@@ -95,12 +106,14 @@ export function buildWorkspace(root, resources, stats = {}) {
 
       // A relative markdown link names a file; a wikilink names a stem. Only the
       // second gets the `shortest` rule.
-      const outcome =
-        link.kind === 'markdown'
-          ? resolveRelative(resource.path, link.target)
-          : link.target === ''
-            ? {status: 'resolved', resource} // `[[#a-heading]]`, into this very note
-            : resolve(link.target)
+      const found =
+        link.kind === 'markdown' ? resolveRelative(resource.path, link.target) : resolve(link.target)
+
+      // `[[#a-heading]]` names no note at all, which is what `resolve` reports as
+      // `empty`. The note it means is the one it is written in. Deciding that here
+      // rather than in `resolve` would put the same knowledge in two places, and
+      // did: the branch in `resolve` was unreachable for exactly as long.
+      const outcome = found.status === 'empty' ? {status: 'resolved', resource} : found
 
       if (outcome.status === 'missing') {
         brokenLinks.push(site)
@@ -122,7 +135,18 @@ export function buildWorkspace(root, resources, stats = {}) {
       const anchor = checkAnchor(outcome.resource, link.anchor)
       if (anchor === 'missing') brokenAnchors.push({...site, anchor: link.anchor, to: outcome.resource.path})
 
-      edges.push({from: resource.path, to: outcome.resource.path, kind: link.kind, line: link.line, anchor: link.anchor})
+      // `target` is the link as written. It travels with the edge because the
+      // anchor-only `[[#a-heading]]` case is a self-edge with an empty target, and
+      // that is the only way to tell it apart from a note that links to itself by
+      // name — which is a real edge the renderer draws.
+      edges.push({
+        from: resource.path,
+        to: outcome.resource.path,
+        kind: link.kind,
+        line: link.line,
+        anchor: link.anchor,
+        target: link.target,
+      })
 
       if (outcome.resource.path !== resource.path) {
         const inbound = backlinks.get(outcome.resource.path)
@@ -143,6 +167,11 @@ export function buildWorkspace(root, resources, stats = {}) {
   const unclosedLinks = resources.flatMap((resource) =>
     (resource.suspect ?? []).map((entry) => ({from: resource.path, ...entry})),
   )
+
+  // Where each note is served, which is not always what it is named by — see
+  // `address.js`. Derived rather than stored on the resource, because a resource
+  // comes out of the cache and this is a property of the whole tree.
+  const {addresses, collisions} = computeAddresses(resources)
 
   const tags = new Map()
   for (const resource of resources) {
@@ -165,11 +194,21 @@ export function buildWorkspace(root, resources, stats = {}) {
     resolveRelative,
     edges,
     crossWikiLinks,
+    aliasedLinks,
     ambiguities,
     brokenAnchors,
     brokenLinks,
     unclosedLinks,
+    shadowedNotes: collisions,
     tags,
+
+    /**
+     * The URL path this note is served at. Its slug, except where the note is the
+     * landing page of a folder of its own name.
+     */
+    addressOf(path) {
+      return addresses.get(path) ?? byPath.get(path)?.slug
+    },
 
     /** Distinct notes linking *to* this one. */
     backlinks(path) {

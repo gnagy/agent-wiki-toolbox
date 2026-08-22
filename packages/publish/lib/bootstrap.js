@@ -12,12 +12,12 @@
  * schedule.
  *
  * Usage, from anywhere inside a project laid out as `docs/wiki` + `site`:
- *     bootstrap-quartz                  # clone or re-pin, then install
- *     bootstrap-quartz --site path      # explicit path, resolved against cwd
- *     bootstrap-quartz --force          # discard and re-clone
+ *     awt bootstrap-quartz                  # clone or re-pin, then install
+ *     awt bootstrap-quartz --site path      # explicit path, resolved against cwd
+ *     awt bootstrap-quartz --force          # discard and re-clone
  *
  * With no --site it walks up for the nearest `site/quartz.config.yaml`, so the
- * current directory does not matter. See lib/project-root.mjs.
+ * current directory does not matter. See lib/project-root.js.
  *
  * Idempotent: safe to re-run, and re-running is how a Quartz bump or a newly
  * installed version of these tools is applied. Needs `git`, `node` and `npm`.
@@ -37,13 +37,14 @@ const PLUGINS = [
   ["awt-links", "quartz-links"],
   ["awt-cross-wiki", "quartz-cross-wiki"],
   ["awt-headings", "quartz-headings"],
+  ["awt-folder-notes", "quartz-folder-notes"],
 ]
 
 const REPO_URL = "https://github.com/jackyzha0/quartz.git"
 const BRANCH = "v5"
 
 // npm exports npm_config_* into child environments and npm_config_local_prefix
-// breaks a nested npx. Same hazard as in check-link-graph.
+// breaks a nested npx, so every child here runs with them stripped.
 const CLEAN_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([k]) => !k.toUpperCase().startsWith("NPM_")),
 )
@@ -103,12 +104,12 @@ const GITIGNORE = `# Quartz itself is cloned at the commit in quartz.pin, never 
 public/
 
 # The last published build — the release itself (nothing about a release enters
-# git), plus publish-quartz's staging directory and the release it replaced.
+# git), plus awt publish's staging directory and the release it replaced.
 release/
 .release-staging/
 .release-prev/
 
-# The handoff copy built by publish-quartz --offline, and the config it derives
+# The handoff copy built by awt publish --offline, and the config it derives
 # to build it with. Both are regenerated on demand; quartz.offline.yaml, if the
 # project writes one to take that over, IS tracked.
 handoff/
@@ -122,15 +123,49 @@ handoff/
 awt-links
 awt-cross-wiki
 awt-headings
+awt-folder-notes
 .awt-index.json
 `
 
+// The lines that must be there, as opposed to the comments explaining them. A
+// project adopting `awt` with a .gitignore from the old tooling has none of these.
+const GITIGNORE_PATHS = GITIGNORE.split("\n")
+  .map((line) => line.trim())
+  .filter((line) => line && !line.startsWith("#"))
+
+/**
+ * Which of the lines this bootstrap needs are missing from a project's own
+ * `.gitignore`. Everything, when there is no file yet.
+ */
+export function gitignoreGaps(file) {
+  if (!fs.existsSync(file)) return GITIGNORE_PATHS
+  const have = new Set(
+    fs.readFileSync(file, "utf8").split("\n").map((line) => line.trim()).filter(Boolean),
+  )
+  return GITIGNORE_PATHS.filter((line) => !have.has(line))
+}
+
 function writeGitignore(site) {
   const file = path.join(site, ".gitignore")
+  const shown = path.relative(process.cwd(), file)
+
   // Never overwrite: the project owns this file once it exists, and it is tracked.
-  if (fs.existsSync(file)) return
+  // But leaving it alone silently is not the same thing — a project adopting awt
+  // with a .gitignore from the old tooling ignores none of the plugin symlinks or
+  // the index, and finds out by committing them. Say what is missing instead.
+  if (fs.existsSync(file)) {
+    const missing = gitignoreGaps(file)
+    if (missing.length === 0) return
+    console.log(
+      `\n${shown} exists and is yours, so it was left alone — but it does not ignore\n` +
+        `${missing.length} thing${missing.length === 1 ? "" : "s"} this bootstrap creates. Append:\n\n` +
+        missing.map((line) => `    ${line}`).join("\n"),
+    )
+    return
+  }
+
   fs.writeFileSync(file, GITIGNORE)
-  console.log(`wrote ${path.relative(process.cwd(), file)} — commit it`)
+  console.log(`wrote ${shown} — commit it`)
 }
 
 function relink(linkPath, target) {
@@ -159,7 +194,7 @@ export function bootstrap(argv = process.argv.slice(2)) {
   }
   if (values.help) {
     console.log(
-      "usage: bootstrap-quartz [--site site] [--force] [--version]\n\n" +
+      "usage: awt bootstrap-quartz [--site site] [--force] [--version]\n\n" +
         "Runs from anywhere inside the project: with no --site it walks up for the\n" +
         "nearest site/quartz.config.yaml. --site is resolved against the cwd.",
     )
@@ -203,9 +238,9 @@ export function bootstrap(argv = process.argv.slice(2)) {
   // still living in site/ where it is tracked and reviewable.
   relink(path.join(src, "quartz.config.yaml"), "../quartz.config.yaml")
 
-  // Point the project at THIS installation of the tools. The config names a
-  // relative path (`../quartz-wiki-tools`), so it stays machine-independent and
-  // carries no version; this symlink is what binds it to the copy installed on
+  // Point the project at THIS installation of the tools. The config names
+  // relative paths (`../awt-links`, `../awt-cross-wiki`, `../awt-headings`), so it
+  // stays machine-independent and carries no version; this symlink is what binds it to the copy installed on
   // this machine. Gitignored, recreated on every bootstrap.
   for (const [linkName, pluginDir] of PLUGINS) {
     relink(path.join(site, linkName), path.join(HERE, "quartz-plugins", pluginDir))
@@ -227,17 +262,15 @@ export function bootstrap(argv = process.argv.slice(2)) {
   const i = run("npm", ["install", "--no-audit", "--no-fund"], { cwd: src, stdio: "ignore" })
   if (i.status !== 0) die("npm install failed")
 
-  const rel = path.relative(process.cwd(), src)
   console.log(
     "\nready. Serve the site with:\n" +
-      `    cd ${rel} && node quartz/bootstrap-cli.mjs build ` +
-      "-d ../../docs/wiki -o ../public --serve --port <port> --wsPort <wsPort>\n" +
-      "\nRead a site with --serve, always: Quartz emits extensionless URLs, and a\n" +
-      "build without --serve is publish mode, which leaves cross-wiki links unresolved.\n" +
-      "\nThen verify the rendered graph against Foam's:\n" +
-      "    check-link-graph\n" +
+      "    awt serve\n" +
+      "\nIt emits the toolbox index and then runs Quartz's dev server. Both halves\n" +
+      "matter: the awt-links shadow compares the rendered pages against that index,\n" +
+      "so a build started any other way is comparing against a stale one — and it\n" +
+      "now refuses to, rather than passing quietly.\n" +
       "\nAnd publish — a build without --serve, into site/release:\n" +
-      "    publish-quartz",
+      "    awt publish",
   )
   return 0
 }

@@ -70,6 +70,9 @@ export function createResolver(resources) {
     // matching — so the root note is the answer, and saying "placeholder" would be
     // a broken link the site does not have.
     if (!canonical) {
+      // A target that was never written is a different thing from one that
+      // canonicalises away: `[[#a-heading]]` names no note, and the caller decides
+      // which note it meant.
       if (!String(target ?? '').trim()) return {status: 'empty', candidates: []}
       const root = bySlug.get('index')
       return root

@@ -15,6 +15,8 @@ import {mkdirSync, renameSync, writeFileSync} from 'node:fs'
 import {dirname} from 'node:path'
 import process from 'node:process'
 
+import {normaliseTarget} from './resolve.js'
+
 export const ARTIFACT_VERSION = 1
 
 /** The whole index as a plain object. */
@@ -25,16 +27,32 @@ export function materialiseIndex(workspace) {
     pages[resource.slug] = {
       path: resource.path,
       title: resource.title,
+      // Where the page is served, which is the slug except for a note that is the
+      // landing page of a folder of its own name. Published because the renderer
+      // has to be told rather than work it out: a plugin that recomputed it would
+      // move the slug Quartz reports without this index knowing, and everything
+      // that looks a page up by that slug — the shadow, the published heading
+      // list — would drop it silently.
+      address: workspace.addressOf(resource.path),
       links: [],
       unresolved: [],
       ambiguous: [],
+      // Where Quartz lands an ambiguous link. It resolves only on a unique match
+      // and otherwise falls through *silently* to this root-relative slug, which
+      // is usually a 404 and occasionally a real page. Published because the
+      // shadow cannot predict which, and must not read either as drift: an
+      // ambiguous link is a deliberate difference (decision 7), reported by
+      // `awt check` at edit time rather than by a build.
+      ambiguousSlugs: [],
       headings: resource.headings.map((heading) => heading.anchor),
     }
   }
 
   for (const edge of workspace.edges) {
-    // A link into the note it is written in is not an edge the renderer draws:
-    // `[[#a-heading]]` never leaves the page.
+    // The one self-link the renderer does not draw is the anchor-only
+    // `[[#a-heading]]`, which never leaves the page and is written with an empty
+    // target. `[[its-own-stem]]` *is* rendered, so dropping it here would make the
+    // shadow report an `extra` link on every note that names itself.
     if (edge.from === edge.to && !edge.target) continue
     const page = pages[workspace.get(edge.from).slug]
     const slug = workspace.get(edge.to).slug
@@ -50,14 +68,16 @@ export function materialiseIndex(workspace) {
 
   for (const site of workspace.ambiguities) {
     const page = pages[workspace.get(site.from).slug]
-    const key = site.target
-    if (!page.ambiguous.includes(key)) page.ambiguous.push(key)
+    if (!page.ambiguous.includes(site.target)) page.ambiguous.push(site.target)
+    const fallthrough = normaliseTarget(site.target)
+    if (fallthrough && !page.ambiguousSlugs.includes(fallthrough)) page.ambiguousSlugs.push(fallthrough)
   }
 
   for (const page of Object.values(pages)) {
     page.links.sort()
     page.unresolved.sort()
     page.ambiguous.sort()
+    page.ambiguousSlugs.sort()
   }
 
   return {

@@ -25,7 +25,7 @@ export {
   stringify,
 } from './lib/processor.js'
 
-export {getFrontmatter, setFrontmatter} from './lib/frontmatter.js'
+export {getFrontmatter, setFrontmatter, editFrontmatter, sequenceItems} from './lib/frontmatter.js'
 
 export {parseCrossWikiTarget, isCrossWikiTarget} from './lib/cross-wiki.js'
 

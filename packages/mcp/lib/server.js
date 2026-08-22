@@ -112,6 +112,12 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
     ],
   ]
 
+  // Every write verb takes `--dry-run` on the CLI, so every write tool takes it
+  // here: the schema is what an agent can send, and a key it strips is a preview
+  // an agent cannot ask for before a bulk rewrite. Added to all of them below
+  // rather than to each by hand, so the next verb cannot arrive without it.
+  const DRY_RUN = z.boolean().optional().describe('report what would change and write nothing')
+
   // Verb plus object, snake_case on this surface (decision 16). An agent picks a
   // tool by name before it reads any documentation, so the axis is in the name.
   const writes = [
@@ -167,7 +173,6 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
       {
         path: z.string().optional(),
         columns: z.array(z.enum(['note', 'topic', 'about'])).optional(),
-        dryRun: z.boolean().optional(),
       },
       (args) => buildListing(root, args),
     ],
@@ -178,7 +183,7 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
   }
 
   for (const [toolName, description, schema, handler] of writes) {
-    server.tool(toolName, description, schema, async (args) => {
+    server.tool(toolName, description, {...schema, dryRun: DRY_RUN}, async (args) => {
       if (!allowWrites) {
         return reply({
           error: `${toolName} is a write, and this server was started read-only. Start it with --allow-writes.`,

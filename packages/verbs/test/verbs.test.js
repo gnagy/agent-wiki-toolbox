@@ -11,7 +11,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
 
-import {loadWorkspace} from '@agent-wiki-toolbox/core'
+import {check, loadWorkspace} from '@agent-wiki-toolbox/core'
 
 import {
   buildListing,
@@ -87,6 +87,127 @@ test('moveNote grows a folder segment when the bare stem would be ambiguous', (t
   assert.equal(box.index().ambiguities.length, 0)
 })
 
+/**
+ * Every verb that writes a wikilink names the note by the shortest form that
+ * **resolves** to it, not by the shortest suffix no other slug shares. The two
+ * come apart on a note named after its own folder: `design/toolbox/toolbox.md`
+ * has the slug `design/toolbox/index`, whose unique suffix `toolbox/index` the
+ * resolver reads as the folder `toolbox` and does not find. All three verbs wrote
+ * that dead form — and a dead wikilink is a placeholder, which `check` calls
+ * healthy, so nothing downstream said a word.
+ */
+test('moveNote names a note that lands on its own folder in a form that resolves', (t) => {
+  const box = wiki({
+    'index.md': `${front('Wiki')}Root.\n`,
+    'design/thing.md': `${front('Thing')}Body.\n`,
+    'notes/one.md': `${front('One')}See [[thing]].\n`,
+  })
+  t.after(() => box.cleanup())
+
+  moveNote(box.root, {from: 'design/thing.md', to: 'design/toolbox/toolbox.md'})
+
+  const index = box.index()
+  assert.match(box.read('notes/one.md'), /\[\[design\/toolbox\/index]]/)
+  assert.equal(index.resolve('design/toolbox/index').status, 'resolved')
+  // The tell that the old form was wrong: it resolved to nothing, and a link to
+  // nothing is a placeholder rather than an error.
+  assert.equal(index.resolve('toolbox/index').status, 'placeholder')
+  assert.deepEqual(index.placeholders(), [])
+})
+
+test('splitByHeading names its children in a form that resolves', (t) => {
+  const box = wiki({
+    'index.md': `${front('Wiki')}Root.\n`,
+    'design/parent.md': `${front('Parent')}## Toolbox\n\nThe toolbox section.\n`,
+  })
+  t.after(() => box.cleanup())
+
+  splitByHeading(box.root, {
+    path: 'design/parent.md',
+    plan: [{heading: 'Toolbox', path: 'design/toolbox/toolbox.md'}],
+    source: 'stub',
+  })
+
+  const index = box.index()
+  assert.match(box.read('design/parent.md'), /\[\[design\/toolbox\/index]]/)
+  assert.equal(index.resolve('design/toolbox/index').status, 'resolved')
+  assert.deepEqual(index.placeholders(), [])
+})
+
+test('mergeFiles names its target in a form that resolves', (t) => {
+  const box = wiki({
+    'index.md': `${front('Wiki')}Root.\n`,
+    'design/toolbox/toolbox.md': `${front('Toolbox')}Body.\n`,
+    'design/source.md': `${front('Source')}Body.\n`,
+    'notes/one.md': `${front('One')}See [[source]].\n`,
+  })
+  t.after(() => box.cleanup())
+
+  mergeFiles(box.root, {sources: ['design/source.md'], into: 'design/toolbox/toolbox.md', source: 'delete'})
+
+  const index = box.index()
+  assert.match(box.read('notes/one.md'), /\[\[design\/toolbox\/index#source]]/)
+  assert.deepEqual(index.placeholders(), [])
+})
+
+/**
+ * `move` and `splitByHeading` both place a note under a name the caller chose, so
+ * both have to answer one question the same way: **would this edit make a bare
+ * `[[stem]]` match two notes?** They used to answer differently, and both by
+ * comparing the last segment of a slug — a string question that is not the
+ * resolution question. `move` warned and carried on where `splitByHeading` refused
+ * outright, and a note named after its own folder tripped both, because its slug
+ * ends `/index` and every wiki's root note is called `index`.
+ */
+test('a name that would become ambiguous is refused, by move and split alike', (t) => {
+  const notes = {
+    'index.md': `${front('Wiki')}Root.\n`,
+    'analysis/thing.md': `${front('Thing')}Body.\n`,
+    'design/other.md': `${front('Other')}Body.\n`,
+    'notes/one.md': `${front('One')}See [[thing]].\n`,
+  }
+
+  const moving = wiki(notes)
+  t.after(() => moving.cleanup())
+  assert.throws(
+    () => moveNote(moving.root, {from: 'design/other.md', to: 'design/thing.md'}),
+    /already in the wiki/,
+  )
+  // Refused rather than reported because of whose links break: `[[thing]]` in
+  // notes/one.md is not a link this move rewrites.
+  assert.equal(moving.exists('design/thing.md'), false)
+  assert.equal(moving.exists('design/other.md'), true)
+  assert.match(moving.read('notes/one.md'), /\[\[thing]]/)
+
+  const splitting = wiki(notes)
+  t.after(() => splitting.cleanup())
+  assert.throws(
+    () =>
+      splitByHeading(splitting.root, {
+        path: 'design/other.md',
+        plan: [{heading: 'Other', path: 'design/thing.md'}],
+        source: 'keep',
+      }),
+    /already in the wiki/,
+  )
+  assert.equal(splitting.exists('design/thing.md'), false)
+})
+
+test('an ambiguity that was already there is not the verb\'s doing, and does not refuse it', (t) => {
+  const box = wiki({
+    'design/thing.md': `${front('Thing')}Body.\n`,
+    'analysis/thing.md': `${front('Thing, analysed')}Body.\n`,
+    'notes/one.md': `${front('One')}See [[design/thing]].\n`,
+  })
+  t.after(() => box.cleanup())
+
+  const report = moveNote(box.root, {from: 'design/thing.md', to: 'design/deep/thing.md'})
+
+  assert.equal(report.ok, true)
+  assert.match(report.notes.join(' '), /already matched more than one note/)
+  assert.match(box.read('notes/one.md'), /\[\[deep\/thing]]/)
+})
+
 test('moveNote is re-runnable: a half-done move finishes on the second run', (t) => {
   const box = wiki({
     'a/one.md': `${front('One')}Body.\n`,
@@ -102,6 +223,37 @@ test('moveNote is re-runnable: a half-done move finishes on the second run', (t)
   assert.equal(report.ok, true)
   assert.match(box.read('b/two.md'), /\[\[moved]]/)
   assert.match(report.notes.join(' '), /already at/)
+})
+
+test('moveNote rebases the moved note\'s own relative links on its new folder', (t) => {
+  const box = wiki({
+    'a/mover.md': `${front('Mover')}A relative link to [the other](../b/other.md).\n`,
+    'b/other.md': `${front('Other')}Body.\n`,
+  })
+  t.after(() => box.cleanup())
+
+  const report = moveNote(box.root, {from: 'a/mover.md', to: 'b/deep/mover.md'})
+
+  assert.equal(report.ok, true)
+  assert.match(box.read('b/deep/mover.md'), /\[the other]\(\.\.\/other\.md\)/)
+  assert.deepEqual(check(box.index()).problems, [])
+})
+
+test('moveNote lands a note that both moved and was rewritten, with both', (t) => {
+  const box = wiki({
+    'a/mover.md': `${front('Mover')}A long-form self link: [itself](../a/mover.md).\n`,
+    'b/other.md': `${front('Other')}Body.\n`,
+  })
+  t.after(() => box.cleanup())
+
+  const report = moveNote(box.root, {from: 'a/mover.md', to: 'b/mover.md'})
+
+  // The rewrite and the move are one operation on one path: staging them as two
+  // used to drop the rewrite and move the stale bytes.
+  assert.equal(report.ok, true)
+  assert.deepEqual(report.changed, ['b/mover.md'])
+  assert.match(box.read('b/mover.md'), /\[itself]\(\.\/mover\.md\)/)
+  assert.deepEqual(check(box.index()).problems, [])
 })
 
 /**
@@ -310,22 +462,85 @@ test('mergeFiles appends each source as a section and repoints its links', (t) =
   assert.equal(box.read('design/target.md'), target, 'a second run changes nothing')
 })
 
+test('mergeFiles repoints a relative markdown link into a source it deleted', (t) => {
+  const box = wiki({
+    'design/target.md': `${front('Target')}Body.\n`,
+    'design/source.md': `${front('Source')}Body.\n`,
+    'analysis/one.md': `${front('One')}See [the source](../design/source.md).\n`,
+  })
+  t.after(() => box.cleanup())
+
+  const report = mergeFiles(box.root, {sources: ['design/source.md'], into: 'design/target.md', source: 'delete'})
+
+  assert.equal(report.ok, true)
+  assert.match(box.read('analysis/one.md'), /\[the source]\(\.\.\/design\/target\.md#source\)/)
+  assert.deepEqual(check(box.index()).problems, [])
+})
+
+test('mergeFiles follows an anchor whose slug the target had already taken', (t) => {
+  const box = wiki({
+    // The target already has a "Detail" heading, so it keeps `#detail` and the
+    // source's becomes `#detail-1`. A link that named the source's has to follow
+    // the text rather than land on the target's own section.
+    'design/target.md': `${front('Target')}## Detail\n\nThe target's.\n`,
+    'design/source.md': `${front('Source')}## Detail\n\nThe source's.\n`,
+    'analysis/one.md': `${front('One')}See [it](../design/source.md#detail) and [[source#detail]].\n`,
+  })
+  t.after(() => box.cleanup())
+
+  const report = mergeFiles(box.root, {sources: ['design/source.md'], into: 'design/target.md', source: 'delete'})
+
+  assert.equal(report.ok, true)
+  assert.match(box.read('analysis/one.md'), /\[it]\(\.\.\/design\/target\.md#detail-1\)/)
+  assert.match(box.read('analysis/one.md'), /\[\[target#detail-1]]/)
+  assert.deepEqual(check(box.index()).problems, [])
+})
+
+test('mergeFiles reports an anchor the source never had', (t) => {
+  const box = wiki({
+    'design/target.md': `${front('Target')}Body.\n`,
+    'design/source.md': `${front('Source')}Body.\n`,
+    'analysis/one.md': `${front('One')}See [it](../design/source.md#nowhere).\n`,
+  })
+  t.after(() => box.cleanup())
+
+  const report = mergeFiles(box.root, {sources: ['design/source.md'], into: 'design/target.md', source: 'delete'})
+
+  // `deleteNote` reports what it left broken; so does this, for the same situation.
+  assert.equal(report.ok, false)
+  assert.equal(report.unresolved.length, 1)
+  assert.equal(report.unresolved[0].from, 'analysis/one.md')
+  assert.match(report.unresolved[0].reason, /no heading "#nowhere"/)
+})
+
 test('renameTag rewrites front matter and merges a collision', (t) => {
   const box = wiki({
     'a.md': `${front('A', 'tags: [old, keep]\n')}Body.\n`,
     'b.md': `${front('B', 'tags: [old, new]\n')}Body.\n`,
     'c.md': `${front('C', 'tags: [other]\n')}Body.\n`,
+    'd.md': `${front('D', 'tags:\n  - old\n  - keep\n')}Body.\n`,
   })
   t.after(() => box.cleanup())
 
   const report = renameTag(box.root, {from: 'old', to: 'new'})
   assert.equal(report.ok, true)
-  assert.deepEqual(report.changed.sort(), ['a.md', 'b.md'])
-  assert.match(box.read('a.md'), /tags:\n {2}- new\n {2}- keep/)
-  assert.match(box.read('b.md'), /tags:\n {2}- new\n---/, 'a note carrying both ends up with one')
+  assert.deepEqual(report.changed.sort(), ['a.md', 'b.md', 'd.md'])
+  // The style the author wrote survives, in both directions: renaming one tag is
+  // not permission to reformat the block around it.
+  assert.match(box.read('a.md'), /tags: \[new, keep]/)
+  assert.match(box.read('b.md'), /tags: \[new]/, 'a note carrying both ends up with one')
+  assert.match(box.read('d.md'), /tags:\n {2}- new\n {2}- keep/)
 
   const second = renameTag(box.root, {from: 'old', to: 'new'})
   assert.match(second.notes.join(' '), /no note carries/)
+})
+
+test('renameTag keeps a comment in the front matter it edits', (t) => {
+  const box = wiki({'a.md': `---\ntitle: A\n# still being written\ntags: [old, keep]\n---\n\n# A\n`})
+  t.after(() => box.cleanup())
+
+  renameTag(box.root, {from: 'old', to: 'new'})
+  assert.match(box.read('a.md'), /# still being written\ntags: \[new, keep]/)
 })
 
 test('buildListing writes only between its markers', (t) => {
@@ -366,4 +581,40 @@ test('buildListing names the notes with no description', (t) => {
 
   const report = buildListing(box.root, {columns: ['note', 'about']})
   assert.match(report.notes.join(' '), /no front-matter description/)
+})
+
+test('buildListing names each note the shortest way that resolves to it', (t) => {
+  const box = wiki({
+    'index.md': `# Index\n\n${MARKER_START}\n${MARKER_END}\n`,
+    'design/notes.md': front('Notes', 'description: the design one\n'),
+    'analysis/notes.md': front('Notes', 'description: the analysis one\n'),
+    'design/solo.md': front('Solo', 'description: the only one of its name\n'),
+  })
+  t.after(() => box.cleanup())
+
+  const report = buildListing(box.root)
+
+  assert.equal(report.ok, true)
+  const listing = box.read('index.md')
+  assert.match(listing, /\[\[design\/notes]]/)
+  assert.match(listing, /\[\[analysis\/notes]]/)
+  // The unique basename still gets the short form: a folder segment is what the
+  // duplicate needs, not what every row gets.
+  assert.match(listing, /\[\[solo]]/)
+  // The point of the whole exercise: the block this verb generated passes check.
+  assert.deepEqual(check(box.index()).problems, [])
+})
+
+test('buildListing escapes a pipe in a topic as well as in a description', (t) => {
+  const box = wiki({
+    'index.md': `# Index\n\n${MARKER_START}\n${MARKER_END}\n`,
+    'design/one.md': front('One', 'description: a | b\ntopic: c | d\n'),
+  })
+  t.after(() => box.cleanup())
+
+  buildListing(box.root)
+  const row = box.read('index.md').split('\n').find((line) => line.includes('[[one]]'))
+  // Only the cell walls are unescaped pipes: three cells, not five.
+  assert.equal(row.split(/(?<!\\)\|/).length, 5)
+  assert.match(row, /c \\\| d/)
 })

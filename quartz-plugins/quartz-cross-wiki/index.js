@@ -35,11 +35,54 @@
 import fs from "fs"
 import path from "path"
 
-/** `prefix:some/path.md#anchor` — the prefix must look like a registry key. */
-const REFERENCE = /^([a-z][a-z0-9-]*):(?!\/\/)([^#]*)(#.*)?$/
+/**
+ * `prefix:some/path.md#anchor`.
+ *
+ * This grammar is `packages/syntax/lib/cross-wiki.js`'s, restated rather than
+ * imported: the plugin directory is symlinked into `.quartz/plugins/`, so nothing
+ * here can resolve a bare specifier. The two used to differ — a prefix carrying an
+ * uppercase letter, a `.` or a `+` was a cross-wiki reference to the toolbox and
+ * an ordinary link to the renderer — which is a link excluded from the graph and
+ * never resolved in the site, reported by neither.
+ *
+ * `packages/publish/test/cross-wiki-agreement.test.js` drives both over one corpus
+ * and fails when they part company. Change one, change the other.
+ */
+const REFERENCE = /^([A-Za-z][A-Za-z0-9+.-]*):(?!\/\/)(\S+)$/
 
 /** Schemes that are never registry keys, whatever the registry says. */
-const RESERVED = new Set(["http", "https", "mailto", "tel", "file", "ftp", "data", "javascript"])
+const RESERVED = new Set([
+  "about",
+  "blob",
+  "data",
+  "file",
+  "ftp",
+  "http",
+  "https",
+  "javascript",
+  "mailto",
+  "sms",
+  "tel",
+  "urn",
+])
+
+/**
+ * `{prefix, target, anchor}` for a cross-wiki destination, or `null`. `anchor`
+ * keeps its `#`, because everything here does is append it to a resolved URL.
+ */
+export function parseReference(url) {
+  const match = REFERENCE.exec(url ?? "")
+  if (!match) return null
+
+  const [, prefix, rest] = match
+  if (RESERVED.has(prefix.toLowerCase())) return null
+
+  const hash = rest.indexOf("#")
+  const target = hash === -1 ? rest : rest.slice(0, hash)
+  if (!target) return null
+
+  return { prefix, target, anchor: hash === -1 ? "" : rest.slice(hash) }
+}
 
 function slugifyFallback(filePath) {
   // Only reached when the target's index is unavailable. Deliberately crude:
@@ -50,6 +93,22 @@ function slugifyFallback(filePath) {
 
 function joinUrl(base, slug) {
   return `${base.replace(/\/+$/, "")}/${slug.replace(/^\/+/, "")}`
+}
+
+/**
+ * The heading anchors `awt-headings` publishes beside `contentIndex.json`, keyed
+ * by slug. This is the consumer [[open-questions]] 17 asked for: without it the
+ * data was emitted and read by nothing, so `vsf:meta/scope.md#not-a-heading`
+ * resolved to the page and warned about nothing.
+ */
+function readHeadings(indexPath) {
+  const file = path.join(path.dirname(indexPath), "awtHeadings.json")
+  const raw = JSON.parse(fs.readFileSync(file, "utf-8"))
+  const bySlug = new Map()
+  for (const [slug, entry] of Object.entries(raw)) {
+    if (Array.isArray(entry?.headings)) bySlug.set(slug, new Set(entry.headings))
+  }
+  return bySlug
 }
 
 /**
@@ -100,6 +159,7 @@ export default function crossWikiLinks(userOpts) {
     warnOnUnknownPrefix: true,
     warnOnMissingIndex: true,
     warnOnMissingPath: true,
+    warnOnMissingAnchor: true,
     ...(userOpts ?? {}),
   }
 
@@ -112,21 +172,26 @@ export default function crossWikiLinks(userOpts) {
       // Per-build caches. `null` means "already tried and failed" — the warning
       // for a missing index is emitted once, not once per reference.
       const indexes = new Map()
+      const headings = new Map()
       const warnedPrefixes = new Set()
       let self = null
 
+      const indexPath = (entry) => {
+        const rel = serving ? entry.buildIndex : entry.publishedIndex
+        return rel ? path.resolve(base, rel) : null
+      }
+
       const targetIndex = (prefix, entry) => {
         if (indexes.has(prefix)) return indexes.get(prefix)
-        const rel = serving ? entry.buildIndex : entry.publishedIndex
+        const abs = indexPath(entry)
         let loaded = null
-        if (!rel) {
+        if (!abs) {
           if (opts.warnOnMissingIndex) {
             console.warn(
               `⚠ cross-wiki-links: no ${serving ? "buildIndex" : "publishedIndex"} configured for "${prefix}" — slugs will be guessed`,
             )
           }
         } else {
-          const abs = path.resolve(base, rel)
           try {
             loaded = readIndex(abs)
           } catch {
@@ -142,17 +207,37 @@ export default function crossWikiLinks(userOpts) {
         return loaded
       }
 
+      /**
+       * The target wiki's published heading anchors, or `null` when it publishes
+       * none. **Silence is the right answer there**: a wiki not built with
+       * `awt-headings` has not said its anchors are unknown, it has said nothing,
+       * and warning about every anchor into it would drown the ones that mean
+       * something.
+       */
+      const targetHeadings = (prefix, entry) => {
+        if (headings.has(prefix)) return headings.get(prefix)
+        const abs = indexPath(entry)
+        let loaded = null
+        if (abs) {
+          try {
+            loaded = readHeadings(abs)
+          } catch {
+            loaded = null
+          }
+        }
+        headings.set(prefix, loaded)
+        return loaded
+      }
+
       return [
         () => (tree, file) => {
           const where = file?.data?.filePath ?? file?.path ?? "?"
 
           walkLinks(tree, (node) => {
-            const match = REFERENCE.exec(node.url ?? "")
-            if (!match) return
+            const reference = parseReference(node.url)
+            if (!reference) return
 
-            const [, prefix, target, anchor = ""] = match
-            if (RESERVED.has(prefix)) return
-
+            const { prefix, target, anchor } = reference
             const entry = opts.registry[prefix]
             if (!entry) {
               if (opts.warnOnUnknownPrefix && !warnedPrefixes.has(prefix)) {
@@ -193,6 +278,17 @@ export default function crossWikiLinks(userOpts) {
                 )
               }
               slug = slugifyFallback(target)
+            } else if (anchor && opts.warnOnMissingAnchor) {
+              // Resolving the page was only ever half of open-questions 17. A
+              // warning and never a failure, by rule 2 above: the target wiki may
+              // simply not have been rebuilt since the heading was written.
+              const anchors = targetHeadings(prefix, entry)?.get(slug)
+              if (anchors && !anchors.has(anchor.slice(1))) {
+                console.warn(
+                  `⚠ cross-wiki-links: ${prefix}:${target} has no heading "${anchor}" ` +
+                    `(referenced in ${where}) — the link lands on the page, not the place`,
+                )
+              }
             }
 
             node.url = joinUrl(baseUrl, slug) + anchor

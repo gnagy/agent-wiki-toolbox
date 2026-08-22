@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {Writable} from 'node:stream'
@@ -7,7 +7,7 @@ import test from 'node:test'
 
 import {getFrontmatter, setFrontmatter, wikiLinks} from '@agent-wiki-toolbox/syntax'
 
-import {buildProcessor, formatMarkdown, intellijTables, runFormat} from '../index.js'
+import {buildProcessor, detectIgnoreName, formatMarkdown, intellijTables, runFormat} from '../index.js'
 
 const fixture = (name) => readFileSync(new URL(`fixtures/${name}`, import.meta.url), 'utf8')
 const format = (markdown) => formatMarkdown(markdown)
@@ -162,6 +162,36 @@ test('--check detects an unformatted file in a directory', async (t) => {
   assert.equal(await runFormat({files: [dir], mode: 'check', streamError: silent}), 0)
 })
 
+/**
+ * Both ignore names, because unified-engine takes one. A project carrying the old
+ * `.mdfmtignore` is a project whose files we do not get to rename, so honouring
+ * only the new name reformatted exactly the files it had excluded.
+ */
+for (const name of ['.awtignore', '.mdfmtignore']) {
+  test(`--check honours a ${name}`, async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'awt-format-'))
+    t.after(() => rmSync(dir, {recursive: true, force: true}))
+    const silent = new Writable({write: (_chunk, _encoding, done) => done()})
+
+    mkdirSync(join(dir, 'generated'))
+    writeFileSync(join(dir, 'generated/gen.md'), fixture('intellij.input.md'))
+    assert.equal(await runFormat({files: [dir], mode: 'check', streamError: silent}), 1)
+
+    writeFileSync(join(dir, name), 'generated/\n')
+    assert.equal(detectIgnoreName([dir]), name)
+    assert.equal(await runFormat({files: [dir], mode: 'check', streamError: silent}), 0)
+  })
+}
+
+test('the newer ignore name wins where a project carries both', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'awt-format-'))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+
+  writeFileSync(join(dir, '.mdfmtignore'), 'generated/\n')
+  writeFileSync(join(dir, '.awtignore'), 'generated/\n')
+  assert.equal(detectIgnoreName([dir]), '.awtignore')
+})
+
 test('formatting a directory writes the formatted form back', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'awt-format-'))
   t.after(() => rmSync(dir, {recursive: true, force: true}))
@@ -180,4 +210,29 @@ test('formatting a directory writes the formatted form back', async (t) => {
 test('a standalone document with no wiki formats', () => {
   const out = format('# CLAUDE.md\n\n* one\n* two\n')
   assert.equal(out, '# CLAUDE.md\n\n- one\n- two\n')
+})
+
+/**
+ * `extensions` governs a directory search; a file named on the command line
+ * bypasses it and is parsed as markdown whatever it is. `awt fmt awt.config.mjs`
+ * rewrote a JavaScript file as a markdown document — `/**` escaped to `/\*\*`,
+ * every ` * ` continuation line turned into a list item — and reported success.
+ */
+test('a named file that is not markdown is refused, not rewritten', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'awt-format-'))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  const silent = new Writable({write: (_chunk, _encoding, done) => done()})
+
+  const source = '/**\n * A doc comment.\n */\nexport default {serve: {port: 8101}}\n'
+  const config = join(dir, 'awt.config.mjs')
+  writeFileSync(config, source)
+
+  assert.equal(await runFormat({files: [config], streamError: silent}), 2)
+  assert.equal(readFileSync(config, 'utf8'), source, 'untouched, which is the whole point')
+
+  // A directory holding one is still formatted, and still leaves it alone.
+  writeFileSync(join(dir, 'note.md'), fixture('intellij.input.md'))
+  assert.equal(await runFormat({files: [dir], streamError: silent}), 0)
+  assert.equal(readFileSync(config, 'utf8'), source)
+  assert.equal(readFileSync(join(dir, 'note.md'), 'utf8'), fixture('intellij.expected.md'))
 })

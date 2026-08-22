@@ -75,6 +75,34 @@ function runVerb(values, action) {
   }
 }
 
+/**
+ * Write the toolbox index into the site, for a build that is about to run.
+ *
+ * It is emitted here rather than left to whoever runs the build, because the
+ * shadow compares the rendered pages against it: an artifact one edit out of date
+ * reports a disagreement that is not real, or an agreement that is not either.
+ * Every command that starts a build goes through this, which is what stops the
+ * two coming apart — the serve command people used to type by hand did not.
+ *
+ * Same resolution rule the build uses, so both find the same project from
+ * anywhere inside it. Returns an exit code.
+ */
+async function emitIndexForSite(command, values) {
+  const {findProjectRoot} = await import('@agent-wiki-toolbox/publish/project-root')
+  const explicit = Boolean(values.wiki && values.site)
+  const root = explicit ? null : findProjectRoot()
+  if (!root && !explicit) {
+    process.stderr.write(`awt ${command}: no site/quartz.config.yaml here or in any parent\n`)
+    return 2
+  }
+  const wiki = values.wiki ? resolvePath(values.wiki) : resolvePath(root, 'docs/wiki')
+  const site = values.site ? resolvePath(values.site) : resolvePath(root, 'site')
+  const workspace = loadWorkspace(wiki)
+  writeIndexArtifact(workspace, resolvePath(site, '.awt-index.json'))
+  process.stdout.write(`index: ${workspace.resources.length} notes, ${workspace.edges.length} links\n`)
+  return 0
+}
+
 export const COMMANDS = [
   {
     name: 'fmt',
@@ -366,23 +394,9 @@ export const COMMANDS = [
     async run({values}) {
       const {publish} = await import('@agent-wiki-toolbox/publish')
 
-      // The index is emitted here rather than left to whoever runs the build,
-      // because the shadow compares against it: an artifact one edit out of date
-      // reports a disagreement that is not real, or an agreement that is not
-      // either. Same resolution rule the build uses, so both find the same
-      // project from anywhere inside it.
       if (!values.nginx && !values['skip-index']) {
-        const {findProjectRoot} = await import('@agent-wiki-toolbox/publish/project-root')
-        const root = values.wiki && values.site ? null : findProjectRoot()
-        if (!root && !(values.wiki && values.site)) {
-          process.stderr.write('awt publish: no site/quartz.config.yaml here or in any parent\n')
-          return 2
-        }
-        const wiki = values.wiki ? resolvePath(values.wiki) : resolvePath(root, 'docs/wiki')
-        const site = values.site ? resolvePath(values.site) : resolvePath(root, 'site')
-        const workspace = loadWorkspace(wiki)
-        writeIndexArtifact(workspace, resolvePath(site, '.awt-index.json'))
-        process.stdout.write(`index: ${workspace.resources.length} notes, ${workspace.edges.length} links\n`)
+        const code = await emitIndexForSite('publish', values)
+        if (code !== 0) return code
       }
 
       return publish([
@@ -392,6 +406,45 @@ export const COMMANDS = [
         ...(values.offline ? ['--offline'] : []),
         ...(values.diagrams ? ['--diagrams', values.diagrams] : []),
         ...(values.nginx ? ['--nginx'] : []),
+      ])
+    },
+  },
+  {
+    name: 'serve',
+    summary: "Emit the index and run Quartz's dev server over the wiki. Ports come from awt.config.mjs",
+    usage: 'awt serve [--wiki path] [--site path] [--port N] [--wsPort N]',
+    options: {
+      wiki: {type: 'string'},
+      site: {type: 'string'},
+      out: {type: 'string'},
+      port: {type: 'string'},
+      wsPort: {type: 'string'},
+      'skip-index': {type: 'boolean', default: false},
+    },
+    async run({values}) {
+      const {serve} = await import('@agent-wiki-toolbox/publish')
+
+      if (!values['skip-index']) {
+        const code = await emitIndexForSite('serve', values)
+        if (code !== 0) return code
+      }
+
+      // Config discovery belongs to `format`, and `publish` may not reach it — so
+      // the ports are read here, where both are in scope, and handed over. Loaded
+      // from the project root rather than from the cwd, so `awt serve` finds the
+      // same project the build does no matter where in it you are standing.
+      const {findProjectRoot} = await import('@agent-wiki-toolbox/publish/project-root')
+      const {config} = await loadProjectConfig(findProjectRoot() ?? process.cwd())
+      const ports = config.serve ?? {}
+
+      return serve([
+        ...(values.wiki ? ['--wiki', values.wiki] : []),
+        ...(values.site ? ['--site', values.site] : []),
+        ...(values.out ? ['--out', values.out] : []),
+        ...(values.port ? ['--port', values.port] : []),
+        ...(values.wsPort ? ['--wsPort', values.wsPort] : []),
+        ...(ports.port === undefined ? [] : ['--configPort', String(ports.port)]),
+        ...(ports.wsPort === undefined ? [] : ['--configWsPort', String(ports.wsPort)]),
       ])
     },
   },

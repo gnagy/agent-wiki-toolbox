@@ -13,8 +13,16 @@
  */
 
 /**
- * Schemes that are URLs rather than wiki prefixes. The `//` guard catches
- * `https://…` on its own; these are the ones that do not use it.
+ * Schemes that are never wiki prefixes, whatever a registry says. The `//` guard
+ * already catches `https://…`; `http:` and `https:` are here because the
+ * slash-less form is legal and is still a URL.
+ *
+ * **This set and `PREFIXED` are the grammar**, and the Quartz cross-wiki
+ * transformer restates both — it is symlinked into `.quartz/plugins/` and cannot
+ * import them. `packages/publish/test/cross-wiki-agreement.test.js` drives the two
+ * over one corpus and fails when they part company, because a prefix `core`
+ * excludes from the graph and the renderer leaves as written is a link nothing in
+ * the estate reports (decision 11's drift, exactly).
  */
 const URL_SCHEMES = new Set([
   'about',
@@ -22,6 +30,8 @@ const URL_SCHEMES = new Set([
   'data',
   'file',
   'ftp',
+  'http',
+  'https',
   'javascript',
   'mailto',
   'sms',

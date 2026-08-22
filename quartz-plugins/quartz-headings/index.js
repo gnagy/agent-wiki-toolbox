@@ -50,10 +50,16 @@ export const AwtHeadings = (userOptions) => {
       // exist* where the question is *is this page served*.
       const published = new Set(content.map(([, vfile]) => vfile.data?.slug).filter(Boolean))
 
+      // Keyed by served address rather than by slug, for two reasons that are the
+      // same reason: `vfile.data.slug` is the address by the time an emitter runs,
+      // so a note moved by `awt-folder-notes` would otherwise look unpublished;
+      // and the consumer resolves a page through `contentIndex.json`, which Quartz
+      // also keys by the address. Both sides then agree on what a key means.
       const headings = {}
       for (const [slug, page] of Object.entries(artifact.pages ?? {})) {
-        if (!published.has(slug)) continue
-        headings[slug] = {filePath: page.path, headings: page.headings ?? []}
+        const address = page.address ?? slug
+        if (!published.has(address)) continue
+        headings[address] = {filePath: page.path, headings: page.headings ?? []}
       }
 
       const out = path.join(ctx.argv.output, options.outputPath)

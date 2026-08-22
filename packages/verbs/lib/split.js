@@ -9,11 +9,11 @@
  * is a **hard error** and nothing is written — not a warning, and not a suffix
  * quietly appended.
  */
-import {createAnchorSlugger, slugifyPath} from '@agent-wiki-toolbox/core'
+import {createAnchorSlugger, createResolver, slugifyPath} from '@agent-wiki-toolbox/core'
 import {getFrontmatter, setFrontmatter} from '@agent-wiki-toolbox/syntax'
 
 import {createContext, finish, parseNote, refuse, serialize} from './context.js'
-import {shortestUniqueForm, visitLinks} from './rewrite.js'
+import {ambiguousStems, shortestResolvingForm, visitLinks} from './rewrite.js'
 
 /** Heading text, the way `core` computes it, without importing its private helper. */
 function headingText(node) {
@@ -76,21 +76,44 @@ export function splitByHeading(root, {path, plan, source, workspace, dryRun} = {
   const parent = index.get(path)
   if (!parent) throw refuse(verb, `no note at ${path}`)
 
-  // Every basename in the plan must be free. Checked for the whole plan before
-  // anything is written, so a collision on the third section does not leave the
-  // first two extracted.
-  const takenBy = new Map(index.resources.map((resource) => [resource.slug.split('/').pop(), resource.path]))
-  const clashes = []
   for (const step of plan) {
     if (!step.path?.endsWith('.md')) throw refuse(verb, `plan entry for "${step.heading}" needs a .md path`)
-    const stem = slugifyPath(step.path).split('/').pop()
-    const owner = takenBy.get(stem)
-    // A re-run finds its own earlier output: identical content is done, not a clash.
-    if (owner && owner !== step.path) clashes.push(`${stem} (already ${owner})`)
   }
+
+  // The children do not exist yet, so the wiki they are checked and named against
+  // is the one this split produces — them included, and the source note dropped
+  // when it is being deleted. Keyed by path so a re-run, which finds its own
+  // earlier output already in the index, does not count a child twice and call it
+  // ambiguous with itself.
+  const afterByPath = new Map(
+    index.resources
+      .filter((resource) => resource.path !== path || source !== 'delete')
+      .map((resource) => [resource.path, resource]),
+  )
+  for (const step of plan) {
+    afterByPath.set(step.path, {path: step.path, slug: slugifyPath(step.path)})
+  }
+  const after = [...afterByPath.values()]
+  const {resolve: resolveAfter} = createResolver(after)
+
+  // Decision 15 makes a name already in the wiki a hard error, and decision 7 says
+  // what that means: a bare stem matching more than one note. Checked for the whole
+  // plan before anything is written, so a collision on the third section does not
+  // leave the first two extracted — and asked of the resolver, so a child named
+  // after its own folder is not mistaken for a clash with the wiki's root note.
+  // `move` asks the identical question and refuses on the identical answer.
+  const wasAmbiguous = ambiguousStems(index.resources, index.resolve)
+  const clashes = [...ambiguousStems(after, resolveAfter)].filter((stem) => !wasAmbiguous.has(stem)).sort()
   if (clashes.length > 0) {
-    throw refuse(verb, `these basenames are already in the wiki, so nothing was written: ${clashes.join(', ')}`)
+    const matched = clashes
+      .map((stem) => `[[${stem}]] (${resolveAfter(stem).candidates.map((c) => c.path).join(' and ')})`)
+      .join(', ')
+    throw refuse(verb, `these names are already in the wiki, so nothing was written: ${matched}`)
   }
+
+  const linkTo = (childPath) =>
+    shortestResolvingForm({path: childPath, slug: slugifyPath(childPath)}, resolveAfter) ??
+    slugifyPath(childPath)
 
   const tree = parseNote(context, path)
   const properties = getFrontmatter(tree) ?? {}
@@ -102,10 +125,6 @@ export function splitByHeading(root, {path, plan, source, workspace, dryRun} = {
     sections.push({...step, section})
   }
 
-  const slugsAfter = [
-    ...index.resources.filter((resource) => resource.path !== path || source !== 'delete').map((r) => r.slug),
-    ...plan.map((step) => slugifyPath(step.path)),
-  ].sort()
 
   // Children first, so a run that dies halfway has written notes rather than
   // dangling links to notes that do not exist.
@@ -155,7 +174,7 @@ export function splitByHeading(root, {path, plan, source, workspace, dryRun} = {
               {
                 type: 'wikiLink',
                 embed: false,
-                target: shortestUniqueForm(slugifyPath(childPath), slugsAfter) ?? slugifyPath(childPath),
+                target: linkTo(childPath),
                 anchor: null,
                 alias: null,
               },
@@ -173,10 +192,7 @@ export function splitByHeading(root, {path, plan, source, workspace, dryRun} = {
   // rewritten; a bare `[[parent]]` has as many candidates as there are children
   // and escalates (decision 15).
   const anchorToChild = new Map(
-    sections.map(({heading, path: childPath}) => [
-      anchorFor(heading),
-      shortestUniqueForm(slugifyPath(childPath), slugsAfter) ?? slugifyPath(childPath),
-    ]),
+    sections.map(({heading, path: childPath}) => [anchorFor(heading), linkTo(childPath)]),
   )
 
   for (const notePath of index.backlinks(path)) {

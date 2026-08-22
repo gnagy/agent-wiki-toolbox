@@ -2,7 +2,7 @@
  * Find the project a command was run inside.
  *
  * Both CLIs used to resolve their paths against the current directory, so they
- * only worked from the project root. `cd site && bootstrap-quartz` produced
+ * only worked from the project root. `cd site && awt bootstrap-quartz` produced
  *
  *     no site directory at /…/<project>/site/site
  *

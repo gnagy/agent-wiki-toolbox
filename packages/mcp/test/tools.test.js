@@ -6,7 +6,7 @@ import test from 'node:test'
 
 import {loadWorkspace} from '@agent-wiki-toolbox/core'
 
-import {connections, resolve, search} from '../index.js'
+import {connections, createServer, resolve, search} from '../index.js'
 
 function wiki(notes) {
   const dir = mkdtempSync(join(tmpdir(), 'awt-mcp-'))
@@ -99,4 +99,24 @@ test('resolve recognises a cross-wiki reference as not ours', (t) => {
   assert.equal(outcome.status, 'crossWiki')
   assert.equal(outcome.prefix, 'vsf')
   assert.equal(outcome.anchor, 'naming')
+})
+
+/**
+ * Every write verb takes `--dry-run` on the CLI. A zod schema strips a key it does
+ * not declare, so a tool missing it is not a tool an agent can preview a bulk
+ * rewrite with — it is one that silently performs it.
+ */
+test('every write tool exposes dryRun', (t) => {
+  const box = wiki(NOTES)
+  t.after(() => box.cleanup())
+
+  const tools = createServer({root: box.root, allowWrites: true})._registeredTools
+  const writes = ['rename', 'move', 'delete', 'split_by_heading', 'merge_files', 'rename_tag', 'build_listing']
+
+  for (const name of writes) {
+    const keys = Object.keys(tools[name].inputSchema?.shape ?? {})
+    assert.ok(keys.includes('dryRun'), `${name} does not take dryRun`)
+  }
+  // And a read-only tool does not pretend to: there is nothing to preview.
+  assert.ok(!Object.keys(tools.search.inputSchema?.shape ?? {}).includes('dryRun'))
 })
