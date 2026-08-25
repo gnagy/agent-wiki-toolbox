@@ -14,6 +14,7 @@ import {createParser} from '@agent-wiki-toolbox/syntax'
 import {computeAddresses} from './address.js'
 import {hashSource, readCache, writeCache} from './cache.js'
 import {checkAnchor, createResolver, normaliseTarget} from './resolve.js'
+import {slugifyPath} from './slug.js'
 import {parseNote} from './note.js'
 import {walkNotes} from './walk.js'
 
@@ -79,11 +80,12 @@ export function loadWorkspace(root, {cache = true} = {}) {
 /** The graph over an already-parsed set of resources. Pure, and the unit tests' door in. */
 export function buildWorkspace(root, resources, stats = {}) {
   const byPath = new Map(resources.map((resource) => [resource.path, resource]))
-  const {resolve, resolveRelative} = createResolver(resources)
+  const {resolve, resolveRelative, bySlug} = createResolver(resources)
 
   const edges = []
   const placeholders = new Map()
   const ambiguities = []
+  const unreachableNotes = []
   const brokenAnchors = []
   const brokenLinks = []
   const crossWikiLinks = []
@@ -124,7 +126,21 @@ export function buildWorkspace(root, resources, stats = {}) {
         ambiguities.push({...site, candidates: outcome.candidates.map((candidate) => candidate.path)})
         continue
       }
+      // A note sits at exactly this address and the link cannot reach it. That is
+      // not a wish — decision 30's own reasoning, "a path names one file, only a
+      // stem is a wish" — so calling it backlog is false twice over: the note is
+      // written, and `check` passes a wiki whose link into it yields no edge.
+      //
+      // Only the *reporting* moves. Which note a target resolves to is Quartz's
+      // rule and is mirrored exactly; how a miss is reported has always been ours,
+      // the way an ambiguous stem is an error here and a silent fallthrough there.
       if (outcome.status !== 'resolved') {
+        const held = bySlug.get(slugifyPath(link.target))
+        if (held) {
+          unreachableNotes.push({...site, to: held.path})
+          continue
+        }
+
         const key = normaliseTarget(link.target)
         const known = placeholders.get(key)
         if (known) known.sites.push(site)
@@ -215,6 +231,7 @@ export function buildWorkspace(root, resources, stats = {}) {
     crossWikiLinks,
     aliasedLinks,
     ambiguities,
+    unreachableNotes,
     brokenAnchors,
     brokenLinks,
     unclosedLinks,

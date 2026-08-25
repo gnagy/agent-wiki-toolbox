@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import {buildWorkspace, checkAnchor, parseNote, slugifyPath} from '../index.js'
+import {buildWorkspace, check, checkAnchor, parseNote, slugifyPath} from '../index.js'
 import {createParser} from '@agent-wiki-toolbox/syntax'
 
 const parser = createParser()
@@ -173,6 +173,27 @@ test('a folder listing one level down is not linkable, and that is Quartz\'s rul
   assert.equal(workspace.resolve('folder/index.md').status, 'placeholder')
   assert.equal(workspace.resolve('a/b/index').resource.path, 'a/b/index.md')
   assert.equal(workspace.resolve('a/b/index.md').resource.path, 'a/b/index.md')
+})
+
+test('a link to a note that exists and cannot be reached is an error, not backlog', () => {
+  // The half of the one-deep rule that *is* ours. Quartz decides which note a
+  // target reaches; nothing about that obliges us to file the miss as "a note
+  // worth writing" when the note is written. Decision 30 already said it — a path
+  // names one file, only a stem is a wish — and it had only reached markdown links.
+  const workspace = wiki({
+    'index.md': 'Charter: [[folder/index]]. Todo: [[unwritten]]. Path todo: [[design/future-note]].',
+    'folder/index.md': '# Charter\n',
+  })
+
+  const problems = check(workspace).problems
+  assert.deepEqual(problems.map((problem) => problem.rule), ['unreachable-note'])
+  assert.match(problems[0].message, /names folder\/index\.md, which exists/)
+
+  // And the two genuine wishes stay wishes: nothing sits at either address.
+  assert.deepEqual(check(workspace).placeholders.map((entry) => entry.target).sort(), [
+    'design/future-note',
+    'unwritten',
+  ])
 })
 
 test('a one-deep folder target falls back to the note beside the folder', () => {

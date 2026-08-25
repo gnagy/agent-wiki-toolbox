@@ -37,6 +37,20 @@ export function check(workspace) {
     })
   }
 
+  // The miss that used to be filed as backlog. Reported at the link rather than at
+  // the note, because the note is fine — it is the link that cannot reach it.
+  for (const site of workspace.unreachableNotes) {
+    problems.push({
+      severity: 'error',
+      rule: 'unreachable-note',
+      path: site.from,
+      line: site.line,
+      message:
+        `[[${site.target}]] names ${site.to}, which exists — but the link resolves to nothing, ` +
+        'so it yields no edge. Link it by a form that resolves, or as a relative markdown link',
+    })
+  }
+
   for (const site of workspace.brokenLinks) {
     problems.push({
       severity: 'error',
