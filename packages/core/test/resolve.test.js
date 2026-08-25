@@ -153,6 +153,43 @@ test('front matter tags become the tag index', () => {
   assert.deepEqual(workspace.tags.get('two'), ['a.md', 'b.md'])
 })
 
+test('a folder listing one level down is not linkable, and that is Quartz\'s rule', () => {
+  // Depth decides, and it looks so much like a bug that it has now been "fixed"
+  // once and reverted. `transformInternalLink` simplifies the target *before*
+  // Quartz computes `isMultiSegment`, so `folder/index` becomes the single segment
+  // `folder` and is matched on basename; `a/b/index` keeps a slash and gets the
+  // `/index` variant. `canonicaliseTarget` mirrors that function line for line.
+  //
+  // Resolving the one-deep form would be a **deliberate divergence**, not a fix,
+  // and the `awt-links` shadow would fail every build that carried one. Change it
+  // only with that decided — see toolbox-decisions.
+  const workspace = wiki({
+    'index.md': '# Home\n',
+    'folder/index.md': '# One deep\n',
+    'a/b/index.md': '# Two deep\n',
+  })
+
+  assert.equal(workspace.resolve('folder/index').status, 'placeholder')
+  assert.equal(workspace.resolve('folder/index.md').status, 'placeholder')
+  assert.equal(workspace.resolve('a/b/index').resource.path, 'a/b/index.md')
+  assert.equal(workspace.resolve('a/b/index.md').resource.path, 'a/b/index.md')
+})
+
+test('a one-deep folder target falls back to the note beside the folder', () => {
+  // The other half of the same rule, and the reason the first cannot simply be
+  // widened: with the target simplified to `folder`, a basename match is exactly
+  // what Quartz makes — so `[[folder/index]]` names `folder.md`, not the listing.
+  const workspace = wiki({
+    'index.md': '# Home\n',
+    'folder.md': '# The note beside the folder\n',
+    'folder/index.md': '# The listing\n',
+  })
+
+  assert.equal(workspace.resolve('folder/index').resource.path, 'folder.md')
+  assert.equal(workspace.resolve('folder/').resource.path, 'folder.md')
+  assert.equal(workspace.resolve('folder').resource.path, 'folder.md')
+})
+
 test('`[[index]]` is the wiki root, which Quartz reaches by falling through', () => {
   const workspace = wiki({'index.md': '# Wiki', 'a/one.md': 'back to [[index]]'})
   assert.deepEqual(workspace.edges.map((edge) => edge.to), ['index.md'])
