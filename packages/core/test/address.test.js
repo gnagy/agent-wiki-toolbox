@@ -79,6 +79,53 @@ test('two notes claiming one landing page is an error, and neither is moved', ()
   assert.match(problems[0].message, /campaigns\/cosites-v2\/index\.md already is/)
 })
 
+test('two files on one address is an error, whatever produced it', () => {
+  // The folder-note layout and the landing-page layout, both inside one folder:
+  // `slugifyPath` maps `thing/thing.md` to `thing/index`, which is exactly where
+  // `thing/index.md` already sits. Nothing links to either, so no link-anchored
+  // rule can see it.
+  const workspace = wiki({
+    'thing/thing.md': '# Folder note\n',
+    'thing/index.md': '# Listing\n',
+  })
+
+  const problems = check(workspace).problems.filter((problem) => problem.rule === 'colliding-view')
+  assert.deepEqual(problems.map((problem) => problem.path), ['thing/index.md', 'thing/thing.md'])
+  assert.match(problems[0].message, /served at thing\/index, and so is thing\/thing\.md/)
+  assert.equal(check(workspace).healthy, false)
+})
+
+test('two names that slugify alike collide with nothing linking to them', () => {
+  const workspace = wiki({'a b.md': '# Spaced\n', 'a-b.md': '# Hyphenated\n'})
+
+  const problems = check(workspace).problems
+  assert.deepEqual(problems.map((problem) => problem.rule), ['colliding-view', 'colliding-view'])
+  assert.deepEqual(problems.map((problem) => problem.path), ['a b.md', 'a-b.md'])
+})
+
+test('a moved address collides on where it is served, not on what it is named', () => {
+  // `campaigns/cosites-v2.md` is served at `campaigns/cosites-v2/index`. A note
+  // *named* that is the shadowed-folder-note case and keeps its own message; this
+  // rule must not fire twice for one pair.
+  const workspace = wiki({
+    'campaigns/cosites-v2.md': '# Outside\n',
+    'campaigns/cosites-v2/index.md': '# Inside\n',
+    'campaigns/cosites-v2/design/one.md': '# One\n',
+  })
+
+  assert.deepEqual(check(workspace).problems.map((problem) => problem.rule), ['shadowed-folder-note'])
+})
+
+test('one folder note and one listing in different folders do not collide', () => {
+  const workspace = wiki({
+    'thing/thing.md': '# Thing\n',
+    'other/index.md': '# Other\n',
+    'plain.md': '# Plain\n',
+  })
+
+  assert.deepEqual(check(workspace).problems, [])
+})
+
 test('the artifact publishes the address beside the slug', () => {
   const artifact = materialiseIndex(
     wiki({'campaigns/cosites-v2.md': '# Cosites v2\n', 'campaigns/cosites-v2/design/one.md': '# One\n'}),

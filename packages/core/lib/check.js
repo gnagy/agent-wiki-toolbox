@@ -73,6 +73,26 @@ export function check(workspace) {
     })
   }
 
+  // Reported on every file in the group rather than once on the group, because
+  // the fix is to rename one of them and the author needs both named where they
+  // live. Which one survives today depends on directory walk order, so this is an
+  // error rather than a warning about a coin flip.
+  for (const collision of workspace.collidingViews) {
+    for (const path of collision.paths) {
+      const others = collision.paths.filter((other) => other !== path)
+      problems.push({
+        severity: 'error',
+        rule: 'colliding-view',
+        path,
+        line: 1,
+        message:
+          `it is served at ${collision.address}, and so ${others.length > 1 ? 'are' : 'is'} ` +
+          `${others.join(', ')} — one page. The index keeps whichever the walk reached last, ` +
+          'so rename or move all but one',
+      })
+    }
+  }
+
   for (const site of workspace.unclosedLinks) {
     problems.push({
       severity: 'warning',

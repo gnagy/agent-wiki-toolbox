@@ -173,6 +173,25 @@ export function buildWorkspace(root, resources, stats = {}) {
   // comes out of the cache and this is a property of the whole tree.
   const {addresses, collisions} = computeAddresses(resources)
 
+  // Two files, one page. A slug is a note's *identity*, so two resources sharing
+  // one is not something a link can report: `ambiguous-link` needs a link, and
+  // here there may be none — `bySlug` simply keeps whichever the walk reached
+  // last and the other stops existing, with `check` still calling the graph
+  // healthy. Grouping on the served address catches it whatever produced it:
+  // `x/x.md` beside `x/index.md`, two names that slugify alike (`a b.md` and
+  // `a-b.md`), or two spellings a case-sensitive filesystem allows.
+  const byAddress = new Map()
+  for (const resource of resources) {
+    const address = addresses.get(resource.path) ?? resource.slug
+    const known = byAddress.get(address)
+    if (known) known.push(resource.path)
+    else byAddress.set(address, [resource.path])
+  }
+  const collidingViews = [...byAddress]
+    .filter(([, paths]) => paths.length > 1)
+    .map(([address, paths]) => ({address, paths: [...paths].sort()}))
+    .sort((a, b) => (a.address < b.address ? -1 : 1))
+
   const tags = new Map()
   for (const resource of resources) {
     for (const tag of resource.tags) {
@@ -200,6 +219,7 @@ export function buildWorkspace(root, resources, stats = {}) {
     brokenLinks,
     unclosedLinks,
     shadowedNotes: collisions,
+    collidingViews,
     tags,
 
     /**
