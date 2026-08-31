@@ -17,51 +17,28 @@
  * the wiki sat on disk before it could shell out to `awt fmt`, and a path it has to
  * translate by hand is a path it eventually gets wrong or skips.
  */
-import {Writable} from 'node:stream'
-
-import {loadProjectConfig, runFormat} from '@agent-wiki-toolbox/format'
-
-/**
- * unified-engine reports to a stream, and the caller here is a program. Collect it
- * rather than letting it reach stderr, where it would land in the MCP transport's
- * log instead of in the answer.
- *
- * **A real `Writable`, not an object with a `write`.** The engine writes its report
- * through the callback form and waits for it, so a duck-typed stream that returns
- * `true` and drops the callback does not fail — it hangs, and only on the runs that
- * have something to report.
- */
-function collector() {
-  const chunks = []
-  const stream = new Writable({
-    write(chunk, _encoding, done) {
-      chunks.push(String(chunk))
-      done()
-    },
-  })
-  stream.text = () => chunks.join('')
-  return stream
-}
+import {collectStream, loadProjectConfig, runFormat} from '@agent-wiki-toolbox/format'
 
 export async function fmt(root, {paths = [], check = false} = {}) {
   // From the wiki root, never from the cwd: the server's cwd is wherever the agent
   // was started, which has nothing to do with the wiki it was pointed at.
   const {config, filepath} = await loadProjectConfig(root)
-  const report = collector()
+  const report = collectStream()
 
-  const code = await runFormat({
+  const result = await runFormat({
     files: paths,
     config,
     cwd: root,
     mode: check ? 'check' : 'format',
-    quiet: true,
     color: false,
     streamError: report,
   })
 
   return {
-    ok: code === 0,
+    ok: result.code === 0,
     mode: check ? 'check' : 'format',
+    files: result.files,
+    problems: result.problems,
     paths: paths.length ? paths : ['.'],
     config: filepath,
     // Whatever the engine had to say: unformatted files in `check` mode, schema

@@ -9,6 +9,7 @@
 import {statSync} from 'node:fs'
 import {resolve as resolvePath} from 'node:path'
 import process from 'node:process'
+import {Writable} from 'node:stream'
 
 import {engine} from 'unified-engine'
 
@@ -41,8 +42,35 @@ function notMarkdown(entries, cwd) {
 }
 
 /**
- * Run the formatter over `files`. Resolves to the exit code — 0 clean, 1 if any
- * file was unformatted or any lint rule fired.
+ * A `Writable` that keeps what was written to it, for a caller that wants the
+ * report as a value rather than on a stream — the CLI, so it can print a verdict
+ * above it, and the MCP tool, so it does not land in the transport's log.
+ *
+ * **A real stream, not an object with a `write`.** The engine writes through the
+ * callback form and waits for it, so a duck-typed one does not fail, it hangs —
+ * and only on the runs that have something to report.
+ */
+export function collectStream() {
+  const chunks = []
+  const stream = new Writable({
+    write(chunk, _encoding, done) {
+      chunks.push(String(chunk))
+      done()
+    },
+  })
+  stream.text = () => chunks.join('')
+  return stream
+}
+
+/**
+ * Run the formatter over `files`. Resolves to `{code, files, problems}` — the exit
+ * code (0 clean, 1 if any file was unformatted or any lint rule fired), how many
+ * files were processed, and how many of them had something to say.
+ *
+ * **The counts are the whole point of returning an object.** `quiet` suppresses
+ * the files with nothing wrong, which is the right default and leaves a clean run
+ * printing nothing at all — so the caller needs the totals to say *73 files
+ * checked, all clean* rather than leaving silence to be read as "it did nothing".
  *
  * `cwd` is what the paths are relative to, and what the report names them
  * against. It is the cwd for a standalone run and the **wiki root** for one the
@@ -54,7 +82,11 @@ export function runFormat({
   files,
   config = {},
   mode = 'format',
-  quiet = false,
+  // Only the files with something wrong, which is what every comparable formatter
+  // reports. Listing the ones that were fine made `awt fmt --check` on a wiki 76
+  // lines of "no issues found" — the one output on this binary long enough to
+  // need a `| head`, which is where an exit code goes to die.
+  quiet = true,
   streamError,
   cwd = process.cwd(),
   // A person reading a terminal wants the colour; a program reading the report as
@@ -71,7 +103,7 @@ export function runFormat({
       `awt fmt: not markdown, and naming it would have rewritten it as markdown: ${wrong.join(', ')}\n` +
         '  Pass a directory to format the markdown inside it, or a .md/.markdown file.\n',
     )
-    return Promise.resolve(2)
+    return Promise.resolve({code: 2, files: 0, problems: 0})
   }
 
   return new Promise((resolve, reject) => {
@@ -95,7 +127,15 @@ export function runFormat({
         silentlyIgnore: true,
         ...(streamError ? {streamError} : {}),
       },
-      (error, code) => (error ? reject(error) : resolve(code)),
+      (error, code, context) => {
+        if (error) return reject(error)
+        const processed = context?.files ?? []
+        resolve({
+          code,
+          files: processed.length,
+          problems: processed.filter((file) => file.messages.length > 0).length,
+        })
+      },
     )
   })
 }

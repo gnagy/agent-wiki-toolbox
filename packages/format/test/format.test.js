@@ -164,10 +164,10 @@ test('--check detects an unformatted file in a directory', async (t) => {
   const silent = new Writable({write: (_chunk, _encoding, done) => done()})
 
   writeFileSync(file, fixture('intellij.input.md'))
-  assert.equal(await runFormat({files: [dir], mode: 'check', streamError: silent}), 1)
+  assert.equal((await runFormat({files: [dir], mode: 'check', streamError: silent})).code, 1)
 
   writeFileSync(file, fixture('intellij.expected.md'))
-  assert.equal(await runFormat({files: [dir], mode: 'check', streamError: silent}), 0)
+  assert.equal((await runFormat({files: [dir], mode: 'check', streamError: silent})).code, 0)
 })
 
 /**
@@ -183,11 +183,11 @@ for (const name of ['.awtignore', '.mdfmtignore']) {
 
     mkdirSync(join(dir, 'generated'))
     writeFileSync(join(dir, 'generated/gen.md'), fixture('intellij.input.md'))
-    assert.equal(await runFormat({files: [dir], mode: 'check', streamError: silent}), 1)
+    assert.equal((await runFormat({files: [dir], mode: 'check', streamError: silent})).code, 1)
 
     writeFileSync(join(dir, name), 'generated/\n')
     assert.equal(detectIgnoreName([dir]), name)
-    assert.equal(await runFormat({files: [dir], mode: 'check', streamError: silent}), 0)
+    assert.equal((await runFormat({files: [dir], mode: 'check', streamError: silent})).code, 0)
   })
 }
 
@@ -235,12 +235,12 @@ test('a named file that is not markdown is refused, not rewritten', async (t) =>
   const config = join(dir, 'awt.config.mjs')
   writeFileSync(config, source)
 
-  assert.equal(await runFormat({files: [config], streamError: silent}), 2)
+  assert.equal((await runFormat({files: [config], streamError: silent})).code, 2)
   assert.equal(readFileSync(config, 'utf8'), source, 'untouched, which is the whole point')
 
   // A directory holding one is still formatted, and still leaves it alone.
   writeFileSync(join(dir, 'note.md'), fixture('intellij.input.md'))
-  assert.equal(await runFormat({files: [dir], streamError: silent}), 0)
+  assert.equal((await runFormat({files: [dir], streamError: silent})).code, 0)
   assert.equal(readFileSync(config, 'utf8'), source)
   assert.equal(readFileSync(join(dir, 'note.md'), 'utf8'), fixture('intellij.expected.md'))
 })
@@ -302,6 +302,6 @@ test('a run is rooted at cwd, so its paths can be workspace-relative', async (t)
   writeFileSync(join(dir, 'meta', 'note.md'), fixture('intellij.input.md'))
   const silent = new Writable({write: (_chunk, _encoding, done) => done()})
 
-  assert.equal(await runFormat({files: ['meta/note.md'], cwd: dir, streamError: silent}), 0)
+  assert.equal((await runFormat({files: ['meta/note.md'], cwd: dir, streamError: silent})).code, 0)
   assert.equal(readFileSync(join(dir, 'meta', 'note.md'), 'utf8'), fixture('intellij.expected.md'))
 })

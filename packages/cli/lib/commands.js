@@ -16,7 +16,13 @@ import {resolve as resolvePath} from 'node:path'
 import process from 'node:process'
 
 import {check, loadWorkspace, writeIndexArtifact} from '@agent-wiki-toolbox/core'
-import {AMBIGUOUS_CONFIG, loadProjectConfig, resolveProjectConfig, runFormat} from '@agent-wiki-toolbox/format'
+import {
+  AMBIGUOUS_CONFIG,
+  collectStream,
+  loadProjectConfig,
+  resolveProjectConfig,
+  runFormat,
+} from '@agent-wiki-toolbox/format'
 import {connections, resolve as resolveLink, search} from '@agent-wiki-toolbox/mcp'
 import {
   buildListing,
@@ -67,6 +73,21 @@ function emit(values, value, human) {
   // be silent, not a blank line for a script to strip.
   const text = human(value)
   if (text) process.stdout.write(`${text}\n`)
+}
+
+/**
+ * What a formatting run came to, in one line.
+ *
+ * `fmt` is quiet by default, so a clean run prints nothing at all — and silence
+ * reads as *it did nothing* rather than *there was nothing to do*. The counts are
+ * what tell those apart, and they go **above** the report for the same reason
+ * `check`'s verdict does: nothing else on this binary makes you read to the end to
+ * find out whether it worked, and the end is what a `| head` throws away.
+ */
+function verdict({files, problems}, checking) {
+  const counted = `${files} file${files === 1 ? '' : 's'}`
+  if (!checking) return `${counted} formatted`
+  return problems ? `${counted} checked, ${problems} with problems` : `${counted} checked, all clean`
 }
 
 /** A verb's report, rendered for a person. The structured form is `--json`. */
@@ -133,14 +154,14 @@ export const COMMANDS = [
     name: 'fmt',
     summary: 'Format markdown the way IntelliJ formats it. Works on a lone file with no wiki in sight',
     usage:
-      'awt fmt [paths...] [--quiet]\n' +
+      'awt fmt [paths...] [--verbose]\n' +
       '       awt fmt --check [paths...]\n' +
       '       awt fmt --stdin',
     options: {
       ...WORKSPACE_OPTION,
       check: {type: 'boolean', short: 'c', default: false},
       stdin: {type: 'boolean', default: false},
-      quiet: {type: 'boolean', default: false},
+      verbose: {type: 'boolean', default: false},
     },
     /**
      * Two jobs, one command — decision 17, which put the standalone formatter and
@@ -178,13 +199,23 @@ export const COMMANDS = [
         process.stdout.write(formatted)
         return 0
       }
-      return runFormat({
+      // The report is collected rather than streamed so the verdict can go above
+      // it, the way `check`'s does. Nothing else on this binary makes you read to
+      // the end to find out whether it worked.
+      const report = collectStream()
+      const result = await runFormat({
         files: positionals,
         config,
         cwd,
         mode: values.check ? 'check' : 'format',
-        quiet: values.quiet,
+        quiet: !values.verbose,
+        streamError: report,
       })
+
+      if (result.code !== 2) process.stdout.write(`${verdict(result, values.check)}\n`)
+      const text = report.text()
+      if (text) process.stderr.write(text)
+      return result.code
     },
   },
   {

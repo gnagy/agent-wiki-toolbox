@@ -7,7 +7,7 @@
  * quietly being undiscoverable.
  */
 import assert from 'node:assert/strict'
-import {execFileSync} from 'node:child_process'
+import {spawnSync} from 'node:child_process'
 import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -17,15 +17,14 @@ import {COMMANDS, COMMON_OPTIONS} from '../index.js'
 
 const AWT = new URL('../bin/awt.mjs', import.meta.url).pathname
 
+/**
+ * Both streams, every time. `execFileSync` hands back stderr only when the command
+ * fails, and `fmt` writes its verdict to stdout and its report to stderr on runs
+ * that succeed — so a helper that drops one of them cannot see the split at all.
+ */
 function awt(args, options = {}) {
-  try {
-    return {
-      status: 0,
-      stdout: execFileSync(process.execPath, [AWT, ...args], {encoding: 'utf8', ...options}),
-    }
-  } catch (error) {
-    return {status: error.status, stdout: error.stdout ?? '', stderr: error.stderr ?? ''}
-  }
+  const result = spawnSync(process.execPath, [AWT, ...args], {encoding: 'utf8', ...options})
+  return {status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? ''}
 }
 
 function wiki(notes) {
@@ -177,6 +176,43 @@ test('check --quiet prints the problems and nothing else', (t) => {
   assert.equal(clean.stdout, '')
 })
 
+/**
+ * `awt fmt --check` on this wiki was 76 lines of "no issues found" — the one output
+ * on the binary long enough to need a `| head`, which is where an exit code dies.
+ * Every comparable formatter reports the exceptions and summarises the rest.
+ */
+test('fmt reports what is wrong and counts the rest', (t) => {
+  const box = wiki({'a.md': '# A\n\n- fine\n', 'b.md': '# B\n\n- also fine\n'})
+  t.after(() => box.cleanup())
+
+  const clean = awt(['fmt', '-w', box.root, '--check'])
+  assert.equal(clean.status, 0)
+  assert.equal(clean.stdout, '2 files checked, all clean\n')
+
+  writeFileSync(join(box.root, 'b.md'), '# B\n\n* not fine\n')
+  const dirty = awt(['fmt', '-w', box.root, '--check'])
+  assert.equal(dirty.status, 1)
+  // The verdict is the first line, not the last — the end is what a pipe drops.
+  assert.equal(dirty.stdout.split('\n')[0], '2 files checked, 1 with problems')
+
+  const written = awt(['fmt', '-w', box.root])
+  assert.equal(written.status, 0)
+  assert.equal(written.stdout, '2 files formatted\n')
+})
+
+test('fmt --verbose brings back the file-by-file listing', (t) => {
+  const box = wiki({'a.md': '# A\n\n- fine\n', 'b.md': '# B\n\n- also fine\n'})
+  t.after(() => box.cleanup())
+
+  const quiet = awt(['fmt', '-w', box.root, '--check'])
+  assert.doesNotMatch(quiet.stdout + quiet.stderr, /a\.md/)
+
+  const loud = awt(['fmt', '-w', box.root, '--check', '--verbose'])
+  assert.match(loud.stderr, /a\.md/)
+  assert.match(loud.stderr, /b\.md/)
+  assert.match(loud.stdout, /2 files checked, all clean/)
+})
+
 test('--version answers what is installed', () => {
   const {stdout} = awt(['--version'])
   assert.match(stdout, /^awt \d+\.\d+\.\d+ \(.+\)$/m)
@@ -299,7 +335,7 @@ test('index writes the artifact a Quartz build reads', (t) => {
 
   const out = join(box.dir, 'index.json')
   assert.equal(awt(['index', '-w', box.root, '--out', out]).status, 0)
-  const artifact = JSON.parse(execFileSync('cat', [out], {encoding: 'utf8'}))
+  const artifact = JSON.parse(readFileSync(out, 'utf8'))
   assert.deepEqual(artifact.pages['a/one'].links, ['a/two'])
 })
 

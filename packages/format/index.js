@@ -11,7 +11,7 @@ export {
   isFormatted,
   remarkCheckFormatting,
 } from './lib/processor.js'
-export {runFormat} from './lib/engine.js'
+export {collectStream, runFormat} from './lib/engine.js'
 export {
   AMBIGUOUS_CONFIG,
   CONFIG_NAMES,
