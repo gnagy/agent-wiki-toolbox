@@ -7,7 +7,17 @@
  */
 export function connections(workspace, {path, depth = 1, direction = 'both'} = {}) {
   const start = workspace.get(path)
-  if (!start) return {path, error: `no note at ${path}`}
+  if (!start) {
+    // Both surfaces get the same sentence, because both callers make the same
+    // mistake: `connections` takes a path and `resolve` takes a stem, and a bare
+    // stem here is a miss rather than a lookup.
+    return {
+      path,
+      error:
+        `no note at ${path} — connections takes a workspace-relative path such as ` +
+        'meta/conventions.md; resolve is the one that finds a note from a bare stem',
+    }
+  }
 
   const seen = new Map([[path, 0]])
   let frontier = [path]

@@ -213,6 +213,29 @@ test('fmt --verbose brings back the file-by-file listing', (t) => {
   assert.match(loud.stdout, /2 files checked, all clean/)
 })
 
+/**
+ * The human renderer read `links` off the result before checking for an error, so
+ * a note that is not there answered with a TypeError instead of the sentence
+ * saying so. --json and the MCP tool had the error all along, which is the worst
+ * way round: the surface a person uses was the broken one.
+ */
+test('connections names a miss instead of crashing on it', (t) => {
+  const box = wiki({'meta/conventions.md': '# Conventions\n'})
+  t.after(() => box.cleanup())
+
+  const {status, stdout, stderr} = awt(['connections', 'conventions', '-w', box.root])
+  assert.equal(status, 1)
+  assert.match(stdout, /no note at conventions/)
+  assert.doesNotMatch(stderr, /Cannot read properties/)
+  // A bare stem is the mistake behind almost every miss here, so the message
+  // names the command that does take one.
+  assert.match(stdout, /resolve/)
+
+  const found = awt(['connections', 'meta/conventions.md', '-w', box.root])
+  assert.equal(found.status, 0)
+  assert.match(found.stdout, /links:\s+none/)
+})
+
 test('--version answers what is installed', () => {
   const {stdout} = awt(['--version'])
   assert.match(stdout, /^awt \d+\.\d+\.\d+ \(.+\)$/m)

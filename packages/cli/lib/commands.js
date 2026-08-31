@@ -328,12 +328,18 @@ export const COMMANDS = [
         depth: values.depth ? Number(values.depth) : undefined,
         direction: values.direction,
       })
+      // The miss is reported before anything is read off the hit. Destructuring
+      // `links` first turned "no note at conventions" — the sentence that says
+      // what went wrong — into a TypeError, on the human surface only: `--json`
+      // and the MCP tool were handing back the error all along.
       emit(values, result, (value) =>
-        [
-          `${value.path} — ${value.title}`,
-          `  links:     ${value.links.map((e) => e.path).join(', ') || 'none'}`,
-          `  backlinks: ${value.backlinks.map((e) => e.path).join(', ') || 'none'}`,
-        ].join('\n'),
+        value.error
+          ? value.error
+          : [
+              `${value.path} — ${value.title}`,
+              `  links:     ${value.links.map((e) => e.path).join(', ') || 'none'}`,
+              `  backlinks: ${value.backlinks.map((e) => e.path).join(', ') || 'none'}`,
+            ].join('\n'),
       )
       return result.error ? 1 : 0
     },
