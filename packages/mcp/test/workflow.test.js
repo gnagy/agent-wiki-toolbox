@@ -216,12 +216,32 @@ test('fmt leaves the wikilinks and embeds intact', async (t) => {
   assert.deepEqual(health.placeholders.map((entry) => entry.target), ['missing-note'])
 })
 
-test('fmt is a write, so a read-only server refuses it', async (t) => {
+/**
+ * fmt is the one write with a read half. Asking a wiki you may not write to
+ * whether it is formatted is an ordinary read -- the same question `check`
+ * answers about the link graph, which a read-only mount serves happily -- so the
+ * check is available there and the write is not.
+ */
+test('a read-only server checks formatting but will not fix it', async (t) => {
   const box = wiki()
   t.after(() => box.cleanup())
+  const unformatted = '# Conventions\n\n* one\n'
+  writeFileSync(join(box.root, 'meta/conventions.md'), unformatted)
   const client = await connect(box.root)
   t.after(() => client.close())
 
+  const checked = json(await client.callTool({name: 'fmt', arguments: {dryRun: true}}))
+  assert.equal(checked.ok, false)
+  assert.match(checked.report, /conventions\.md/)
+  assert.equal(readFileSync(join(box.root, 'meta/conventions.md'), 'utf8'), unformatted, 'not touched')
+
   const refusal = json(await client.callTool({name: 'fmt', arguments: {}}))
+  assert.match(refusal.error, /read-only/)
   assert.match(refusal.error, /--allow-writes/)
+  assert.equal(readFileSync(join(box.root, 'meta/conventions.md'), 'utf8'), unformatted, 'still not touched')
+
+  // And the tool list says so, rather than advertising what it cannot do.
+  const {tools} = await client.listTools()
+  const described = tools.find((tool) => tool.name === 'fmt').description
+  assert.match(described, /read-only/)
 })

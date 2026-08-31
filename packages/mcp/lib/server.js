@@ -178,22 +178,52 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
       },
       (args) => buildListing(root, args),
     ],
-    [
-      'fmt',
-      'Format notes the way IntelliJ formats it — tables as aligned rectangles, and the wikilink and ' +
-        'embed syntax the toolbox knows about and a plain remark pipeline destroys. Paths are ' +
-        'workspace-relative; no path formats the whole wiki. Use it after writing prose with your own ' +
-        'Write or Edit; the write verbs already serialise everything they touch. dryRun is what the ' +
-        'CLI calls --check: it names what is unformatted and writes nothing.',
-      {
-        paths: z.array(z.string()).optional().describe('workspace-relative notes or folders, e.g. meta/conventions.md'),
-      },
-      // `--check` on the CLI and `dryRun` here are the same run, and it keeps that
-      // name because every other write tool on this surface previews under that
-      // one. A second knob meaning the same thing is how one of them goes stale.
-      (args) => fmt(root, {...args, check: args.dryRun === true}),
-    ],
   ]
+
+  /**
+   * `fmt` is the one write with a read half, so it is registered here rather than
+   * in the loop below: its check writes nothing, and asking a wiki you may not
+   * write to whether it is formatted is an ordinary read — the same question
+   * `check` answers about the link graph, which a read-only mount serves happily.
+   *
+   * **Permission does not depend on the argument being honoured.** `check` is
+   * forced by `allowWrites`, so a read-only server cannot construct a writing run
+   * at all; `dryRun` only chooses between the two halves on a server that has
+   * both. A call that wanted the write half is told that, rather than quietly
+   * being given the other one.
+   */
+  const fmtDescription =
+    'Format notes the way IntelliJ formats it — tables as aligned rectangles, and the wikilink and ' +
+    'embed syntax the toolbox knows about and a plain remark pipeline destroys. Paths are ' +
+    'workspace-relative; no path formats the whole wiki. Use it after writing prose with your own ' +
+    'Write or Edit; the write verbs already serialise everything they touch. dryRun is what the ' +
+    'CLI calls --check: it names what is unformatted and writes nothing.' +
+    // Said here as well as in the refusal, so an agent reading the tool list on a
+    // read-only mount is not told it can do something it cannot.
+    (allowWrites ? '' : ' This server is read-only: only dryRun: true is available.')
+
+  server.tool(
+    'fmt',
+    fmtDescription,
+    {
+      paths: z.array(z.string()).optional().describe('workspace-relative notes or folders, e.g. meta/conventions.md'),
+      dryRun: DRY_RUN,
+    },
+    async (args) => {
+      if (!allowWrites && args?.dryRun !== true) {
+        return reply({
+          error:
+            'this server was started read-only, so fmt can only check. Pass dryRun: true to see what ' +
+            'is unformatted here, or start the server with --allow-writes to fix it.',
+        })
+      }
+      try {
+        return reply(await fmt(root, {...args, check: !allowWrites || args?.dryRun === true}))
+      } catch (error) {
+        return reply({ok: false, error: error.message})
+      }
+    },
+  )
 
   for (const [toolName, description, schema, handler] of readOnly) {
     server.tool(toolName, description, schema, async (args) => reply(await handler(args ?? {})))
