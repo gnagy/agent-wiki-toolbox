@@ -181,8 +181,12 @@ export const COMMANDS = [
       const cwd = values.workspace ? workspaceRoot(values) : process.cwd()
 
       let config
+      let configPath
       try {
-        ;({config} = await resolveProjectConfig(values.workspace ? [] : positionals, cwd))
+        ;({config, filepath: configPath} = await resolveProjectConfig(
+          values.workspace ? [] : positionals,
+          cwd,
+        ))
       } catch (error) {
         if (error.code !== AMBIGUOUS_CONFIG) throw error
         process.stderr.write(`awt fmt: ${error.message}\n`)
@@ -206,6 +210,7 @@ export const COMMANDS = [
       const result = await runFormat({
         files: positionals,
         config,
+        configPath,
         cwd,
         mode: values.check ? 'check' : 'format',
         quiet: !values.verbose,

@@ -13,7 +13,7 @@ import {Writable} from 'node:stream'
 
 import {engine} from 'unified-engine'
 
-import {detectIgnoreName} from './config.js'
+import {anchorSchemas, detectIgnoreName} from './config.js'
 import {buildProcessor} from './processor.js'
 
 const MARKDOWN = /\.(md|markdown)$/i
@@ -77,10 +77,16 @@ export function collectStream() {
  * caller scoped with `--workspace` or drove over MCP, which is what lets both of
  * those speak in the workspace-relative paths every other part of the surface
  * takes — `meta/conventions.md`, not a path through wherever the wiki sits on disk.
+ *
+ * `configPath` is where `config` was read from, and it is what anchors the `schemas`
+ * associations to the directory that declared them — see `anchorSchemas`. Without
+ * it those globs fall back to being read against `cwd`, which is right only when
+ * the run happens to be rooted where the config sits.
  */
 export function runFormat({
   files,
   config = {},
+  configPath,
   mode = 'format',
   // Only the files with something wrong, which is what every comparable formatter
   // reports. Listing the ones that were fine made `awt fmt --check` on a wiki 76
@@ -93,7 +99,7 @@ export function runFormat({
   // a string wants the filename it can match on, not the escape codes around it.
   color = true,
 } = {}) {
-  const processor = buildProcessor(config, mode)
+  const processor = buildProcessor(anchorSchemas(config, configPath, cwd), mode)
   const roots = files?.length ? files : (config.files ?? ['.'])
 
   const wrong = notMarkdown(roots, cwd)

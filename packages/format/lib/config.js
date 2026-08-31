@@ -19,7 +19,7 @@
  * files is not ours to do. New projects write `awt.config.mjs`.
  */
 import {existsSync, readdirSync, statSync} from 'node:fs'
-import {dirname, join, parse as parsePath, resolve as resolvePath} from 'node:path'
+import {dirname, join, parse as parsePath, relative, resolve as resolvePath} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import process from 'node:process'
 
@@ -170,4 +170,48 @@ export async function resolveProjectConfig(roots = [], cwd = process.cwd()) {
   }
 
   return [...found.values()][0]
+}
+
+/**
+ * Anchor `schemas` to the directory of the config file that declared it.
+ *
+ * The associations are written by hand next to the config — `docs/wiki/meta/**` in
+ * a repo-root `awt.config.mjs` — and the only base that makes those globs mean the
+ * same thing from every working directory is the config's own directory. Without
+ * this they were matched against wherever the run happened to be rooted, so the
+ * schemas fired from a repo root, and **silently matched nothing** from inside the
+ * wiki, from `awt fmt -w`, and from the MCP server — which roots every run at the
+ * wiki and is how most notes are written. Nothing said so: the run reported the
+ * config it had loaded and zero problems, which reads as "the schemas passed".
+ *
+ * The two halves take different bases because `remark-lint-frontmatter-schema`
+ * uses different ones:
+ *
+ * - **Globs** are matched against `vFile.path`, which unified-engine writes
+ *   relative to the run's `cwd` — so they are rewritten relative to that.
+ * - **The schema path** is the plugin's map key, which it joins onto its own idea
+ *   of the project root: the nearest `.remarkrc`, and `process.cwd()` when there is
+ *   none. `awt` ships its config so projects need no `.remarkrc`, so that is the
+ *   cwd — and a project that adds one moves the base out from under this. The test
+ *   `schemas fire wherever the run is rooted` is what catches it.
+ *
+ * Both are derived from `configDir`, so what a glob names does not depend on where
+ * anything was started.
+ */
+export function anchorSchemas(config = {}, configPath, cwd = process.cwd()) {
+  if (!config.schemas || !configPath) return config
+
+  const configDir = dirname(configPath)
+  const anchored = {}
+
+  for (const [schemaPath, globs] of Object.entries(config.schemas)) {
+    const key = relative(process.cwd(), resolvePath(configDir, schemaPath))
+    anchored[key] = Array.isArray(globs)
+      ? globs.map((glob) =>
+          typeof glob === 'string' ? relative(cwd, resolvePath(configDir, glob)) : glob,
+        )
+      : globs
+  }
+
+  return {...config, schemas: anchored}
 }

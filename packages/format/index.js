@@ -16,6 +16,7 @@ export {
   AMBIGUOUS_CONFIG,
   CONFIG_NAMES,
   IGNORE_NAMES,
+  anchorSchemas,
   detectIgnoreName,
   DEFAULT_SETTINGS,
   loadProjectConfig,

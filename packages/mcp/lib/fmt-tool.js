@@ -28,6 +28,7 @@ export async function fmt(root, {paths = [], check = false} = {}) {
   const result = await runFormat({
     files: paths,
     config,
+    configPath: filepath,
     cwd: root,
     mode: check ? 'check' : 'format',
     color: false,

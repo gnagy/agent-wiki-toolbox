@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
-import {join} from 'node:path'
+import {join, resolve} from 'node:path'
 import {Writable} from 'node:stream'
 import test from 'node:test'
 
@@ -9,7 +9,9 @@ import {getFrontmatter, setFrontmatter, wikiLinks} from '@agent-wiki-toolbox/syn
 
 import {
   AMBIGUOUS_CONFIG,
+  anchorSchemas,
   buildProcessor,
+  collectStream,
   detectIgnoreName,
   formatMarkdown,
   intellijTables,
@@ -304,4 +306,89 @@ test('a run is rooted at cwd, so its paths can be workspace-relative', async (t)
 
   assert.equal((await runFormat({files: ['meta/note.md'], cwd: dir, streamError: silent})).code, 0)
   assert.equal(readFileSync(join(dir, 'meta', 'note.md'), 'utf8'), fixture('intellij.expected.md'))
+})
+
+/**
+ * A schema association is written next to the config that declares it, so it has
+ * to mean the same thing from every working directory. It did not: the globs were
+ * read against wherever the run was rooted, so a repo-root `awt fmt --check` found
+ * violations while the same check from inside the wiki — and every run over MCP,
+ * which roots at the wiki root — matched no file and reported a clean pass with
+ * the config's own path in the result. This is the test that fails if the plugin
+ * ever moves the base out from under `anchorSchemas` again.
+ */
+test('schemas fire wherever the run is rooted', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'awt-schemas-'))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  mkdirSync(join(dir, 'wiki', 'meta'), {recursive: true})
+
+  writeFileSync(
+    join(dir, 'awt.config.mjs'),
+    "export default {schemas: {'./note.schema.json': ['wiki/**/*.md']}}\n",
+  )
+  writeFileSync(
+    join(dir, 'note.schema.json'),
+    JSON.stringify({
+      type: 'object',
+      required: ['type'],
+      properties: {type: {type: 'string', enum: ['note']}},
+    }),
+  )
+  writeFileSync(join(dir, 'wiki', 'meta', 'note.md'), '---\ntype: banana\n---\n\n# t\n')
+
+  const {config, filepath} = await resolveProjectConfig([], join(dir, 'wiki'))
+  assert.equal(filepath, join(dir, 'awt.config.mjs'))
+
+  // Rooted at the repo, the way the config's globs are written.
+  const fromRoot = collectStream()
+  const root = await runFormat({
+    files: ['wiki'],
+    config,
+    configPath: filepath,
+    cwd: dir,
+    mode: 'check',
+    color: false,
+    streamError: fromRoot,
+  })
+  assert.equal(root.problems, 1)
+  assert.match(fromRoot.text(), /allowed values/i)
+
+  // Rooted at the wiki — `awt fmt -w` and every MCP call, where the paths the
+  // engine reports are `meta/note.md` rather than `wiki/meta/note.md`.
+  const fromWiki = collectStream()
+  const wiki = await runFormat({
+    config,
+    configPath: filepath,
+    cwd: join(dir, 'wiki'),
+    mode: 'check',
+    color: false,
+    streamError: fromWiki,
+  })
+  assert.equal(wiki.problems, 1)
+  assert.match(fromWiki.text(), /allowed values/i)
+  assert.match(fromWiki.text(), /^meta\/note\.md$/m, 'still reported workspace-relative')
+})
+
+/**
+ * The two halves take different bases, because the plugin does: globs are matched
+ * against the engine-relative file path, the schema key is joined onto the plugin's
+ * own root. Both are derived from the config's directory, which is the property
+ * that makes a config correct from anywhere.
+ */
+test('anchorSchemas derives both halves from the config directory', () => {
+  const anchored = anchorSchemas(
+    {schemas: {'./.remark/note.schema.json': ['docs/wiki/meta/**/*.md']}},
+    '/repo/awt.config.mjs',
+    '/repo/docs/wiki',
+  )
+
+  assert.deepEqual(Object.values(anchored.schemas), [['meta/**/*.md']])
+  const [key] = Object.keys(anchored.schemas)
+  assert.equal(resolve(process.cwd(), key), '/repo/.remark/note.schema.json')
+})
+
+/** No config file means nothing to anchor to, and the config is passed through. */
+test('anchorSchemas leaves a config with no file behind it alone', () => {
+  const config = {schemas: {'./s.json': ['**/*.md']}}
+  assert.equal(anchorSchemas(config, null, '/anywhere'), config)
 })
