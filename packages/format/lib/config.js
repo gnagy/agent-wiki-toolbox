@@ -124,3 +124,50 @@ export async function loadProjectConfig(from = process.cwd()) {
     dir = parent
   }
 }
+
+/** Thrown by `resolveProjectConfig` when the paths disagree about which config governs. */
+export const AMBIGUOUS_CONFIG = 'AWT_AMBIGUOUS_CONFIG'
+
+/**
+ * The config for a run, found from **what the run was pointed at** rather than
+ * from where it was started.
+ *
+ * The walk used to begin at the cwd, so `awt fmt wiki/note.md` from a repo root
+ * formatted the note with the *repo's* config while the same file formatted from
+ * inside the wiki used the *wiki's*. Same file, different bytes, decided by where
+ * the shell happened to be standing, and nothing said so. Every other formatter in
+ * this family — remark, prettier, eslint — resolves from the file, and this now
+ * matches them.
+ *
+ * unified-engine takes one processor, so a run has exactly one config. Where the
+ * paths disagree about which one that is, the run is **refused** rather than
+ * settled by argument order: picking the first is the silent wrong answer this
+ * function exists to remove. Formatting them in separate runs, or naming the
+ * governing wiki with `--workspace`, both say which was meant.
+ */
+export async function resolveProjectConfig(roots = [], cwd = process.cwd()) {
+  const starts = roots.length
+    ? roots.map((root) => {
+        const path = resolvePath(cwd, root)
+        return isDirectory(path) ? path : dirname(path)
+      })
+    : [cwd]
+
+  const found = new Map()
+  for (const start of starts) {
+    const loaded = await loadProjectConfig(start)
+    found.set(loaded.filepath, loaded)
+  }
+
+  if (found.size > 1) {
+    const names = [...found.keys()].map((path) => path ?? '(no config)').sort()
+    const error = new Error(
+      `these paths are governed by different project configs, and one run has one config: ${names.join(', ')}.\n` +
+        '  Format them in separate runs, or pass --workspace to name the wiki that governs.',
+    )
+    error.code = AMBIGUOUS_CONFIG
+    throw error
+  }
+
+  return [...found.values()][0]
+}

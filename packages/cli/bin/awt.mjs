@@ -27,7 +27,8 @@ function overview() {
     ...COMMANDS.map((command) => `  ${command.name.padEnd(width)}  ${command.summary}`),
     '',
     'Common options',
-    `  -w, --workspace DIR  the wiki to work on (default: $AWT_WORKSPACE, else the current directory)`,
+    `  -w, --workspace DIR  the wiki to work on (default: $AWT_WORKSPACE, else the current directory).`,
+    '                       publish, serve and bootstrap-quartz name a wiki and a site separately',
     '      --json           structured output, for a program rather than a person',
     '      --dry-run        on a verb: report what it would do, write nothing',
     '  -h, --help           this, or a command\'s usage',
@@ -38,6 +39,31 @@ function overview() {
 
 function usage(command) {
   return [`${command.name} — ${command.summary}`, '', 'Usage', `  ${command.usage}`, ''].join('\n')
+}
+
+/**
+ * What to say when `parseArgs` refuses an option.
+ *
+ * Node's own text for an unknown one ends in advice about `--`: place a positional
+ * starting with a dash at the end, *as in `-- "-w"`*. That is advice for someone
+ * with a **file** called `-w`, and it is the one message a person who typed
+ * `-w` meaning the workspace is guaranteed to be shown — following it looks for a
+ * file by that name. `-w` is on every command that works on a wiki, so being
+ * refused it is a real question about this command, and this answers that instead.
+ * Every other option keeps Node's wording, which is right for a typo.
+ */
+function parseErrorMessage(error, command) {
+  const [, flag] = /Unknown option '([^']+)'/.exec(error.message) ?? []
+  if (flag !== '-w' && flag !== '--workspace') return error.message
+
+  const declared = Object.keys(command.options ?? {}).map((option) => `--${option}`)
+  if (declared.includes('--wiki')) {
+    return `${command.name} takes --wiki, not -w/--workspace — it works on a wiki and the site built from it, so it names the two separately.`
+  }
+  return (
+    `${command.name} does not take -w/--workspace.` +
+    (declared.length ? ` It takes ${declared.join(', ')}.` : '')
+  )
 }
 
 const [name, ...rest] = process.argv.slice(2)
@@ -65,7 +91,7 @@ let parsed
 try {
   parsed = parseArgs({args: rest, allowPositionals: true, options: command.options ?? {}})
 } catch (error) {
-  process.stderr.write(`awt ${name}: ${error.message}\n\n${usage(command)}`)
+  process.stderr.write(`awt ${name}: ${parseErrorMessage(error, command)}\n\n${usage(command)}`)
   process.exit(2)
 }
 

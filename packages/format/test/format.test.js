@@ -7,7 +7,15 @@ import test from 'node:test'
 
 import {getFrontmatter, setFrontmatter, wikiLinks} from '@agent-wiki-toolbox/syntax'
 
-import {buildProcessor, detectIgnoreName, formatMarkdown, intellijTables, runFormat} from '../index.js'
+import {
+  AMBIGUOUS_CONFIG,
+  buildProcessor,
+  detectIgnoreName,
+  formatMarkdown,
+  intellijTables,
+  resolveProjectConfig,
+  runFormat,
+} from '../index.js'
 
 const fixture = (name) => readFileSync(new URL(`fixtures/${name}`, import.meta.url), 'utf8')
 const format = (markdown) => formatMarkdown(markdown)
@@ -235,4 +243,65 @@ test('a named file that is not markdown is refused, not rewritten', async (t) =>
   assert.equal(await runFormat({files: [dir], streamError: silent}), 0)
   assert.equal(readFileSync(config, 'utf8'), source)
   assert.equal(readFileSync(join(dir, 'note.md'), 'utf8'), fixture('intellij.expected.md'))
+})
+
+/**
+ * The config used to be found by walking up from the **cwd**, so the same note
+ * formatted differently depending on where the shell was standing — a repo config
+ * when run from the root, the wiki's own when run from inside it, and nothing said
+ * which had happened. Every other formatter in this family resolves from the file.
+ */
+test('the config comes from the path being formatted, not from the cwd', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'awt-config-'))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  const nested = join(dir, 'wiki')
+  mkdirSync(nested, {recursive: true})
+
+  writeFileSync(join(dir, 'awt.config.mjs'), "export default {settings: {bullet: '*'}}\n")
+  writeFileSync(join(nested, 'awt.config.mjs'), "export default {settings: {bullet: '+'}}\n")
+  const note = join(nested, 'note.md')
+  writeFileSync(note, '# t\n\n- a\n')
+
+  const {config, filepath} = await resolveProjectConfig([note], dir)
+  assert.equal(filepath, join(nested, 'awt.config.mjs'), "the note's own config, not the one above it")
+
+  const silent = new Writable({write: (_chunk, _encoding, done) => done()})
+  await runFormat({files: [note], config, cwd: dir, streamError: silent})
+  assert.match(readFileSync(note, 'utf8'), /^\+ a$/m)
+})
+
+/**
+ * unified-engine takes one processor, so a run has one config. Picking the first
+ * of several is the silent wrong answer the function above exists to remove, so
+ * disagreement is refused rather than resolved by argument order.
+ */
+test('paths under different configs are refused rather than resolved by order', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'awt-config-'))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+
+  for (const [name, bullet] of [['one', '*'], ['two', '+']]) {
+    mkdirSync(join(dir, name), {recursive: true})
+    writeFileSync(join(dir, name, 'awt.config.mjs'), `export default {settings: {bullet: '${bullet}'}}\n`)
+    writeFileSync(join(dir, name, 'note.md'), '# t\n\n- a\n')
+  }
+
+  await assert.rejects(
+    () => resolveProjectConfig([join(dir, 'one/note.md'), join(dir, 'two/note.md')], dir),
+    (error) => error.code === AMBIGUOUS_CONFIG && /different project configs/.test(error.message),
+  )
+})
+
+/**
+ * `cwd` is what makes `--workspace` and the MCP tool able to speak in the
+ * workspace-relative paths the rest of the surface takes.
+ */
+test('a run is rooted at cwd, so its paths can be workspace-relative', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'awt-format-'))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  mkdirSync(join(dir, 'meta'), {recursive: true})
+  writeFileSync(join(dir, 'meta', 'note.md'), fixture('intellij.input.md'))
+  const silent = new Writable({write: (_chunk, _encoding, done) => done()})
+
+  assert.equal(await runFormat({files: ['meta/note.md'], cwd: dir, streamError: silent}), 0)
+  assert.equal(readFileSync(join(dir, 'meta', 'note.md'), 'utf8'), fixture('intellij.expected.md'))
 })

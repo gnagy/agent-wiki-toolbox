@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict'
 import {execFileSync} from 'node:child_process'
-import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
@@ -76,6 +76,68 @@ test('fmt formats a standalone file with no wiki anywhere near it', (t) => {
 
   assert.equal(awt(['fmt', file]).status, 0)
   assert.equal(awt(['fmt', '--check', file]).status, 0)
+})
+
+/**
+ * `fmt` was the one command on this binary that did not take `-w`, so an agent
+ * holding a note path — the form every other subcommand and the whole MCP surface
+ * take — had to know where the wiki sat on disk before it could format it.
+ */
+test('fmt takes -w, and its paths are then the wiki\'s own', (t) => {
+  const box = wiki({'meta/conventions.md': '# Conventions\n\n* one\n* two\n'})
+  t.after(() => box.cleanup())
+
+  assert.equal(awt(['fmt', '-w', box.root, '--check', 'meta/conventions.md']).status, 1)
+  assert.equal(awt(['fmt', '-w', box.root, 'meta/conventions.md']).status, 0)
+  assert.equal(readFileSync(join(box.root, 'meta/conventions.md'), 'utf8'), '# Conventions\n\n- one\n- two\n')
+
+  // And with no path at all, the whole wiki — the same rule as every other command,
+  // whose default target is the workspace rather than the directory you stood in.
+  writeFileSync(join(box.root, 'meta/conventions.md'), '# Conventions\n\n* one\n')
+  assert.equal(awt(['fmt', '-w', box.root]).status, 0)
+  assert.match(readFileSync(join(box.root, 'meta/conventions.md'), 'utf8'), /^- one$/m)
+})
+
+/**
+ * The config was found by walking up from the cwd, so the same note formatted
+ * differently depending on where the shell was standing, silently. Run from a
+ * directory whose config disagrees with the wiki's: the wiki's has to win.
+ */
+test('fmt uses the config that governs the note, not the one above the cwd', (t) => {
+  const box = wiki({'note.md': '# T\n\n- a\n'})
+  t.after(() => box.cleanup())
+  writeFileSync(join(box.dir, 'awt.config.mjs'), "export default {settings: {bullet: '*'}}\n")
+  writeFileSync(join(box.root, 'awt.config.mjs'), "export default {settings: {bullet: '+'}}\n")
+
+  assert.equal(awt(['fmt', 'wiki/note.md'], {cwd: box.dir}).status, 0)
+  assert.match(readFileSync(join(box.root, 'note.md'), 'utf8'), /^\+ a$/m)
+})
+
+test('fmt refuses paths that two different configs govern', (t) => {
+  const box = wiki({})
+  t.after(() => box.cleanup())
+  for (const [name, bullet] of [['one', '*'], ['two', '+']]) {
+    mkdirSync(join(box.root, name), {recursive: true})
+    writeFileSync(join(box.root, name, 'awt.config.mjs'), `export default {settings: {bullet: '${bullet}'}}\n`)
+    writeFileSync(join(box.root, name, 'note.md'), '# T\n\n- a\n')
+  }
+
+  const {status, stderr} = awt(['fmt', join(box.root, 'one/note.md'), join(box.root, 'two/note.md')])
+  assert.equal(status, 2)
+  assert.match(stderr, /different project configs/)
+  assert.match(stderr, /--workspace/)
+})
+
+/**
+ * Node's own text for an unknown option ends in advice about `--`, which is for a
+ * positional starting with a dash: following it looks for a *file* called `-w`.
+ * It is the one message someone who typed `-w` meaning the workspace is shown.
+ */
+test('a command without -w says which flag it has instead', () => {
+  const {status, stderr} = awt(['publish', '-w', 'docs/wiki'])
+  assert.equal(status, 2)
+  assert.match(stderr, /takes --wiki, not -w\/--workspace/)
+  assert.doesNotMatch(stderr, /place it at the end/)
 })
 
 test('check exits non-zero on a broken graph and names the problem', (t) => {

@@ -16,7 +16,7 @@ import {resolve as resolvePath} from 'node:path'
 import process from 'node:process'
 
 import {check, loadWorkspace, writeIndexArtifact} from '@agent-wiki-toolbox/core'
-import {loadProjectConfig, runFormat} from '@agent-wiki-toolbox/format'
+import {AMBIGUOUS_CONFIG, loadProjectConfig, resolveProjectConfig, runFormat} from '@agent-wiki-toolbox/format'
 import {connections, resolve as resolveLink, search} from '@agent-wiki-toolbox/mcp'
 import {
   buildListing,
@@ -107,14 +107,43 @@ export const COMMANDS = [
   {
     name: 'fmt',
     summary: 'Format markdown the way IntelliJ formats it. Works on a lone file with no wiki in sight',
-    usage: 'awt fmt [paths...]\n       awt fmt --check [paths...]\n       awt fmt --stdin',
+    usage:
+      'awt fmt [paths...]\n' +
+      '       awt fmt [--workspace dir] [notes...]\n' +
+      '       awt fmt --check [paths...]\n' +
+      '       awt fmt --stdin',
     options: {
+      ...WORKSPACE_OPTION,
       check: {type: 'boolean', short: 'c', default: false},
       stdin: {type: 'boolean', default: false},
       quiet: {type: 'boolean', default: false},
     },
+    /**
+     * Two jobs, one command — decision 17, which put the standalone formatter and
+     * the wiki's on the same binary so `mdfmt` is not a second thing to reach for.
+     * `--workspace` is which of them you are doing:
+     *
+     * **With it**, paths are the wiki's own — `meta/conventions.md`, the form every
+     * other subcommand and the whole MCP surface take — the config is the wiki's
+     * whatever directory the shell is in, and no path means the whole wiki. It was
+     * the one command on this binary that did not take `-w`, so an agent holding a
+     * note path had to translate it and then got the wrong config for its trouble.
+     *
+     * **Without it**, this is still the lone-`CLAUDE.md` formatter with no wiki in
+     * sight, and the config comes from the files named rather than from the cwd.
+     */
     async run({values, positionals}) {
-      const {config} = await loadProjectConfig()
+      const cwd = values.workspace ? workspaceRoot(values) : process.cwd()
+
+      let config
+      try {
+        ;({config} = await resolveProjectConfig(values.workspace ? [] : positionals, cwd))
+      } catch (error) {
+        if (error.code !== AMBIGUOUS_CONFIG) throw error
+        process.stderr.write(`awt fmt: ${error.message}\n`)
+        return 2
+      }
+
       if (values.stdin) {
         const {formatMarkdown} = await import('@agent-wiki-toolbox/format')
         const chunks = []
@@ -125,7 +154,13 @@ export const COMMANDS = [
         process.stdout.write(formatted)
         return 0
       }
-      return runFormat({files: positionals, config, mode: values.check ? 'check' : 'format', quiet: values.quiet})
+      return runFormat({
+        files: positionals,
+        config,
+        cwd,
+        mode: values.check ? 'check' : 'format',
+        quiet: values.quiet,
+      })
     },
   },
   {

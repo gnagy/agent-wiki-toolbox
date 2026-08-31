@@ -13,10 +13,12 @@ export {
 } from './lib/processor.js'
 export {runFormat} from './lib/engine.js'
 export {
+  AMBIGUOUS_CONFIG,
   CONFIG_NAMES,
   IGNORE_NAMES,
   detectIgnoreName,
   DEFAULT_SETTINGS,
   loadProjectConfig,
+  resolveProjectConfig,
 } from './lib/config.js'
 export {intellijTables, default as remarkIntellijTables} from './lib/intellij-tables.js'
