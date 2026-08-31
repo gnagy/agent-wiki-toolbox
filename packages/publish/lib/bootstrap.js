@@ -67,13 +67,6 @@ function die(msg) {
   process.exit(2)
 }
 
-function version() {
-  const stamp = path.join(HERE, "INSTALLED_FROM")
-  return fs.existsSync(stamp)
-    ? `agent-wiki-toolbox ${fs.readFileSync(stamp, "utf8").trim()} (installed at ${HERE})`
-    : `agent-wiki-toolbox (working copy at ${HERE})`
-}
-
 function readPin(site) {
   const pinFile = path.join(site, "quartz.pin")
   if (!fs.existsSync(pinFile)) {
@@ -183,23 +176,8 @@ export function bootstrap(argv = process.argv.slice(2)) {
       // same as "look for ./site". parseArgs cannot tell a default from a value.
       site: { type: "string" },
       force: { type: "boolean", default: false },
-      version: { type: "boolean", default: false },
-      help: { type: "boolean", default: false },
     },
   })
-
-  if (values.version) {
-    console.log(version())
-    return 0
-  }
-  if (values.help) {
-    console.log(
-      "usage: awt bootstrap-quartz [--site site] [--force] [--version]\n\n" +
-        "Runs from anywhere inside the project: with no --site it walks up for the\n" +
-        "nearest site/quartz.config.yaml. --site is resolved against the cwd.",
-    )
-    return 0
-  }
 
   const site = values.site
     ? path.resolve(values.site)

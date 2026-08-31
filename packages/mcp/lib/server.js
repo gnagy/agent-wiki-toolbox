@@ -72,9 +72,10 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
     ],
     [
       'check',
-      'Everything wrong with the link graph in one call: ambiguous stems, broken section anchors, ' +
-        'broken relative links, unclosed wikilinks, plus placeholders, orphans and dead ends. ' +
-        'Placeholders are the backlog signal, not defects.',
+      'Everything wrong with the link graph in one call: ambiguous stems, two files served as one ' +
+        'page, a link that misses a note which exists, a note shadowed by a folder of its own name, ' +
+        'labelled wikilinks, broken section anchors, broken relative links and unclosed wikilinks — ' +
+        'plus placeholders, orphans and dead ends. Placeholders are the backlog signal, not defects.',
       {},
       () => check(index()),
     ],

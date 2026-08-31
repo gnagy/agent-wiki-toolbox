@@ -9,7 +9,7 @@
 import {parseArgs} from 'node:util'
 import process from 'node:process'
 
-import {COMMANDS, version} from '../lib/commands.js'
+import {COMMANDS, COMMON_OPTIONS, version} from '../lib/commands.js'
 
 const byName = new Map(COMMANDS.map((command) => [command.name, command]))
 
@@ -27,18 +27,46 @@ function overview() {
     ...COMMANDS.map((command) => `  ${command.name.padEnd(width)}  ${command.summary}`),
     '',
     'Common options',
-    `  -w, --workspace DIR  the wiki to work on (default: $AWT_WORKSPACE, else the current directory).`,
-    '                       publish, serve and bootstrap-quartz name a wiki and a site separately',
-    '      --json           structured output, for a program rather than a person',
-    '      --dry-run        on a verb: report what it would do, write nothing',
+    ...COMMON_OPTIONS.flatMap(option),
     '  -h, --help           this, or a command\'s usage',
     '  -v, --version        what is installed',
     '',
   ].join('\n')
 }
 
+/** One `Common options` entry, the same shape wherever it is printed. */
+function option({flags, text, note}) {
+  const lines = [`  ${flags.padEnd(19)}  ${text}`]
+  if (note) lines.push(`  ${''.padEnd(19)}  ${note}`)
+  return lines
+}
+
+/**
+ * A command's own help: what is particular to it, then whichever of the common
+ * options it actually declares.
+ *
+ * The second half is **generated from that command's option map**, so a usage line
+ * can be read as complete. Hand-written into the usage strings, the common options
+ * went three ways at once — `--workspace` shown by four of the fourteen commands
+ * that take it, `--json` by four of eleven, `--dry-run` by none of seven — and a
+ * reader who took a usage line at its word concluded `search` has no `-w`.
+ */
 function usage(command) {
-  return [`${command.name} — ${command.summary}`, '', 'Usage', `  ${command.usage}`, ''].join('\n')
+  const declared = Object.keys(command.options ?? {})
+  const common = COMMON_OPTIONS.filter((entry) => declared.includes(entry.name))
+  return [
+    `${command.name} — ${command.summary}`,
+    '',
+    'Usage',
+    `  ${command.usage}`,
+    // What a usage line cannot carry: how --offline differs from a release, what
+    // .release-prev is for, where the ports come from. It used to live in the
+    // publish package's own --help, which nothing could reach — awt intercepts
+    // --help, and only `cli` ships a binary — so it drifted where no one saw it.
+    ...(command.notes?.length ? ['', ...command.notes.map((line) => (line ? `  ${line}` : ''))] : []),
+    ...(common.length ? ['', 'Common options', ...common.flatMap(option)] : []),
+    '',
+  ].join('\n')
 }
 
 /**

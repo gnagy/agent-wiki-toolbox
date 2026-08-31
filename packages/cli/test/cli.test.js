@@ -13,7 +13,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
 
-import {COMMANDS} from '../index.js'
+import {COMMANDS, COMMON_OPTIONS} from '../index.js'
 
 const AWT = new URL('../bin/awt.mjs', import.meta.url).pathname
 
@@ -54,6 +54,127 @@ test('every command carries a usage line and a summary worth reading', () => {
     const {stdout} = awt([command.name, '--help'])
     assert.ok(stdout.includes(command.usage.split('\n')[0].trim()), `${command.name} --help`)
   }
+})
+
+/**
+ * The audit that found eight undocumented options, as a test so it cannot happen
+ * again: `search --limit` and `--fields`, `fmt --quiet`, `mcp --name`, three on
+ * `publish` and two on `serve` were all accepted by the parser and named nowhere.
+ * A help text you cannot read as complete is what sends someone to the source.
+ */
+test('every command-specific option is named in that command\'s usage line', () => {
+  const common = new Set(COMMON_OPTIONS.map((entry) => entry.name))
+  for (const command of COMMANDS) {
+    const named = new Set([...command.usage.matchAll(/--([A-Za-z][A-Za-z-]*)/g)].map((m) => m[1]))
+    for (const name of Object.keys(command.options ?? {})) {
+      if (common.has(name)) continue
+      assert.ok(named.has(name), `${command.name}: --${name} is accepted but not in its usage line`)
+    }
+  }
+})
+
+/**
+ * The other half of the same rule. The common options are documented once, so a
+ * usage line omitting them is deliberate — but then every command's help has to
+ * show the ones it actually takes, or omission stays unreadable. It went three
+ * ways at once before this, which is how `awt search --help` came to look like
+ * evidence that search has no -w.
+ */
+test('every command names the common options it takes, and none it does not', () => {
+  for (const command of COMMANDS) {
+    const declared = Object.keys(command.options ?? {})
+    const {stdout} = awt([command.name, '--help'])
+    for (const entry of COMMON_OPTIONS) {
+      const shown = stdout.includes(entry.flags)
+      assert.equal(shown, declared.includes(entry.name), `${command.name} --help vs --${entry.name}`)
+    }
+  }
+})
+
+test('no usage line names an option the parser would reject', () => {
+  for (const command of COMMANDS) {
+    const declared = new Set(Object.keys(command.options ?? {}))
+    for (const [, name] of command.usage.matchAll(/--([A-Za-z][A-Za-z-]*)/g)) {
+      assert.ok(declared.has(name), `${command.name}: usage names --${name}, which it does not accept`)
+    }
+  }
+})
+
+/**
+ * The search caps at 20 by default and the envelope has always recorded `total`
+ * and `truncated` — the human renderer printed neither, so `awt search` listed 20
+ * of 73 notes, said nothing, and exited 0. Every --json caller could see it and
+ * every person and agent reading the text could not.
+ */
+test('search says when it has not shown you everything', (t) => {
+  const notes = {}
+  for (let i = 0; i < 25; i++) notes[`n${i}.md`] = `# Note ${i}\n\nthe word findme is here.\n`
+  const box = wiki(notes)
+  t.after(() => box.cleanup())
+
+  const {status, stdout} = awt(['search', 'findme', '-w', box.root])
+  assert.equal(status, 0)
+  assert.match(stdout, /… 5 more not shown; --limit 25 for all of them/)
+
+  // And when the limit covers everything, no footer claiming otherwise.
+  const all = awt(['search', 'findme', '-w', box.root, '--limit', '25'])
+  assert.doesNotMatch(all.stdout, /more not shown/)
+})
+
+test('search can be restricted to a field', (t) => {
+  const box = wiki({
+    'title-hit.md': '# Conventions\n\nnothing in the body.\n',
+    'body-hit.md': '# Other\n\nThe word conventions, in prose.\n',
+  })
+  t.after(() => box.cleanup())
+
+  const both = JSON.parse(awt(['search', 'conventions', '-w', box.root, '--json']).stdout)
+  assert.equal(both.total, 2)
+
+  const titles = JSON.parse(awt(['search', 'conventions', '-w', box.root, '--fields', 'title', '--json']).stdout)
+  assert.equal(titles.total, 1)
+  assert.equal(titles.results[0].path, 'title-hit.md')
+})
+
+/**
+ * The verdict was the LAST line, under a first line of counts that says nothing
+ * about health -- so `awt check | head -1` printed the counts for a wiki with two
+ * errors in it, and the pipeline threw the non-zero exit away on top.
+ */
+test('check leads with the verdict, so truncating it cannot hide one', (t) => {
+  const box = wiki({
+    'one.md': '# One\n\nSee [[thing]].\n',
+    'a/thing.md': '# Thing\n',
+    'b/thing.md': '# Thing, elsewhere\n',
+  })
+  t.after(() => box.cleanup())
+
+  const {status, stdout} = awt(['check', '-w', box.root])
+  assert.equal(status, 1)
+  assert.match(stdout.split('\n')[0], /^1 problem\(s\) —/)
+
+  const healthy = awt(['check', '-w', wiki({'a.md': '# A\n\nSee [[b]].\n', 'b.md': '# B\n\nSee [[a]].\n'}).root])
+  assert.equal(healthy.status, 0)
+  assert.match(healthy.stdout.split('\n')[0], /^graph is healthy —/)
+})
+
+test('check --quiet prints the problems and nothing else', (t) => {
+  const box = wiki({
+    'one.md': '# One\n\nSee [[thing]].\n',
+    'a/thing.md': '# Thing\n',
+    'b/thing.md': '# Thing, elsewhere\n',
+  })
+  t.after(() => box.cleanup())
+
+  const {status, stdout} = awt(['check', '-w', box.root, '--quiet'])
+  assert.equal(status, 1)
+  assert.match(stdout, /ambiguous-link/)
+  assert.doesNotMatch(stdout, /notes,/)
+
+  // Silence means healthy -- not a blank line for a script to strip.
+  const clean = awt(['check', '-q', '-w', wiki({'a.md': '# A\n\nSee [[b]].\n', 'b.md': '# B\n\nSee [[a]].\n'}).root])
+  assert.equal(clean.status, 0)
+  assert.equal(clean.stdout, '')
 })
 
 test('--version answers what is installed', () => {

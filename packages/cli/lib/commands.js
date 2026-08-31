@@ -36,12 +36,37 @@ function workspaceRoot(values) {
 const WORKSPACE_OPTION = {workspace: {type: 'string', short: 'w'}}
 const OUTPUT_OPTIONS = {json: {type: 'boolean', default: false}}
 
+/**
+ * The options more than one command shares, described once.
+ *
+ * **A usage line names only what is particular to its command**, and the help
+ * renderer appends whichever of these that command actually declares. Written by
+ * hand into each usage string, they went three ways at once: `--workspace` shown by
+ * four commands and omitted by the ten others that take it, `--json` by four of the
+ * eleven, `--dry-run` by none of the seven. A usage line you cannot read as
+ * complete is worse than a short one — it is what made `awt search --help` look
+ * like evidence that `search` has no `-w`.
+ */
+export const COMMON_OPTIONS = [
+  {
+    name: 'workspace',
+    flags: '-w, --workspace DIR',
+    text: 'the wiki to work on (default: $AWT_WORKSPACE, else the current directory)',
+    note: 'publish, serve and bootstrap-quartz name a wiki and a site separately',
+  },
+  {name: 'json', flags: '    --json', text: 'structured output, for a program rather than a person'},
+  {name: 'dry-run', flags: '    --dry-run', text: 'report what it would do, write nothing'},
+]
+
 function emit(values, value, human) {
   if (values.json) {
     process.stdout.write(`${JSON.stringify(value, null, 1)}\n`)
     return
   }
-  process.stdout.write(`${human(value)}\n`)
+  // Nothing to say is said with nothing: `check --quiet` on a healthy wiki should
+  // be silent, not a blank line for a script to strip.
+  const text = human(value)
+  if (text) process.stdout.write(`${text}\n`)
 }
 
 /** A verb's report, rendered for a person. The structured form is `--json`. */
@@ -108,8 +133,7 @@ export const COMMANDS = [
     name: 'fmt',
     summary: 'Format markdown the way IntelliJ formats it. Works on a lone file with no wiki in sight',
     usage:
-      'awt fmt [paths...]\n' +
-      '       awt fmt [--workspace dir] [notes...]\n' +
+      'awt fmt [paths...] [--quiet]\n' +
       '       awt fmt --check [paths...]\n' +
       '       awt fmt --stdin',
     options: {
@@ -166,20 +190,32 @@ export const COMMANDS = [
   {
     name: 'check',
     summary: 'Everything wrong with the link graph, in one call. Placeholders are reported, not counted against you',
-    usage: 'awt check [--workspace dir] [--json]',
-    options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS},
+    usage: 'awt check [--quiet]',
+    options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, quiet: {type: 'boolean', short: 'q', default: false}},
+    /**
+     * **The verdict goes first.** It used to be the last line, under a first line
+     * of counts that says nothing about health — so `awt check | head -1` printed
+     * *"5 notes, 0 links, 0 placeholders, 5 orphans, 5 dead ends"* for a wiki with
+     * two errors in it, and the pipeline threw the non-zero exit away on top. A
+     * truncated report that reads as a clean one is the failure this command
+     * exists to prevent, and truncating it is one keystroke away at all times.
+     *
+     * `--quiet` prints the problems and nothing else, so silence means healthy and
+     * the exit code carries the answer.
+     */
     async run({values}) {
       const health = check(loadWorkspace(workspaceRoot(values)))
       emit(values, health, (value) => {
-        const lines = [
+        const problems = value.problems.map(
+          (problem) => `  ${problem.severity} ${problem.path}:${problem.line} [${problem.rule}] ${problem.message}`,
+        )
+        if (values.quiet) return problems.join('\n')
+
+        const verdict = value.healthy ? 'graph is healthy' : `${value.problems.length} problem(s)`
+        const counts =
           `${value.notes} notes, ${value.links} links, ${value.placeholders.length} placeholders, ` +
-            `${value.orphans.length} orphans, ${value.deadends.length} dead ends`,
-        ]
-        for (const problem of value.problems) {
-          lines.push(`  ${problem.severity} ${problem.path}:${problem.line} [${problem.rule}] ${problem.message}`)
-        }
-        lines.push(value.healthy ? 'graph is healthy' : `${value.problems.length} problem(s)`)
-        return lines.join('\n')
+          `${value.orphans.length} orphans, ${value.deadends.length} dead ends`
+        return [`${verdict} — ${counts}`, ...problems].join('\n')
       })
       return health.healthy ? 0 : 1
     },
@@ -187,7 +223,7 @@ export const COMMANDS = [
   {
     name: 'index',
     summary: 'Write the index where a Quartz build can read it. Run this immediately before every build',
-    usage: 'awt index [--workspace dir] --out path.json',
+    usage: 'awt index --out path.json',
     options: {...WORKSPACE_OPTION, out: {type: 'string'}},
     async run({values}) {
       if (!values.out) {
@@ -207,7 +243,9 @@ export const COMMANDS = [
   {
     name: 'search',
     summary: 'Search note bodies, titles, front matter and tags in one pass',
-    usage: 'awt search <query> [--tag t] [--type t] [--area a] [--topic t] [--json]',
+    usage:
+      'awt search <query> [--tag t] [--type t] [--area a] [--topic t]\n' +
+      '             [--fields text,title,tags,properties] [--limit n]',
     options: {
       ...WORKSPACE_OPTION,
       ...OUTPUT_OPTIONS,
@@ -215,8 +253,16 @@ export const COMMANDS = [
       type: {type: 'string'},
       area: {type: 'string'},
       topic: {type: 'string'},
+      fields: {type: 'string'},
       limit: {type: 'string'},
     },
+    /**
+     * **The footer is not decoration.** The search caps at 20 by default, the
+     * envelope has recorded `total` and `truncated` from the start, and this
+     * renderer printed neither — so `awt search the` listed 20 of 73 notes, said
+     * nothing, and exited 0. Every `--json` caller could see it and every person
+     * and agent reading the text could not, which is the worst way round.
+     */
     async run({values, positionals}) {
       const found = search(loadWorkspace(workspaceRoot(values)), {
         query: positionals.join(' ') || undefined,
@@ -224,20 +270,26 @@ export const COMMANDS = [
         type: values.type,
         area: values.area,
         topic: values.topic,
+        fields: values.fields?.split(','),
         limit: values.limit ? Number(values.limit) : undefined,
       })
-      emit(values, found, (value) =>
-        value.results
-          .map((entry) => [`${entry.path}`, ...entry.matches.map((m) => `  ${m.line}: ${m.text}`)].join('\n'))
-          .join('\n') || 'no matches',
-      )
+      emit(values, found, (value) => {
+        if (!value.results.length) return 'no matches'
+        const lines = value.results.map((entry) =>
+          [`${entry.path}`, ...entry.matches.map((m) => `  ${m.line}: ${m.text}`)].join('\n'),
+        )
+        if (value.truncated) {
+          lines.push(`… ${value.total - value.results.length} more not shown; --limit ${value.total} for all of them`)
+        }
+        return lines.join('\n')
+      })
       return found.total > 0 ? 0 : 1
     },
   },
   {
     name: 'connections',
     summary: 'Links out of and into a note, optionally several hops out',
-    usage: 'awt connections <path> [--depth n] [--direction in|out|both] [--json]',
+    usage: 'awt connections <path> [--depth n] [--direction in|out|both]',
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, depth: {type: 'string'}, direction: {type: 'string'}},
     async run({values, positionals}) {
       const result = connections(loadWorkspace(workspaceRoot(values)), {
@@ -258,7 +310,7 @@ export const COMMANDS = [
   {
     name: 'resolve',
     summary: 'What a link points at — and, when it is ambiguous, what else matched',
-    usage: 'awt resolve <target> [--from note.md] [--json]',
+    usage: 'awt resolve <target> [--from note.md]',
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, from: {type: 'string'}},
     async run({values, positionals}) {
       const outcome = resolveLink(loadWorkspace(workspaceRoot(values)), {
@@ -403,6 +455,10 @@ export const COMMANDS = [
     name: 'bootstrap-quartz',
     summary: 'Set up (or re-pin) the Quartz clone a site builds from, and link the toolbox plugins into it',
     usage: 'awt bootstrap-quartz [--site path] [--force]',
+    notes: [
+      'Runs from anywhere inside the project: with no --site it walks up for the nearest',
+      'site/quartz.config.yaml. --site is resolved against the cwd.',
+    ],
     options: {site: {type: 'string'}, force: {type: 'boolean', default: false}},
     async run({values, positionals}) {
       const {bootstrap} = await import('@agent-wiki-toolbox/publish')
@@ -416,7 +472,26 @@ export const COMMANDS = [
   {
     name: 'publish',
     summary: 'Build the site into a release, or a handoff copy with --offline. Emits the index first',
-    usage: 'awt publish [--wiki docs/wiki] [--site site] [--offline] [--nginx]',
+    usage:
+      'awt publish [--wiki docs/wiki] [--site site] [--out path] [--offline]\n' +
+      '            [--diagrams png|none] [--nginx] [--skip-index]',
+    notes: [
+      'Builds in publish mode — a build without --serve, which is what makes cross-wiki links',
+      'resolve to published rather than localhost URLs — into a staging directory, then renames',
+      'it into place. A failed build leaves the standing release untouched; the one it replaces',
+      'is kept as .release-prev, so a rollback is a rename.',
+      '',
+      '--offline builds a handoff copy into site/handoff instead: browser-only plugins off, every',
+      'link rewritten to a real .html file, every script removed. Zip it and send it — the reader',
+      'opens index.html by double-clicking, with no server and no internet.',
+      '',
+      'Mermaid diagrams are pre-rendered to PNG for --offline, since Quartz draws them in the',
+      "reader's browser from a CDN and neither is available from a folder. --diagrams none leaves",
+      'them as source text. A served site never pre-renders: there the browser draws them, themed',
+      'and searchable.',
+      '',
+      '--nginx prints a server block for the release and exits without building.',
+    ],
     options: {
       wiki: {type: 'string'},
       site: {type: 'string'},
@@ -447,7 +522,19 @@ export const COMMANDS = [
   {
     name: 'serve',
     summary: "Emit the index and run Quartz's dev server over the wiki. Ports come from awt.config.mjs",
-    usage: 'awt serve [--wiki path] [--site path] [--port N] [--wsPort N]',
+    usage: 'awt serve [--wiki path] [--site path] [--out path] [--port N] [--wsPort N] [--skip-index]',
+    notes: [
+      "Emits the toolbox index, then runs Quartz's dev server over the wiki. The index is what the",
+      'awt-links shadow compares the rendered pages against, and emitting it is the half a',
+      'hand-typed build command leaves out.',
+      '',
+      "Ports come from `serve` in the project's awt.config.mjs, so a wiki keeps the same pair every",
+      'run and `awt serve` on its own is the whole command:',
+      '',
+      '    export default {serve: {port: 8101}}',
+      '',
+      '--wsPort defaults to the port plus 100. Runs from anywhere inside the project.',
+    ],
     options: {
       wiki: {type: 'string'},
       site: {type: 'string'},
@@ -486,7 +573,7 @@ export const COMMANDS = [
   {
     name: 'mcp',
     summary: 'Run the MCP server over stdio, for an agent to talk to',
-    usage: 'awt mcp [--workspace dir] [--allow-writes]',
+    usage: 'awt mcp [--allow-writes] [--name n]',
     options: {...WORKSPACE_OPTION, 'allow-writes': {type: 'boolean', default: false}, name: {type: 'string'}},
     async run({values}) {
       const {createServer} = await import('@agent-wiki-toolbox/mcp')

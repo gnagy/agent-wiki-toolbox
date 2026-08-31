@@ -109,26 +109,9 @@ export function serve(argv = process.argv.slice(2)) {
       // here: `publish` may not reach `format`, which owns config discovery.
       configPort: { type: "string" },
       configWsPort: { type: "string" },
-      help: { type: "boolean", default: false },
     },
     allowPositionals: false,
   })
-
-  if (values.help) {
-    console.log(
-      "usage: awt serve [--wiki docs/wiki] [--site site] [--out site/public]\n" +
-        "                 [--port N] [--wsPort N]\n\n" +
-        "Emits the toolbox index, then runs Quartz's dev server over the wiki. The\n" +
-        "index is what the awt-links shadow compares the rendered pages against, and\n" +
-        "emitting it is the half a hand-typed build command leaves out.\n\n" +
-        "Ports come from `serve` in the project's awt.config.mjs, so a wiki keeps the\n" +
-        "same pair every run and `awt serve` on its own is the whole command:\n\n" +
-        "    export default {serve: {port: 8101}}\n\n" +
-        `Default ${DEFAULT_PORT}; --wsPort defaults to the port plus 100.\n\n` +
-        "Runs from anywhere inside the project. Ctrl-C to stop.",
-    )
-    return 0
-  }
 
   const root = values.wiki && values.site ? null : requireProjectRoot(die)
   const wiki = values.wiki ? path.resolve(values.wiki) : path.join(root, "docs/wiki")

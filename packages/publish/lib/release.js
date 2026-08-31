@@ -101,13 +101,6 @@ function die(msg) {
   process.exit(2)
 }
 
-function version() {
-  const stamp = path.join(HERE, "INSTALLED_FROM")
-  return fs.existsSync(stamp)
-    ? `agent-wiki-toolbox ${fs.readFileSync(stamp, "utf8").trim()} (installed at ${HERE})`
-    : `agent-wiki-toolbox (working copy at ${HERE})`
-}
-
 /** Every file under `dir`, as [count, bytes]. */
 function measure(dir) {
   let files = 0
@@ -623,40 +616,12 @@ export async function publish(argv = process.argv.slice(2)) {
         offline: { type: "boolean", default: false },
         diagrams: { type: "string" },
         nginx: { type: "boolean", default: false },
-        version: { type: "boolean", default: false },
-        help: { type: "boolean", default: false },
       },
     })
   } catch (e) {
     die(String(e.message))
   }
   const { values } = parsed
-
-  if (values.version) {
-    console.log(version())
-    return 0
-  }
-  if (values.help) {
-    console.log(
-      "usage: awt publish [--wiki docs/wiki] [--site site] [--out site/release]\n" +
-        "                   [--offline] [--nginx] [--version]\n\n" +
-        "Builds the site in publish mode — a build without --serve, which is what\n" +
-        "makes cross-wiki links resolve to published rather than localhost URLs —\n" +
-        "into a staging directory, then renames it into place. A failed build leaves\n" +
-        "the standing release untouched; the one it replaces is kept as\n" +
-        ".release-prev, so a rollback is a rename.\n\n" +
-        "--offline builds a handoff copy into site/handoff instead: browser-only\n" +
-        "plugins off, every link rewritten to a real .html file, every script\n" +
-        "removed. Zip it and send it — the reader opens index.html by\n" +
-        "double-clicking, with no server and no internet.\n\n" +
-        "Mermaid diagrams are pre-rendered to PNG for --offline, since Quartz draws\n" +
-        "them in the reader's browser from a CDN and neither is available from a\n" +
-        "folder. --diagrams none leaves them as source text. A served site never\n" +
-        "pre-renders: there the browser draws them, themed and searchable.\n\n" +
-        "--nginx prints a server block for the release and exits without building.",
-    )
-    return 0
-  }
 
   const root = values.wiki && values.site ? null : requireProjectRoot(die)
   const wiki = values.wiki ? path.resolve(values.wiki) : path.join(root, "docs/wiki")
