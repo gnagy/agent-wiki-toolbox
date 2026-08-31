@@ -8,7 +8,7 @@
  * the thing being tested is the server an agent talks to.
  */
 import assert from 'node:assert/strict'
-import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
@@ -93,7 +93,7 @@ test('the wiki-docs lookup workflow runs end to end', async (t) => {
   assert.equal(health.healthy, true)
 })
 
-test('the surface is twelve tools, and every write is one of them', async (t) => {
+test('the surface is thirteen tools, and every write is one of them', async (t) => {
   const box = wiki()
   t.after(() => box.cleanup())
   const client = await connect(box.root)
@@ -107,6 +107,7 @@ test('the surface is twelve tools, and every write is one of them', async (t) =>
       'check',
       'connections',
       'delete',
+      'fmt',
       'merge_files',
       'move',
       'rename',
@@ -163,4 +164,64 @@ test('a verb that refuses reports in the same shape as one that finished', async
   )
   assert.equal(report.ok, false)
   assert.match(report.notes.join(' '), /no heading "Nope"/)
+})
+
+/**
+ * The gap `fmt` fills is not the write verbs — everything they write already goes
+ * out through the serializer ([[toolbox-decisions]] 19). It is the prose an agent
+ * writes with its own `Write` and `Edit`, which is most of what lands in a wiki,
+ * and which had no route to the formatter except a shell and a translated path.
+ */
+test('fmt formats a note named the way every other tool names one', async (t) => {
+  const box = wiki()
+  t.after(() => box.cleanup())
+  writeFileSync(join(box.root, 'meta/conventions.md'), '# Conventions\n\n* one\n* two\n')
+  const client = await connect(box.root, ['--allow-writes'])
+  t.after(() => client.close())
+
+  // dryRun is the surface's name for what the CLI calls --check: it says the note
+  // is unformatted and leaves it that way.
+  const preview = json(
+    await client.callTool({name: 'fmt', arguments: {paths: ['meta/conventions.md'], dryRun: true}}),
+  )
+  assert.equal(preview.ok, false)
+  assert.match(preview.report, /conventions\.md/)
+  assert.match(readFileSync(join(box.root, 'meta/conventions.md'), 'utf8'), /^\* one$/m)
+
+  const done = json(await client.callTool({name: 'fmt', arguments: {paths: ['meta/conventions.md']}}))
+  assert.equal(done.ok, true)
+  assert.equal(readFileSync(join(box.root, 'meta/conventions.md'), 'utf8'), '# Conventions\n\n- one\n- two\n')
+})
+
+/**
+ * A wikilink is the thing a plain remark pipeline escapes to `\[\[link]]`, which
+ * still renders and silently takes every edge with it. The whole reason this tool
+ * exists rather than the agent reaching for any other formatter.
+ */
+test('fmt leaves the wikilinks and embeds intact', async (t) => {
+  const box = wiki()
+  t.after(() => box.cleanup())
+  writeFileSync(join(box.root, 'design/shape.md'), '# Shape\n\nSee [[conventions]] and ![[missing-note]].\n')
+  const client = await connect(box.root, ['--allow-writes'])
+  t.after(() => client.close())
+
+  assert.equal(json(await client.callTool({name: 'fmt', arguments: {}})).ok, true)
+  const after = readFileSync(join(box.root, 'design/shape.md'), 'utf8')
+  assert.match(after, /\[\[conventions\]\]/)
+  assert.match(after, /!\[\[missing-note\]\]/)
+
+  // …and the graph still has the edge, which is the assertion a text diff cannot make.
+  const health = json(await client.callTool({name: 'check', arguments: {}}))
+  assert.deepEqual(health.problems, [])
+  assert.deepEqual(health.placeholders.map((entry) => entry.target), ['missing-note'])
+})
+
+test('fmt is a write, so a read-only server refuses it', async (t) => {
+  const box = wiki()
+  t.after(() => box.cleanup())
+  const client = await connect(box.root)
+  t.after(() => client.close())
+
+  const refusal = json(await client.callTool({name: 'fmt', arguments: {}}))
+  assert.match(refusal.error, /--allow-writes/)
 })

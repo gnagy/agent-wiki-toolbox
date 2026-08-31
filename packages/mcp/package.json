@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@agent-wiki-toolbox/core": "*",
+    "@agent-wiki-toolbox/format": "*",
     "@agent-wiki-toolbox/syntax": "*",
     "@agent-wiki-toolbox/verbs": "*",
     "@modelcontextprotocol/sdk": "^1.30.0",

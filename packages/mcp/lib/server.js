@@ -1,6 +1,6 @@
 /**
- * The agent-facing surface: twelve tools, shaped for this estate rather than ported
- * from Foam's twenty-five ([[toolbox-decisions]] 24).
+ * The agent-facing surface: thirteen tools, shaped for this estate rather than
+ * ported from Foam's twenty-five ([[toolbox-decisions]] 24).
  *
  * The rule that decided the list: **a tool earns its place only if it answers
  * something that cannot be answered by opening a file.** Reading a note, listing its
@@ -28,6 +28,7 @@ import {
 } from '@agent-wiki-toolbox/verbs'
 
 import {connections} from './connections.js'
+import {fmt} from './fmt-tool.js'
 import {resolve} from './resolve-tool.js'
 import {search} from './search.js'
 
@@ -176,10 +177,25 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
       },
       (args) => buildListing(root, args),
     ],
+    [
+      'fmt',
+      'Format notes the way IntelliJ formats it — tables as aligned rectangles, and the wikilink and ' +
+        'embed syntax the toolbox knows about and a plain remark pipeline destroys. Paths are ' +
+        'workspace-relative; no path formats the whole wiki. Use it after writing prose with your own ' +
+        'Write or Edit; the write verbs already serialise everything they touch. dryRun is what the ' +
+        'CLI calls --check: it names what is unformatted and writes nothing.',
+      {
+        paths: z.array(z.string()).optional().describe('workspace-relative notes or folders, e.g. meta/conventions.md'),
+      },
+      // `--check` on the CLI and `dryRun` here are the same run, and it keeps that
+      // name because every other write tool on this surface previews under that
+      // one. A second knob meaning the same thing is how one of them goes stale.
+      (args) => fmt(root, {...args, check: args.dryRun === true}),
+    ],
   ]
 
   for (const [toolName, description, schema, handler] of readOnly) {
-    server.tool(toolName, description, schema, async (args) => reply(handler(args ?? {})))
+    server.tool(toolName, description, schema, async (args) => reply(await handler(args ?? {})))
   }
 
   for (const [toolName, description, schema, handler] of writes) {
@@ -190,7 +206,9 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
         })
       }
       try {
-        return reply(handler(args ?? {}))
+        // Awaited, because `fmt` runs a whole unified pipeline and the verbs do
+        // not. An un-awaited promise here serialises as `{}` and reads as success.
+        return reply(await handler(args ?? {}))
       } catch (error) {
         // A verb that cannot start reports in the same shape as one that finished
         // partially: the caller should never have to tell a refusal from a crash.
