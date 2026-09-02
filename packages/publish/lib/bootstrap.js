@@ -11,13 +11,14 @@
  * lives there rather than in this script because each project bumps on its own
  * schedule.
  *
- * Usage, from anywhere inside a project laid out as `docs/wiki` + `site`:
+ * Usage, from anywhere inside a project (the site is `<rootDir>/site`, found
+ * through awt.config.mjs by `awt`; the legacy `site/` beside `docs/wiki` still resolves):
  *     awt bootstrap-quartz                  # clone or re-pin, then install
  *     awt bootstrap-quartz --site path      # explicit path, resolved against cwd
  *     awt bootstrap-quartz --force          # discard and re-clone
  *
- * With no --site it walks up for the nearest `site/quartz.config.yaml`, so the
- * current directory does not matter. See lib/project-root.js.
+ * With no --site it walks up for the legacy `site/quartz.config.yaml` marker —
+ * `awt bootstrap-quartz` always passes --site, resolved from the project config.
  *
  * Idempotent: safe to re-run, and re-running is how a Quartz bump or a newly
  * installed version of these tools is applied. Needs `git`, `node` and `npm`.

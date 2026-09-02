@@ -59,9 +59,9 @@ function promoteHeadings(nodes, depth) {
  * @param plan   `[{heading, path}]` — every section to extract, and where it goes.
  * @param source `'delete' | 'stub' | 'keep'` — the source note's fate. No default.
  */
-export function splitByHeading(root, {path, plan, source, workspace, dryRun} = {}) {
+export function splitByHeading(notesDir, {path, plan, source, workspace, dryRun} = {}) {
   const verb = 'splitByHeading'
-  const context = createContext(root, {workspace, dryRun})
+  const context = createContext(notesDir, {workspace, dryRun})
   const index = context.workspace
   const notes = []
   const unresolved = []

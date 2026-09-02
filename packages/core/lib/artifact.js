@@ -82,7 +82,7 @@ export function materialiseIndex(workspace) {
 
   return {
     version: ARTIFACT_VERSION,
-    root: workspace.root,
+    notesDir: workspace.notesDir,
     slugs: workspace.resources.map((resource) => resource.slug).sort(),
     pages,
   }

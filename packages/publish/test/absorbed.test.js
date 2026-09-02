@@ -90,7 +90,7 @@ function site(t, {links, rendered, ambiguous = [], root = true}) {
     index,
     JSON.stringify({
       version: 1,
-      root: root ? wiki : join(dir, 'gone'),
+      notesDir: root ? wiki : join(dir, "gone"),
       slugs: ['one'],
       pages: {
         one: {

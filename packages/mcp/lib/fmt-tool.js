@@ -19,17 +19,18 @@
  */
 import {collectStream, loadProjectConfig, runFormat} from '@agent-wiki-toolbox/format'
 
-export async function fmt(root, {paths = [], check = false} = {}) {
-  // From the wiki root, never from the cwd: the server's cwd is wherever the agent
-  // was started, which has nothing to do with the wiki it was pointed at.
-  const {config, filepath} = await loadProjectConfig(root)
+export async function fmt(notesDir, {paths = [], check = false, globBase = null} = {}) {
+  // From the notes directory, never from the cwd: the server's cwd is wherever the
+  // agent was started, which has nothing to do with the wiki it was pointed at.
+  const {config, filepath} = await loadProjectConfig(notesDir)
   const report = collectStream()
 
   const result = await runFormat({
     files: paths,
     config,
     configPath: filepath,
-    cwd: root,
+    globBase: globBase ?? undefined,
+    cwd: notesDir,
     mode: check ? 'check' : 'format',
     color: false,
     streamError: report,

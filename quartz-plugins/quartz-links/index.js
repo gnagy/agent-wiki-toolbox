@@ -117,14 +117,14 @@ export const AwtLinks = (userOptions) => {
         return []
       }
 
-      const newest = artifact.root ? newestNote(artifact.root) : null
+      const newest = artifact.notesDir ? newestNote(artifact.notesDir) : null
       if (newest === null) {
         console.warn(
-          `⚠ awt-links: cannot read ${artifact.root} to tell whether ${file} is current; comparing anyway.`,
+          `⚠ awt-links: cannot read ${artifact.notesDir} to tell whether ${file} is current; comparing anyway.`,
         )
       } else if (newest > emitted) {
         refuse(
-          `${file} is older than the newest note in ${artifact.root}.\n` +
+          `${file} is older than the newest note in ${artifact.notesDir}.\n` +
             '  Comparing against a stale index reports disagreements that are not real and\n' +
             '  hides ones that are. Build with `awt serve` or `awt publish`.',
         )

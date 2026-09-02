@@ -51,7 +51,7 @@ export function search(workspace, {query, fields, tag, type, area, topic, limit 
       // Read the body here rather than holding every note's text in the index: the
       // index is written to a cache file, and 181 note bodies is a different
       // artifact from 181 note summaries.
-      const lines = readFileSync(join(workspace.root, resource.path), 'utf8').split('\n')
+      const lines = readFileSync(join(workspace.notesDir, resource.path), 'utf8').split('\n')
       lines.forEach((line, offset) => {
         if (matcher.test(line)) matches.push({field: 'text', line: offset + 1, text: line.trim()})
       })

@@ -118,7 +118,7 @@ export function check(workspace) {
   }
 
   return {
-    root: workspace.root,
+    notesDir: workspace.notesDir,
     notes: workspace.resources.length,
     links: workspace.edges.length,
     problems,

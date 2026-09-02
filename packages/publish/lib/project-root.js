@@ -15,6 +15,12 @@
  * The marker is `<site>/quartz.config.yaml` rather than `quartz.pin`, so a
  * project that has a site but has not pinned a commit is still *found* and gets
  * the specific "no quartz.pin" error instead of a misleading "no site here".
+ *
+ * **This is the legacy walk.** The marker every command uses now is the project's
+ * `awt.config.mjs`, and the site is a fixed name under the `rootDir` it names
+ * ([[toolbox-decisions]] 38) — `cli` resolves that and hands every publish command
+ * explicit paths. What is left here is the fallback for a project laid out the old
+ * way and driven without `cli`, and it looks only for the old shape.
  */
 
 import fs from "node:fs"

@@ -87,6 +87,9 @@ export function runFormat({
   files,
   config = {},
   configPath,
+  // Where the schema globs are read from; the notes directory under a `rootDir`
+  // layout, else the config's own directory. See `anchorSchemas`.
+  globBase,
   mode = 'format',
   // Only the files with something wrong, which is what every comparable formatter
   // reports. Listing the ones that were fine made `awt fmt --check` on a wiki 76
@@ -99,7 +102,7 @@ export function runFormat({
   // a string wants the filename it can match on, not the escape codes around it.
   color = true,
 } = {}) {
-  const processor = buildProcessor(anchorSchemas(config, configPath, cwd), mode)
+  const processor = buildProcessor(anchorSchemas(config, configPath, cwd, globBase ?? undefined), mode)
   const roots = files?.length ? files : (config.files ?? ['.'])
 
   const wrong = notMarkdown(roots, cwd)

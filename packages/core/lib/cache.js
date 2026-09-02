@@ -33,21 +33,21 @@ export function cacheDirectory() {
   return join(base, 'agent-wiki-toolbox')
 }
 
-export function cachePathFor(root) {
-  let real = root
+export function cachePathFor(notesDir) {
+  let real = notesDir
   try {
-    real = realpathSync(root)
+    real = realpathSync(notesDir)
   } catch {
-    // A root that cannot be resolved cannot be cached against; the key is still
+    // A notes directory that cannot be resolved cannot be cached against; the key is still
     // stable for the string we were given.
   }
   return join(cacheDirectory(), `${createHash('sha256').update(real).digest('hex').slice(0, 32)}.json`)
 }
 
 /** The cached entries for a workspace, or an empty map for anything unusable. */
-export function readCache(root) {
+export function readCache(notesDir) {
   try {
-    const cached = JSON.parse(readFileSync(cachePathFor(root), 'utf8'))
+    const cached = JSON.parse(readFileSync(cachePathFor(notesDir), 'utf8'))
     if (cached.version !== INDEX_VERSION) return new Map()
     return new Map(Object.entries(cached.entries))
   } catch {
@@ -61,12 +61,12 @@ export function readCache(root) {
  * Write via a temporary file and rename, because two processes legitimately write
  * this at once — an agent's MCP call during a site build.
  */
-export function writeCache(root, entries) {
-  const path = cachePathFor(root)
+export function writeCache(notesDir, entries) {
+  const path = cachePathFor(notesDir)
   const temporary = `${path}.${process.pid}.tmp`
   mkdirSync(cacheDirectory(), {recursive: true})
   try {
-    writeFileSync(temporary, JSON.stringify({version: INDEX_VERSION, root, entries: Object.fromEntries(entries)}))
+    writeFileSync(temporary, JSON.stringify({version: INDEX_VERSION, notesDir, entries: Object.fromEntries(entries)}))
     renameSync(temporary, path)
   } catch {
     if (existsSync(temporary)) {

@@ -29,8 +29,8 @@ const INTERNAL = new Set(['wiki', 'embed', 'markdown'])
  * `cache: false` forces a cold read — what a benchmark wants, and what to reach for
  * when a cache is suspected of lying.
  */
-export function loadWorkspace(root, {cache = true} = {}) {
-  const previous = cache ? readCache(root) : new Map()
+export function loadWorkspace(notesDir, {cache = true} = {}) {
+  const previous = cache ? readCache(notesDir) : new Map()
   const entries = new Map()
   const resources = []
   const stats = {parsed: 0, reused: 0, hashed: 0}
@@ -39,8 +39,8 @@ export function loadWorkspace(root, {cache = true} = {}) {
   // then on, and is re-read and re-hashed forever.
   let restatted = false
 
-  for (const path of walkNotes(root)) {
-    const absolute = join(root, path)
+  for (const path of walkNotes(notesDir)) {
+    const absolute = join(notesDir, path)
     const {size, mtimeMs} = statSync(absolute)
     const known = previous.get(path)
 
@@ -72,13 +72,13 @@ export function loadWorkspace(root, {cache = true} = {}) {
     stats.parsed++
   }
 
-  if (cache && (stats.parsed > 0 || restatted || entries.size !== previous.size)) writeCache(root, entries)
+  if (cache && (stats.parsed > 0 || restatted || entries.size !== previous.size)) writeCache(notesDir, entries)
 
-  return buildWorkspace(root, resources, stats)
+  return buildWorkspace(notesDir, resources, stats)
 }
 
 /** The graph over an already-parsed set of resources. Pure, and the unit tests' door in. */
-export function buildWorkspace(root, resources, stats = {}) {
+export function buildWorkspace(notesDir, resources, stats = {}) {
   const byPath = new Map(resources.map((resource) => [resource.path, resource]))
   const {resolve, resolveRelative, bySlug} = createResolver(resources)
 
@@ -218,7 +218,7 @@ export function buildWorkspace(root, resources, stats = {}) {
   }
 
   return {
-    root,
+    notesDir,
     stats,
     resources,
     byPath,

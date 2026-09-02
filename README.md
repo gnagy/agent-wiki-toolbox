@@ -67,22 +67,40 @@ server and the site build. There is no second binary to reach for.
 
 ```shell
 awt --help                       # every operation, in one list
-awt check -w docs/wiki           # everything wrong with the link graph, in one call
+awt check                        # everything wrong with the link graph, in one call
 awt search 'unique basenames'    # note bodies, titles, front matter and tags
-awt move docs/a.md docs/b.md     # …rewriting every link into it
-awt index -w docs/wiki --out site/.awt-index.json
-awt mcp -w docs/wiki --allow-writes
+awt move a.md design/a.md        # …rewriting every link into it
+awt index --out wiki/site/.awt-index.json
+awt mcp --allow-writes           # the MCP server, over stdio
 awt bootstrap-quartz             # clone or re-pin the renderer a site builds from
 awt serve                        # emit the index, then Quartz's dev server
-awt publish                      # build, then swap into site/release
+awt publish                      # build, then swap into wiki/site/release
 ```
 
-A project keeps its own settings in `awt.config.mjs` at its root — the formatter's, and the ports
-`awt serve` uses, so serving a wiki is `awt serve` and nothing else:
+**Every command finds the project from anywhere inside it**, by walking up to `awt.config.mjs` at
+the project root. That file names the wiki's home once, and every other directory is a fixed name
+inside it:
+
+```
+awt.config.mjs      # the marker; rootDir names the home, and defaults to ./wiki
+wiki/
+  notes/            # the wiki root — what -w means when you do not pass it
+  site/             # quartz.config.yaml, quartz.pin, and the build's leavings
+  schemas/          # front-matter schemas
+  inbox/            # the interop inbox
+```
 
 ```js
-export default {serve: {port: 8101}}   // wsPort defaults to port + 100
+export default {
+  rootDir: './wiki',                    // the default; write it only to move the home
+  serve: {port: 8101},                  // wsPort defaults to port + 100
+  schemas: {'./wiki/schemas/note.schema.json': ['meta/**/*.md']},   // globs are notes-relative
+}
 ```
+
+`-w` and `$AWT_WORKSPACE` still name the notes outright, which is what a scratch directory with no
+project around it needs. A project still laid out as `docs/wiki` beside `site/` keeps working, with
+one line on stderr saying how to move; the `wiki-docs` skill's `adoption.md` carries the steps.
 
 Install it with `bin/install`, which is the only step that exposes a change: builds and agent jobs
 read `~/.local/lib/agent-wiki-toolbox`, never this working copy.

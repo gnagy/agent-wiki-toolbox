@@ -9,8 +9,8 @@
  */
 import {createContext, finish, refuse} from './context.js'
 
-export function deleteNote(root, {path, workspace, dryRun} = {}) {
-  const context = createContext(root, {workspace, dryRun})
+export function deleteNote(notesDir, {path, workspace, dryRun} = {}) {
+  const context = createContext(notesDir, {workspace, dryRun})
   const index = context.workspace
   const notes = []
 

@@ -22,4 +22,12 @@ export {
   loadProjectConfig,
   resolveProjectConfig,
 } from './lib/config.js'
+export {
+  DEFAULT_ROOT_DIR,
+  HOME_LAYOUT,
+  LEGACY_LAYOUT,
+  findProject,
+  layoutFrom,
+  resolveLayout,
+} from './lib/layout.js'
 export {intellijTables, default as remarkIntellijTables} from './lib/intellij-tables.js'

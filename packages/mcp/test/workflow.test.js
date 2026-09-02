@@ -8,7 +8,7 @@
  * the thing being tested is the server an agent talks to.
  */
 import assert from 'node:assert/strict'
-import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
@@ -61,7 +61,8 @@ test('the wiki-docs lookup workflow runs end to end', async (t) => {
 
   // 1. Is the server up, and is this the wiki I mean?
   const info = json(await client.callTool({name: 'workspace_info', arguments: {}}))
-  assert.equal(info.root, box.root)
+  assert.equal(info.notesDir, box.root)
+  assert.equal(info.rootDir, null, 'a bare wiki directory has no home around it')
   assert.equal(info.notes, 3)
   assert.equal(info.allowWrites, false)
   // …and the tag vocabulary, so a near-duplicate is visible before it is coined.
@@ -244,4 +245,35 @@ test('a read-only server checks formatting but will not fix it', async (t) => {
   const {tools} = await client.listTools()
   const described = tools.find((tool) => tool.name === 'fmt').description
   assert.match(described, /read-only/)
+})
+
+/**
+ * `awt mcp --allow-writes` with no path: the server finds the project's config from
+ * its cwd — an agent harness starts it from the project root — and reports both
+ * directories under distinct names, so an agent never infers one from the other.
+ */
+test('with no --workspace the server means the project layout, and reports rootDir beside notesDir', async (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'awt-mcp-layout-')))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  writeFileSync(join(dir, 'awt.config.mjs'), 'export default {}\n')
+  mkdirSync(join(dir, 'wiki/notes'), {recursive: true})
+  writeFileSync(join(dir, 'wiki/notes/index.md'), '# W\n')
+  writeFileSync(join(dir, 'README.md'), '# not a note\n')
+
+  const client = new Client({name: 'workflow-test', version: '0'})
+  await client.connect(
+    new StdioClientTransport({
+      command: process.execPath,
+      args: [SERVER],
+      cwd: dir,
+      env: {...process.env, AWT_WORKSPACE: '', XDG_CACHE_HOME: join(dir, 'cache')},
+    }),
+  )
+  t.after(() => client.close())
+
+  const info = json(await client.callTool({name: 'workspace_info', arguments: {}}))
+  assert.equal(info.notesDir, join(dir, 'wiki/notes'))
+  assert.equal(info.rootDir, join(dir, 'wiki'))
+  assert.equal(info.notes, 1)
+  assert.ok(!('root' in info))
 })

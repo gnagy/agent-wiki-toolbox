@@ -33,9 +33,9 @@ const AREA_TITLES = {
  * @param columns  `['note', 'topic', 'about']` by default; drop `topic` for a wiki
  *                 that has no topic axis.
  */
-export function buildListing(root, {path = 'index.md', areas, columns, workspace, dryRun} = {}) {
+export function buildListing(notesDir, {path = 'index.md', areas, columns, workspace, dryRun} = {}) {
   const verb = 'buildListing'
-  const context = createContext(root, {workspace, dryRun})
+  const context = createContext(notesDir, {workspace, dryRun})
   const index = context.workspace
 
   if (!context.edit.exists(path)) throw refuse(verb, `no listing file at ${path}`)

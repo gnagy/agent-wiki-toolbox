@@ -37,12 +37,27 @@ function reply(value) {
   return {content: [{type: 'text', text: JSON.stringify(value, null, 1)}]}
 }
 
-export function createServer({root, allowWrites = false, name = 'agent-wiki-toolbox'} = {}) {
+/**
+ * `notesDir` is the wiki this server answers for — the notes, never the home around
+ * them. `rootDir` is that home when the project has one ([[toolbox-decisions]]
+ * 38), reported so an agent sees both directories under distinct names rather than
+ * inferring one from the other; null on a legacy layout or a bare directory.
+ * `schemaGlobBase` is where `fmt` reads the schema globs from — the notes
+ * directory under a `rootDir` layout — and is null when the config's own
+ * directory is the base.
+ */
+export function createServer({
+  notesDir,
+  rootDir = null,
+  schemaGlobBase = null,
+  allowWrites = false,
+  name = 'agent-wiki-toolbox',
+} = {}) {
   const server = new McpServer({name, version: '0.0.0'})
 
   // One in-process memo in front of the on-disk cache. Reloaded on every call, so
   // an edit made by anything else — the agent, the IDE, `git checkout` — is seen.
-  const index = () => loadWorkspace(root)
+  const index = () => loadWorkspace(notesDir)
 
   const readOnly = [
     [
@@ -90,13 +105,14 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
     ],
     [
       'workspace_info',
-      'Which wiki this server is talking to, how big it is, whether it may be written to, and its whole tag vocabulary.',
+      'Which wiki this server is talking to (notesDir, and the rootDir home around it when there is one), how big it is, whether it may be written to, and its whole tag vocabulary.',
       {},
       () => {
         const workspace = index()
         const health = check(workspace)
         return {
-          root,
+          notesDir,
+          rootDir,
           allowWrites,
           notes: workspace.resources.length,
           links: workspace.edges.length,
@@ -127,19 +143,19 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
       'rename',
       'Rename a note within its folder, rewriting every link into it.',
       {path: z.string(), name: z.string().describe('the new basename, e.g. new-name.md')},
-      (args) => renameNote(root, args),
+      (args) => renameNote(notesDir, args),
     ],
     [
       'move',
       'Move a note to a new path, rewriting every link into it.',
       {from: z.string(), to: z.string()},
-      (args) => moveNote(root, args),
+      (args) => moveNote(notesDir, args),
     ],
     [
       'delete',
       'Delete a note. Links into it are reported, not rewritten: an unresolved link is the backlog signal.',
       {path: z.string()},
-      (args) => deleteNote(root, args),
+      (args) => deleteNote(notesDir, args),
     ],
     [
       'split_by_heading',
@@ -150,7 +166,7 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
         plan: z.array(z.object({heading: z.string(), path: z.string()})).min(1),
         source: z.enum(['delete', 'stub', 'keep']),
       },
-      (args) => splitByHeading(root, args),
+      (args) => splitByHeading(notesDir, args),
     ],
     [
       'merge_files',
@@ -161,13 +177,13 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
         depth: z.number().int().min(1).max(6).optional(),
         source: z.enum(['delete', 'keep']),
       },
-      (args) => mergeFiles(root, args),
+      (args) => mergeFiles(notesDir, args),
     ],
     [
       'rename_tag',
       'Rename a front-matter tag everywhere it appears.',
       {from: z.string(), to: z.string()},
-      (args) => renameTag(root, args),
+      (args) => renameTag(notesDir, args),
     ],
     [
       'build_listing',
@@ -176,7 +192,7 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
         path: z.string().optional(),
         columns: z.array(z.enum(['note', 'topic', 'about'])).optional(),
       },
-      (args) => buildListing(root, args),
+      (args) => buildListing(notesDir, args),
     ],
   ]
 
@@ -218,7 +234,7 @@ export function createServer({root, allowWrites = false, name = 'agent-wiki-tool
         })
       }
       try {
-        return reply(await fmt(root, {...args, check: !allowWrites || args?.dryRun === true}))
+        return reply(await fmt(notesDir, {...args, globBase: schemaGlobBase, check: !allowWrites || args?.dryRun === true}))
       } catch (error) {
         return reply({ok: false, error: error.message})
       }

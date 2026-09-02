@@ -7,9 +7,14 @@
  * same ports every run instead of having them retyped.
  *
  *     export default {
+ *       rootDir: './wiki',            // the wiki home; this is the default
  *       serve: {port: 8101},          // wsPort defaults to port + 100
  *       settings: {bullet: '-'},
  *     }
+ *
+ * `rootDir` is read by everything: it names the directory holding the notes, the
+ * site, the schemas and the inbox — see `layout.js`. The file sits at the project
+ * root because it is the marker every command walks up to.
  *
  * Keys nothing recognises are inert, which is what lets one file serve several
  * subcommands without any of them validating the others' half.
@@ -197,8 +202,15 @@ export async function resolveProjectConfig(roots = [], cwd = process.cwd()) {
  *
  * Both are derived from `configDir`, so what a glob names does not depend on where
  * anything was started.
+ *
+ * **`globBase` is where the globs are read from, and it is the notes directory
+ * when the project has a `rootDir` layout** — so a map says `meta/**` rather than
+ * spelling `wiki/notes/meta/**` out, which would be the layout copied into a second
+ * place ([[toolbox-decisions]] 38). A legacy project, and a config with no layout
+ * around it, keep the config's directory as the base, which is what their globs
+ * were written against.
  */
-export function anchorSchemas(config = {}, configPath, cwd = process.cwd()) {
+export function anchorSchemas(config = {}, configPath, cwd = process.cwd(), globBase = configPath && dirname(configPath)) {
   if (!config.schemas || !configPath) return config
 
   const configDir = dirname(configPath)
@@ -208,7 +220,7 @@ export function anchorSchemas(config = {}, configPath, cwd = process.cwd()) {
     const key = relative(process.cwd(), resolvePath(configDir, schemaPath))
     anchored[key] = Array.isArray(globs)
       ? globs.map((glob) =>
-          typeof glob === 'string' ? relative(cwd, resolvePath(configDir, glob)) : glob,
+          typeof glob === 'string' ? relative(cwd, resolvePath(globBase, glob)) : glob,
         )
       : globs
   }

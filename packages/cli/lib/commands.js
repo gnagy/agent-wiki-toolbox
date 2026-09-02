@@ -19,7 +19,9 @@ import {check, loadWorkspace, writeIndexArtifact} from '@agent-wiki-toolbox/core
 import {
   AMBIGUOUS_CONFIG,
   collectStream,
+  layoutFrom,
   loadProjectConfig,
+  resolveLayout,
   resolveProjectConfig,
   runFormat,
 } from '@agent-wiki-toolbox/format'
@@ -34,9 +36,33 @@ import {
   splitByHeading,
 } from '@agent-wiki-toolbox/verbs'
 
-/** The wiki a command works on: `--workspace`, else `$AWT_WORKSPACE`, else here. */
-function workspaceRoot(values) {
-  return resolvePath(values.workspace ?? process.env.AWT_WORKSPACE ?? process.cwd())
+/**
+ * The notes a command works on: `--workspace`, else `$AWT_WORKSPACE`, else the
+ * project's own layout, else here.
+ *
+ * The third step is what lets `awt check` run from a repo root and mean the wiki
+ * rather than every markdown file in the repo: the nearest `awt.config.mjs` names
+ * the home and the notes are a fixed name inside it ([[toolbox-decisions]] 38). A
+ * bare directory with no project around it still means itself, which is what every
+ * test and every one-off run over a scratch wiki relies on.
+ */
+async function notesDirFor(values) {
+  const explicit = values.workspace ?? process.env.AWT_WORKSPACE
+  if (explicit) return resolvePath(explicit)
+  const layout = await resolveLayout()
+  return layout?.notesDir ?? process.cwd()
+}
+
+/** The whole layout, for the commands that need the site as well as the notes. */
+async function layoutFor(command, values) {
+  const layout = await resolveLayout()
+  if (layout) return layout
+  if (values.wiki && values.site) return null
+  process.stderr.write(
+    `awt ${command}: no awt.config.mjs here or in any parent, and no site/quartz.config.yaml either.\n` +
+      '  Run this from inside the project, or pass --wiki and --site.\n',
+  )
+  return undefined
 }
 
 const WORKSPACE_OPTION = {workspace: {type: 'string', short: 'w'}}
@@ -57,7 +83,7 @@ export const COMMON_OPTIONS = [
   {
     name: 'workspace',
     flags: '-w, --workspace DIR',
-    text: 'the wiki to work on (default: $AWT_WORKSPACE, else the current directory)',
+    text: "the notes to work on (default: $AWT_WORKSPACE, else the project's rootDir/notes, else here)",
     note: 'publish, serve and bootstrap-quartz name a wiki and a site separately',
   },
   {name: 'json', flags: '    --json', text: 'structured output, for a program rather than a person'},
@@ -109,9 +135,9 @@ function reportLines(report) {
 }
 
 /** A verb that refuses reports in the same shape as one that finished partially. */
-function runVerb(values, action) {
+async function runVerb(values, action) {
   try {
-    const report = action()
+    const report = await action()
     emit(values, report, reportLines)
     return report.ok ? 0 : 1
   } catch (error) {
@@ -134,15 +160,10 @@ function runVerb(values, action) {
  * anywhere inside it. Returns an exit code.
  */
 async function emitIndexForSite(command, values) {
-  const {findProjectRoot} = await import('@agent-wiki-toolbox/publish/project-root')
-  const explicit = Boolean(values.wiki && values.site)
-  const root = explicit ? null : findProjectRoot()
-  if (!root && !explicit) {
-    process.stderr.write(`awt ${command}: no site/quartz.config.yaml here or in any parent\n`)
-    return 2
-  }
-  const wiki = values.wiki ? resolvePath(values.wiki) : resolvePath(root, 'docs/wiki')
-  const site = values.site ? resolvePath(values.site) : resolvePath(root, 'site')
+  const layout = await layoutFor(command, values)
+  if (layout === undefined) return 2
+  const wiki = values.wiki ? resolvePath(values.wiki) : layout.notesDir
+  const site = values.site ? resolvePath(values.site) : layout.siteDir
   const workspace = loadWorkspace(wiki)
   writeIndexArtifact(workspace, resolvePath(site, '.awt-index.json'))
   process.stdout.write(`index: ${workspace.resources.length} notes, ${workspace.edges.length} links\n`)
@@ -178,7 +199,7 @@ export const COMMANDS = [
      * sight, and the config comes from the files named rather than from the cwd.
      */
     async run({values, positionals}) {
-      const cwd = values.workspace ? workspaceRoot(values) : process.cwd()
+      const cwd = values.workspace ? await notesDirFor(values) : process.cwd()
 
       let config
       let configPath
@@ -206,11 +227,16 @@ export const COMMANDS = [
       // The report is collected rather than streamed so the verdict can go above
       // it, the way `check`'s does. Nothing else on this binary makes you read to
       // the end to find out whether it worked.
+      // Under a rootDir layout the schema globs are read from the notes directory
+      // (they say `meta/**`, not the layout again); a legacy or bare config keeps
+      // its own directory as the base, which is what its globs were written for.
+      const layout = configPath ? layoutFrom(config, configPath) : null
       const report = collectStream()
       const result = await runFormat({
         files: positionals,
         config,
         configPath,
+        globBase: layout && !layout.legacy ? layout.notesDir : undefined,
         cwd,
         mode: values.check ? 'check' : 'format',
         quiet: !values.verbose,
@@ -240,7 +266,7 @@ export const COMMANDS = [
      * the exit code carries the answer.
      */
     async run({values}) {
-      const health = check(loadWorkspace(workspaceRoot(values)))
+      const health = check(loadWorkspace(await notesDirFor(values)))
       emit(values, health, (value) => {
         const problems = value.problems.map(
           (problem) => `  ${problem.severity} ${problem.path}:${problem.line} [${problem.rule}] ${problem.message}`,
@@ -266,7 +292,7 @@ export const COMMANDS = [
         process.stderr.write('awt index needs --out\n')
         return 2
       }
-      const root = workspaceRoot(values)
+      const root = await notesDirFor(values)
       const workspace = loadWorkspace(root)
       const artifact = writeIndexArtifact(workspace, resolvePath(values.out))
       process.stdout.write(
@@ -300,7 +326,7 @@ export const COMMANDS = [
      * and agent reading the text could not, which is the worst way round.
      */
     async run({values, positionals}) {
-      const found = search(loadWorkspace(workspaceRoot(values)), {
+      const found = search(loadWorkspace(await notesDirFor(values)), {
         query: positionals.join(' ') || undefined,
         tag: values.tag,
         type: values.type,
@@ -328,7 +354,7 @@ export const COMMANDS = [
     usage: 'awt connections <path> [--depth n] [--direction in|out|both]',
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, depth: {type: 'string'}, direction: {type: 'string'}},
     async run({values, positionals}) {
-      const result = connections(loadWorkspace(workspaceRoot(values)), {
+      const result = connections(loadWorkspace(await notesDirFor(values)), {
         path: positionals[0],
         depth: values.depth ? Number(values.depth) : undefined,
         direction: values.direction,
@@ -355,7 +381,7 @@ export const COMMANDS = [
     usage: 'awt resolve <target> [--from note.md]',
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, from: {type: 'string'}},
     async run({values, positionals}) {
-      const outcome = resolveLink(loadWorkspace(workspaceRoot(values)), {
+      const outcome = resolveLink(loadWorkspace(await notesDirFor(values)), {
         target: positionals[0],
         from: values.from,
       })
@@ -378,8 +404,8 @@ export const COMMANDS = [
     usage: 'awt rename <path> <new-basename.md>',
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, 'dry-run': {type: 'boolean', default: false}},
     async run({values, positionals}) {
-      return runVerb(values, () =>
-        renameNote(workspaceRoot(values), {
+      return runVerb(values, async () =>
+        renameNote(await notesDirFor(values), {
           path: positionals[0],
           name: positionals[1],
           dryRun: values['dry-run'],
@@ -393,8 +419,8 @@ export const COMMANDS = [
     usage: 'awt move <from> <to>',
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, 'dry-run': {type: 'boolean', default: false}},
     async run({values, positionals}) {
-      return runVerb(values, () =>
-        moveNote(workspaceRoot(values), {from: positionals[0], to: positionals[1], dryRun: values['dry-run']}),
+      return runVerb(values, async () =>
+        moveNote(await notesDirFor(values), {from: positionals[0], to: positionals[1], dryRun: values['dry-run']}),
       )
     },
   },
@@ -404,8 +430,8 @@ export const COMMANDS = [
     usage: 'awt delete <path>',
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, 'dry-run': {type: 'boolean', default: false}},
     async run({values, positionals}) {
-      return runVerb(values, () =>
-        deleteNote(workspaceRoot(values), {path: positionals[0], dryRun: values['dry-run']}),
+      return runVerb(values, async () =>
+        deleteNote(await notesDirFor(values), {path: positionals[0], dryRun: values['dry-run']}),
       )
     },
   },
@@ -427,8 +453,8 @@ export const COMMANDS = [
         const at = entry.indexOf('=')
         return {heading: entry.slice(0, at), path: entry.slice(at + 1)}
       })
-      return runVerb(values, () =>
-        splitByHeading(workspaceRoot(values), {
+      return runVerb(values, async () =>
+        splitByHeading(await notesDirFor(values), {
           path: positionals[0],
           plan,
           source: values.source,
@@ -450,8 +476,8 @@ export const COMMANDS = [
       'dry-run': {type: 'boolean', default: false},
     },
     async run({values, positionals}) {
-      return runVerb(values, () =>
-        mergeFiles(workspaceRoot(values), {
+      return runVerb(values, async () =>
+        mergeFiles(await notesDirFor(values), {
           sources: positionals,
           into: values.into,
           source: values.source,
@@ -467,8 +493,8 @@ export const COMMANDS = [
     usage: 'awt rename-tag <from> <to>',
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, 'dry-run': {type: 'boolean', default: false}},
     async run({values, positionals}) {
-      return runVerb(values, () =>
-        renameTag(workspaceRoot(values), {from: positionals[0], to: positionals[1], dryRun: values['dry-run']}),
+      return runVerb(values, async () =>
+        renameTag(await notesDirFor(values), {from: positionals[0], to: positionals[1], dryRun: values['dry-run']}),
       )
     },
   },
@@ -484,8 +510,8 @@ export const COMMANDS = [
       'dry-run': {type: 'boolean', default: false},
     },
     async run({values}) {
-      return runVerb(values, () =>
-        buildListing(workspaceRoot(values), {
+      return runVerb(values, async () =>
+        buildListing(await notesDirFor(values), {
           path: values.path,
           columns: values.columns?.split(','),
           dryRun: values['dry-run'],
@@ -498,14 +524,24 @@ export const COMMANDS = [
     summary: 'Set up (or re-pin) the Quartz clone a site builds from, and link the toolbox plugins into it',
     usage: 'awt bootstrap-quartz [--site path] [--force]',
     notes: [
-      'Runs from anywhere inside the project: with no --site it walks up for the nearest',
-      'site/quartz.config.yaml. --site is resolved against the cwd.',
+      "Runs from anywhere inside the project: the site is <rootDir>/site, with rootDir from the project's",
+      'awt.config.mjs (default wiki/). --site names another one, resolved against the cwd.',
     ],
     options: {site: {type: 'string'}, force: {type: 'boolean', default: false}},
     async run({values, positionals}) {
       const {bootstrap} = await import('@agent-wiki-toolbox/publish')
+      const layout = values.site ? null : await resolveLayout()
+      const site = values.site ?? layout?.siteDir
+      if (!site) {
+        process.stderr.write(
+          'awt bootstrap-quartz: no awt.config.mjs here or in any parent, and no site/quartz.config.yaml either.\n' +
+            '  Run this from inside the project, or pass --site.\n',
+        )
+        return 2
+      }
       return bootstrap([
-        ...(values.site ? ['--site', values.site] : []),
+        '--site',
+        site,
         ...(values.force ? ['--force'] : []),
         ...positionals,
       ])
@@ -515,7 +551,7 @@ export const COMMANDS = [
     name: 'publish',
     summary: 'Build the site into a release, or a handoff copy with --offline. Emits the index first',
     usage:
-      'awt publish [--wiki docs/wiki] [--site site] [--out path] [--offline]\n' +
+      'awt publish [--wiki path] [--site path] [--out path] [--offline]\n' +
       '            [--diagrams png|none] [--nginx] [--skip-index]',
     notes: [
       'Builds in publish mode — a build without --serve, which is what makes cross-wiki links',
@@ -551,9 +587,15 @@ export const COMMANDS = [
         if (code !== 0) return code
       }
 
+      // Both paths always handed over, resolved here: `publish` may not reach
+      // `format`, which owns the layout, so its own walk is the legacy one.
+      const layout = await layoutFor('publish', values)
+      if (layout === undefined) return 2
       return publish([
-        ...(values.wiki ? ['--wiki', values.wiki] : []),
-        ...(values.site ? ['--site', values.site] : []),
+        '--wiki',
+        values.wiki ?? layout.notesDir,
+        '--site',
+        values.site ?? layout.siteDir,
         ...(values.out ? ['--out', values.out] : []),
         ...(values.offline ? ['--offline'] : []),
         ...(values.diagrams ? ['--diagrams', values.diagrams] : []),
@@ -594,16 +636,20 @@ export const COMMANDS = [
       }
 
       // Config discovery belongs to `format`, and `publish` may not reach it — so
-      // the ports are read here, where both are in scope, and handed over. Loaded
-      // from the project root rather than from the cwd, so `awt serve` finds the
-      // same project the build does no matter where in it you are standing.
-      const {findProjectRoot} = await import('@agent-wiki-toolbox/publish/project-root')
-      const {config} = await loadProjectConfig(findProjectRoot() ?? process.cwd())
+      // the layout and the ports are read here, where both are in scope, and
+      // handed over as explicit paths. The config is the project's, found by
+      // walking up, so `awt serve` finds the same project the build does no
+      // matter where in it you are standing.
+      const layout = await layoutFor('serve', values)
+      if (layout === undefined) return 2
+      const {config} = await loadProjectConfig(layout?.projectDir ?? process.cwd())
       const ports = config.serve ?? {}
 
       return serve([
-        ...(values.wiki ? ['--wiki', values.wiki] : []),
-        ...(values.site ? ['--site', values.site] : []),
+        '--wiki',
+        values.wiki ?? layout.notesDir,
+        '--site',
+        values.site ?? layout.siteDir,
         ...(values.out ? ['--out', values.out] : []),
         ...(values.port ? ['--port', values.port] : []),
         ...(values.wsPort ? ['--wsPort', values.wsPort] : []),
@@ -616,12 +662,20 @@ export const COMMANDS = [
     name: 'mcp',
     summary: 'Run the MCP server over stdio, for an agent to talk to',
     usage: 'awt mcp [--allow-writes] [--name n]',
+    notes: [
+      "With no -w the notes come from the project's awt.config.mjs — rootDir/notes, rootDir",
+      'defaulting to wiki/ — so an .mcp.json entry is `awt mcp --allow-writes` and names no path.',
+    ],
     options: {...WORKSPACE_OPTION, 'allow-writes': {type: 'boolean', default: false}, name: {type: 'string'}},
     async run({values}) {
       const {createServer} = await import('@agent-wiki-toolbox/mcp')
       const {StdioServerTransport} = await import('@modelcontextprotocol/sdk/server/stdio.js')
+      const explicit = values.workspace ?? process.env.AWT_WORKSPACE
+      const layout = explicit ? null : await resolveLayout(process.cwd(), {quiet: true})
       const server = createServer({
-        root: workspaceRoot(values),
+        notesDir: explicit ? resolvePath(explicit) : (layout?.notesDir ?? process.cwd()),
+        rootDir: layout?.rootDir ?? null,
+        schemaGlobBase: layout && !layout.legacy ? layout.notesDir : null,
         allowWrites: values['allow-writes'],
         name: values.name,
       })

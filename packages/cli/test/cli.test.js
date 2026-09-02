@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
-import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
@@ -367,4 +367,47 @@ test('--json is the same answer, for a program', (t) => {
   t.after(() => box.cleanup())
   const parsed = JSON.parse(awt(['check', '-w', box.root, '--json']).stdout)
   assert.equal(parsed.notes, 1)
+})
+
+/**
+ * The layout ([[toolbox-decisions]] 38): with no -w, a command finds the project's
+ * awt.config.mjs by walking up and means `<rootDir>/notes` — so `awt check` from a
+ * repo root reads the wiki rather than every markdown file in the repo, and from
+ * `src/deep/` it reads the same wiki. A bare directory with no project around it
+ * still means itself.
+ */
+test('with no -w, a command means the project layout\'s notes from anywhere inside the project', (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'awt-layout-')))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  writeFileSync(join(dir, 'awt.config.mjs'), 'export default {}\n')
+  writeFileSync(join(dir, 'README.md'), '# Not a note\n\nSee [[nowhere]].\n')
+  mkdirSync(join(dir, 'wiki/notes/meta'), {recursive: true})
+  mkdirSync(join(dir, 'src/deep'), {recursive: true})
+  writeFileSync(join(dir, 'wiki/notes/index.md'), '# W\n\nSee [[conventions]].\n')
+  writeFileSync(join(dir, 'wiki/notes/meta/conventions.md'), '# Conventions\n\nBack to [[index]].\n')
+
+  for (const cwd of [dir, join(dir, 'src/deep'), join(dir, 'wiki/notes/meta')]) {
+    const parsed = JSON.parse(awt(['check', '--json'], {cwd}).stdout)
+    assert.equal(parsed.notesDir, join(dir, 'wiki/notes'), `from ${cwd}`)
+    assert.equal(parsed.notes, 2, `from ${cwd}: the README outside the notes is not a note`)
+    assert.ok(!('root' in parsed), 'the field is notesDir, not root')
+  }
+
+  // rootDir moves it.
+  writeFileSync(join(dir, 'awt.config.mjs'), "export default {rootDir: './kb'}\n")
+  mkdirSync(join(dir, 'kb/notes'), {recursive: true})
+  writeFileSync(join(dir, 'kb/notes/index.md'), '# K\n')
+  assert.equal(JSON.parse(awt(['check', '--json'], {cwd: join(dir, 'src')}).stdout).notesDir, join(dir, 'kb/notes'))
+})
+
+test('the old docs/wiki + site layout still resolves, and says so once', (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'awt-legacy-')))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  writeFileSync(join(dir, 'awt.config.mjs'), 'export default {}\n')
+  mkdirSync(join(dir, 'docs/wiki'), {recursive: true})
+  writeFileSync(join(dir, 'docs/wiki/index.md'), '# W\n')
+
+  const {stdout, stderr} = awt(['check', '--json'], {cwd: dir, env: {...process.env, AWT_QUIET_LEGACY: ''}})
+  assert.equal(JSON.parse(stdout).notesDir, join(dir, 'docs/wiki'))
+  assert.match(stderr, /laid out the old way/)
 })

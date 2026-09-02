@@ -9,9 +9,9 @@ import {editFrontmatter, sequenceItems} from '@agent-wiki-toolbox/syntax'
 
 import {createContext, finish, parseNote, refuse, serialize} from './context.js'
 
-export function renameTag(root, {from, to, workspace, dryRun} = {}) {
+export function renameTag(notesDir, {from, to, workspace, dryRun} = {}) {
   const verb = 'renameTag'
-  const context = createContext(root, {workspace, dryRun})
+  const context = createContext(notesDir, {workspace, dryRun})
   const index = context.workspace
   const notes = []
 

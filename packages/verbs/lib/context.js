@@ -13,10 +13,10 @@ import {createEdit} from './edit.js'
 
 const processor = buildProcessor()
 
-export function createContext(root, {workspace, dryRun = false} = {}) {
+export function createContext(notesDir, {workspace, dryRun = false} = {}) {
   return {
-    workspace: workspace ?? loadWorkspace(root),
-    edit: createEdit(root),
+    workspace: workspace ?? loadWorkspace(notesDir),
+    edit: createEdit(notesDir),
     processor,
     dryRun,
   }

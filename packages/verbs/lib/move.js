@@ -11,22 +11,22 @@ import {createContext, finish, parseNote, refuse, serialize} from './context.js'
 import {ambiguousStems, rebaseRelativeLinks, rewriteLinksInTree} from './rewrite.js'
 
 /** Move a note to a new path, rewriting every link into it. */
-export function moveNote(root, {from, to, workspace, dryRun} = {}) {
-  return relocate('moveNote', root, {from, to, workspace, dryRun})
+export function moveNote(notesDir, {from, to, workspace, dryRun} = {}) {
+  return relocate('moveNote', notesDir, {from, to, workspace, dryRun})
 }
 
 /** Rename a note within its own folder. Same machinery, narrower intent. */
-export function renameNote(root, {path, name, workspace, dryRun} = {}) {
+export function renameNote(notesDir, {path, name, workspace, dryRun} = {}) {
   if (!name || name.includes('/')) {
     throw refuse('renameNote', `"${name}" is a name, not a path — use moveNote to change the folder`)
   }
   const folder = path.split('/').slice(0, -1).join('/')
   const to = folder ? `${folder}/${name}` : name
-  return relocate('renameNote', root, {from: path, to, workspace, dryRun})
+  return relocate('renameNote', notesDir, {from: path, to, workspace, dryRun})
 }
 
-function relocate(verb, root, {from, to, workspace, dryRun}) {
-  const context = createContext(root, {workspace, dryRun})
+function relocate(verb, notesDir, {from, to, workspace, dryRun}) {
+  const context = createContext(notesDir, {workspace, dryRun})
   const index = context.workspace
   const notes = []
 

@@ -18,9 +18,9 @@ import {relativePathFrom, shortestResolvingForm, visitLinks} from './rewrite.js'
  * @param depth   heading depth for each source's section (default 2).
  * @param source  `'delete' | 'keep'` — what happens to the merged notes.
  */
-export function mergeFiles(root, {sources, into, depth = 2, source, workspace, dryRun} = {}) {
+export function mergeFiles(notesDir, {sources, into, depth = 2, source, workspace, dryRun} = {}) {
   const verb = 'mergeFiles'
-  const context = createContext(root, {workspace, dryRun})
+  const context = createContext(notesDir, {workspace, dryRun})
   const index = context.workspace
   const notes = []
   const unresolved = []

@@ -2,7 +2,8 @@
 /**
  * Run the MCP server over stdio.
  *
- *   awt mcp --workspace docs/wiki [--allow-writes]
+ *   awt mcp [--allow-writes]                 # the notes come from awt.config.mjs
+ *   awt mcp --workspace path [--allow-writes]
  *
  * Nothing is watched and nothing is held open: every call reloads the index, which
  * is a few `stat`s warm (decision 9). So the server may be started before the wiki
@@ -13,6 +14,7 @@ import {resolve} from 'node:path'
 import process from 'node:process'
 
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
+import {resolveLayout} from '@agent-wiki-toolbox/format'
 
 import {createServer} from '../index.js'
 
@@ -24,7 +26,18 @@ const {values} = parseArgs({
   },
 })
 
-const root = resolve(values.workspace ?? process.env.AWT_WORKSPACE ?? process.cwd())
-const server = createServer({root, allowWrites: values['allow-writes'], name: values.name})
+// `--workspace` and `$AWT_WORKSPACE` name the notes outright. With neither, the
+// project's own config says where they are: an agent harness starts this server
+// from the project root, so `awt mcp --allow-writes` is the whole entry and the
+// notes path is written in one place ([[toolbox-decisions]] 38).
+const explicit = values.workspace ?? process.env.AWT_WORKSPACE
+const layout = explicit ? null : await resolveLayout(process.cwd(), {quiet: true})
+const server = createServer({
+  notesDir: explicit ? resolve(explicit) : (layout?.notesDir ?? process.cwd()),
+  rootDir: layout?.rootDir ?? null,
+  schemaGlobBase: layout && !layout.legacy ? layout.notesDir : null,
+  allowWrites: values['allow-writes'],
+  name: values.name,
+})
 
 await server.connect(new StdioServerTransport())

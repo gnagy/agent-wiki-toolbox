@@ -110,7 +110,7 @@ test('every write tool exposes dryRun', (t) => {
   const box = wiki(NOTES)
   t.after(() => box.cleanup())
 
-  const tools = createServer({root: box.root, allowWrites: true})._registeredTools
+  const tools = createServer({notesDir: box.root, allowWrites: true})._registeredTools
   const writes = ['rename', 'move', 'delete', 'split_by_heading', 'merge_files', 'rename_tag', 'build_listing']
 
   for (const name of writes) {

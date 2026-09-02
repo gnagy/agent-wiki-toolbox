@@ -25,12 +25,12 @@ const hash = (source) => createHash('sha256').update(source).digest('hex')
  * so what it guarantees is per-file: each file is either written from the bytes we
  * read, or left alone and named in the report.
  */
-export function createEdit(root) {
+export function createEdit(notesDir) {
   const loaded = new Map()
   const pending = new Map()
 
   function absolute(path) {
-    return join(root, path)
+    return join(notesDir, path)
   }
 
   function load(path) {
@@ -42,7 +42,7 @@ export function createEdit(root) {
   }
 
   return {
-    root,
+    notesDir,
     load,
 
     exists(path) {

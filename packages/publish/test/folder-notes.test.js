@@ -24,7 +24,7 @@ function index(t) {
     file,
     JSON.stringify({
       version: 1,
-      root: dir,
+      notesDir: dir,
       slugs: ['campaigns/cosites-v2', 'campaigns/cosites-v2/design/one', 'notes/plain'],
       pages: {
         'campaigns/cosites-v2': {
