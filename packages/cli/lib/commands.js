@@ -199,7 +199,7 @@ export const COMMANDS = [
      * sight, and the config comes from the files named rather than from the cwd.
      */
     async run({values, positionals}) {
-      const cwd = values.workspace ? await notesDirFor(values) : process.cwd()
+      let cwd = values.workspace ? await notesDirFor(values) : process.cwd()
 
       let config
       let configPath
@@ -212,6 +212,16 @@ export const COMMANDS = [
         if (error.code !== AMBIGUOUS_CONFIG) throw error
         process.stderr.write(`awt fmt: ${error.message}\n`)
         return 2
+      }
+
+      // No path, no -w, no `files` in the config: inside a project, that means the
+      // wiki — the same reading `check` gives a bare command — and not every
+      // markdown file under wherever the shell is standing. A path names what to
+      // format; `files` in the config names it for the project; and with neither,
+      // a lone directory with no project around it still means itself.
+      if (!positionals.length && !values.workspace && !config.files) {
+        const layout = await resolveLayout(cwd, {quiet: true})
+        if (layout) cwd = layout.notesDir
       }
 
       if (values.stdin) {

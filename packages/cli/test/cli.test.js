@@ -411,3 +411,24 @@ test('the old docs/wiki + site layout still resolves, and says so once', (t) => 
   assert.equal(JSON.parse(stdout).notesDir, join(dir, 'docs/wiki'))
   assert.match(stderr, /laid out the old way/)
 })
+
+/**
+ * `awt fmt --check` with nothing named, inside a project, means the wiki — as a
+ * bare `awt check` does — rather than every markdown file under the cwd. The
+ * README beside the config is not a note and must not be reported.
+ */
+test('with no path, fmt inside a project means the notes', (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'awt-fmt-layout-')))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  writeFileSync(join(dir, 'awt.config.mjs'), 'export default {}\n')
+  writeFileSync(join(dir, 'README.md'), '# R\n\n* not a note, and unformatted\n')
+  mkdirSync(join(dir, 'wiki/notes'), {recursive: true})
+  writeFileSync(join(dir, 'wiki/notes/index.md'), '# W\n\n- fine\n')
+
+  const {status, stdout} = awt(['fmt', '--check'], {cwd: dir})
+  assert.equal(status, 0, stdout)
+  assert.match(stdout, /^1 file checked, all clean/)
+
+  // A path still names what to format, project or not.
+  assert.equal(awt(['fmt', '--check', 'README.md'], {cwd: dir}).status, 1)
+})

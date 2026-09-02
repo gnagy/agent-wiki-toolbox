@@ -98,6 +98,7 @@ export default {
 }
 ```
 
+A bare `awt fmt` inside a project means the notes too, unless the config's `files` says otherwise.
 `-w` and `$AWT_WORKSPACE` still name the notes outright, which is what a scratch directory with no
 project around it needs. A project still laid out as `docs/wiki` beside `site/` keeps working, with
 one line on stderr saying how to move; the `wiki-docs` skill's `adoption.md` carries the steps.
