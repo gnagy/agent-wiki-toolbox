@@ -324,7 +324,10 @@ test('renameNote refuses a path and takes a name', (t) => {
   const box = wiki({'design/old.md': `${front('Old')}Body.\n`})
   t.after(() => box.cleanup())
 
-  assert.throws(() => renameNote(box.root, {path: 'design/old.md', name: 'other/new.md'}), /not a path/)
+  // One message for every refused destination, showing the accepted form.
+  assert.throws(() => renameNote(box.root, {path: 'design/old.md', name: 'other/new.md'}), /<new-basename\.md>/)
+  assert.throws(() => renameNote(box.root, {path: 'design/old.md', name: 'new'}), /<new-basename\.md>/)
+  assert.throws(() => renameNote(box.root, {path: 'design/old.md', name: undefined}), /<new-basename\.md>/)
   const report = renameNote(box.root, {path: 'design/old.md', name: 'new.md'})
   assert.deepEqual(report.created, ['design/new.md'])
 })

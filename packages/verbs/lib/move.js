@@ -17,8 +17,8 @@ export function moveNote(notesDir, {from, to, workspace, dryRun} = {}) {
 
 /** Rename a note within its own folder. Same machinery, narrower intent. */
 export function renameNote(notesDir, {path, name, workspace, dryRun} = {}) {
-  if (!name || name.includes('/')) {
-    throw refuse('renameNote', `"${name}" is a name, not a path — use moveNote to change the folder`)
+  if (!name || name.includes('/') || !name.endsWith('.md')) {
+    throw refuse('renameNote', `the new name must be <new-basename.md>, got "${name}"; moveNote changes the folder`)
   }
   const folder = path.split('/').slice(0, -1).join('/')
   const to = folder ? `${folder}/${name}` : name
