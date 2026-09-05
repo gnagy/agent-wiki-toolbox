@@ -84,9 +84,9 @@ export const COMMON_OPTIONS = [
     name: 'workspace',
     flags: '-w, --workspace DIR',
     text: "the notes to work on (default: $AWT_WORKSPACE, else the project's rootDir/notes, else here)",
-    note: 'publish, serve and bootstrap-quartz name a wiki and a site separately',
+    note: 'publish, serve and bootstrap-quartz take --wiki and --site instead',
   },
-  {name: 'json', flags: '    --json', text: 'structured output, for a program rather than a person'},
+  {name: 'json', flags: '    --json', text: 'JSON output'},
   {name: 'dry-run', flags: '    --dry-run', text: 'report what it would do, write nothing'},
 ]
 
@@ -173,7 +173,7 @@ async function emitIndexForSite(command, values) {
 export const COMMANDS = [
   {
     name: 'fmt',
-    summary: 'Format markdown the way IntelliJ formats it. Works on a lone file with no wiki in sight',
+    summary: "Format markdown in IntelliJ's style, inside a wiki or on a lone file",
     usage:
       'awt fmt [paths...] [--verbose]\n' +
       '       awt fmt --check [paths...]\n' +
@@ -284,7 +284,7 @@ export const COMMANDS = [
   },
   {
     name: 'check',
-    summary: 'Everything wrong with the link graph, in one call. Placeholders are reported, not counted against you',
+    summary: 'Everything wrong with the link graph, in one call. Placeholders are reported separately and do not affect the exit code',
     usage: 'awt check [--quiet]',
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, quiet: {type: 'boolean', short: 'q', default: false}},
     /**
@@ -317,7 +317,7 @@ export const COMMANDS = [
   },
   {
     name: 'index',
-    summary: 'Write the index where a Quartz build can read it. Run this immediately before every build',
+    summary: 'Write the link-graph index to a file for a Quartz build to read',
     usage: 'awt index --out path.json',
     options: {...WORKSPACE_OPTION, out: {type: 'string'}},
     async run({values}) {
@@ -410,7 +410,7 @@ export const COMMANDS = [
   },
   {
     name: 'resolve',
-    summary: 'What a link points at — and, when it is ambiguous, what else matched',
+    summary: 'What a link points at, and what else matched when it is ambiguous',
     usage: 'awt resolve <target> [--from note.md]',
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, from: {type: 'string'}},
     async run({values, positionals}) {
@@ -459,7 +459,7 @@ export const COMMANDS = [
   },
   {
     name: 'delete',
-    summary: 'Delete a note. Links into it are reported, not rewritten — an unresolved link is the backlog signal',
+    summary: 'Delete a note. Links into it are reported, not rewritten',
     usage: 'awt delete <path>',
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, 'dry-run': {type: 'boolean', default: false}},
     async run({values, positionals}) {
@@ -470,7 +470,7 @@ export const COMMANDS = [
   },
   {
     name: 'split-by-heading',
-    summary: 'Split a note into several, one per named heading. You supply the plan; it invents no names',
+    summary: 'Split a note into several, one per heading named in the plan',
     usage:
       'awt split-by-heading <path> --source delete|stub|keep \\\n' +
       '         --section "Heading=target/path.md" [--section ...]',
@@ -533,9 +533,9 @@ export const COMMANDS = [
   },
   {
     name: 'build-listing',
-    summary: 'Regenerate the notes listing between its markers in the wiki index; everything outside is left alone',
+    summary: 'Regenerate the notes listing between its markers in the wiki index. Text outside the markers is not touched',
     usage: 'awt build-listing [--path index.md] [--columns note,about]',
-    notes: ['--columns defaults to note,about. topic and area are the other columns.'],
+    notes: ['--columns defaults to note,about; topic and area are the other columns.'],
     options: {
       ...WORKSPACE_OPTION,
       ...OUTPUT_OPTIONS,
@@ -588,19 +588,15 @@ export const COMMANDS = [
       'awt publish [--wiki path] [--site path] [--out path] [--offline]\n' +
       '            [--diagrams png|none] [--nginx] [--skip-index]',
     notes: [
-      'Builds in publish mode — a build without --serve, which is what makes cross-wiki links',
-      'resolve to published rather than localhost URLs — into a staging directory, then renames',
-      'it into place. A failed build leaves the standing release untouched; the one it replaces',
-      'is kept as .release-prev, so a rollback is a rename.',
+      'Builds without --serve, so cross-wiki links resolve to published URLs, into a staging',
+      'directory, then renames it into place. A failed build leaves the standing release untouched.',
+      'The release it replaces is kept as .release-prev; a rollback is a rename.',
       '',
       '--offline builds a handoff copy into site/handoff instead: browser-only plugins off, every',
-      'link rewritten to a real .html file, every script removed. Zip it and send it — the reader',
-      'opens index.html by double-clicking, with no server and no internet.',
+      'link rewritten to a .html file, every script removed. It opens from index.html with no server.',
       '',
-      'Mermaid diagrams are pre-rendered to PNG for --offline, since Quartz draws them in the',
-      "reader's browser from a CDN and neither is available from a folder. --diagrams none leaves",
-      'them as source text. A served site never pre-renders: there the browser draws them, themed',
-      'and searchable.',
+      'Mermaid diagrams are pre-rendered to PNG for --offline; --diagrams none leaves them as source',
+      'text. A served site draws them in the browser.',
       '',
       '--nginx prints a server block for the release and exits without building.',
     ],
@@ -642,12 +638,10 @@ export const COMMANDS = [
     summary: "Emit the index and run Quartz's dev server over the wiki. Ports come from awt.config.mjs",
     usage: 'awt serve [--wiki path] [--site path] [--out path] [--port N] [--wsPort N] [--skip-index]',
     notes: [
-      "Emits the toolbox index, then runs Quartz's dev server over the wiki. The index is what the",
-      'awt-links shadow compares the rendered pages against, and emitting it is the half a',
-      'hand-typed build command leaves out.',
+      "Emits the link-graph index, then runs Quartz's dev server over the wiki. The awt-links",
+      'plugin compares the rendered pages against that index.',
       '',
-      "Ports come from `serve` in the project's awt.config.mjs, so a wiki keeps the same pair every",
-      'run and `awt serve` on its own is the whole command:',
+      "Ports come from `serve` in the project's awt.config.mjs:",
       '',
       '    export default {serve: {port: 8101}}',
       '',
@@ -697,8 +691,9 @@ export const COMMANDS = [
     summary: 'Run the MCP server over stdio, for an agent to talk to',
     usage: 'awt mcp [--allow-writes] [--name n]',
     notes: [
-      "With no -w the notes come from the project's awt.config.mjs — rootDir/notes, rootDir",
-      'defaulting to wiki/ — so an .mcp.json entry is `awt mcp --allow-writes` and names no path.',
+      "With no -w the notes are the project's rootDir/notes, rootDir defaulting to wiki/, so an",
+      '.mcp.json entry is `awt mcp --allow-writes` with no path. Without --allow-writes the server',
+      'serves the read tools and fmt with dryRun only.',
     ],
     options: {...WORKSPACE_OPTION, 'allow-writes': {type: 'boolean', default: false}, name: {type: 'string'}},
     async run({values}) {

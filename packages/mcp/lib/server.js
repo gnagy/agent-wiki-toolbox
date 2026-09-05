@@ -89,14 +89,14 @@ export function createServer({
       'check',
       'Everything wrong with the link graph in one call: ambiguous stems, two files served as one ' +
         'page, a link that misses a note which exists, a note shadowed by a folder of its own name, ' +
-        'labelled wikilinks, broken section anchors, broken relative links and unclosed wikilinks — ' +
-        'plus placeholders, orphans and dead ends. Placeholders are the backlog signal, not defects.',
+        'labelled wikilinks, broken section anchors, broken relative links and unclosed wikilinks. ' +
+        'Placeholders, orphans and dead ends are listed separately and are not problems.',
       {},
       () => check(index()),
     ],
     [
       'resolve',
-      'What a [[stem]], a folder-qualified link or a prefix:path.md reference points at — and, when it is ambiguous, what else matched.',
+      'What a [[stem]], a folder-qualified link or a prefix:path.md reference points at, and what else matched when it is ambiguous.',
       {
         target: z.string().describe('the link as written, e.g. stem, folder/stem#anchor, vsf:meta/scope.md'),
         from: z.string().optional().describe('the note it is written in, for a bare #anchor'),
@@ -153,14 +153,14 @@ export function createServer({
     ],
     [
       'delete',
-      'Delete a note. Links into it are reported, not rewritten: an unresolved link is the backlog signal.',
+      'Delete a note. Links into it are reported, not rewritten.',
       {path: z.string()},
       (args) => deleteNote(notesDir, args),
     ],
     [
       'split_by_heading',
-      'Split a note into several, one per named heading. You supply the heading-to-path plan and the ' +
-        "source note's fate; the tool invents no names and refuses a basename already in the wiki.",
+      'Split a note into several, one per heading in the plan, which maps headings to paths. source ' +
+        "is the source note's fate. A target basename already in the wiki is refused.",
       {
         path: z.string(),
         plan: z.array(z.object({heading: z.string(), path: z.string()})).min(1),
@@ -187,7 +187,7 @@ export function createServer({
     ],
     [
       'build_listing',
-      'Regenerate the notes listing between its markers in the wiki index. Everything outside the markers is left alone.',
+      'Regenerate the notes listing between its markers in the wiki index. Text outside the markers is not touched.',
       {
         path: z.string().optional(),
         columns: z.array(z.enum(['note', 'topic', 'area', 'about'])).optional().describe('default note, about'),
@@ -209,13 +209,10 @@ export function createServer({
    * being given the other one.
    */
   const fmtDescription =
-    'Format notes the way IntelliJ formats it — tables as aligned rectangles, and the wikilink and ' +
-    'embed syntax the toolbox knows about and a plain remark pipeline destroys. Paths are ' +
-    'workspace-relative; no path formats the whole wiki. Use it after writing prose with your own ' +
-    'Write or Edit; the write verbs already serialise everything they touch. dryRun is what the ' +
-    'CLI calls --check: it names what is unformatted and writes nothing.' +
-    // Said here as well as in the refusal, so an agent reading the tool list on a
-    // read-only mount is not told it can do something it cannot.
+    "Format notes in IntelliJ's style, keeping wikilink and embed syntax intact. Paths are " +
+    'workspace-relative; no path formats the whole wiki. The write verbs format what they write; ' +
+    'prose written with other tools is not formatted until fmt runs. dryRun is the CLI --check: it ' +
+    'names what is unformatted and writes nothing.' +
     (allowWrites ? '' : ' This server is read-only: only dryRun: true is available.')
 
   server.tool(

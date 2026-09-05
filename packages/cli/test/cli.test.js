@@ -316,7 +316,7 @@ test('fmt refuses paths that two different configs govern', (t) => {
 test('a command without -w says which flag it has instead', () => {
   const {status, stderr} = awt(['publish', '-w', 'docs/wiki'])
   assert.equal(status, 2)
-  assert.match(stderr, /takes --wiki, not -w\/--workspace/)
+  assert.match(stderr, /takes --wiki and --site, not -w\/--workspace/)
   assert.doesNotMatch(stderr, /place it at the end/)
 })
 

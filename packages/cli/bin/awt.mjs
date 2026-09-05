@@ -16,8 +16,8 @@ const byName = new Map(COMMANDS.map((command) => [command.name, command]))
 function overview() {
   const width = Math.max(...COMMANDS.map((command) => command.name.length))
   return [
-    'awt — one toolbox for a wikilinked markdown wiki: the link graph, structural',
-    '      edits that keep it intact, formatting, and the build that renders it.',
+    'awt: one toolbox for a wikilinked markdown wiki. The link graph, structural',
+    '     edits that rewrite links, formatting, and the site build.',
     '',
     'Usage',
     '  awt <command> [options]',
@@ -55,7 +55,7 @@ function usage(command) {
   const declared = Object.keys(command.options ?? {})
   const common = COMMON_OPTIONS.filter((entry) => declared.includes(entry.name))
   return [
-    `${command.name} — ${command.summary}`,
+    `${command.name}: ${command.summary}`,
     '',
     'Usage',
     `  ${command.usage}`,
@@ -86,7 +86,7 @@ function parseErrorMessage(error, command) {
 
   const declared = Object.keys(command.options ?? {}).map((option) => `--${option}`)
   if (declared.includes('--wiki')) {
-    return `${command.name} takes --wiki, not -w/--workspace — it works on a wiki and the site built from it, so it names the two separately.`
+    return `${command.name} takes --wiki and --site, not -w/--workspace.`
   }
   return (
     `${command.name} does not take -w/--workspace.` +
