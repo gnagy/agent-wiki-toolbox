@@ -94,10 +94,10 @@ test('the wiki-docs lookup workflow runs end to end', async (t) => {
   assert.equal(health.healthy, true)
 })
 
-test('the surface is thirteen tools, and every write is one of them', async (t) => {
+test('the surface is thirteen tools with --allow-writes, and every write is one of them', async (t) => {
   const box = wiki()
   t.after(() => box.cleanup())
-  const client = await connect(box.root)
+  const client = await connect(box.root, ['--allow-writes'])
   t.after(() => client.close())
 
   const {tools} = await client.listTools()
@@ -122,16 +122,22 @@ test('the surface is thirteen tools, and every write is one of them', async (t) 
   for (const tool of tools) assert.ok(tool.description?.length > 20, `${tool.name} needs a description`)
 })
 
-test('a read-only server refuses a write and says how to enable it', async (t) => {
+test('a read-only server lists only the tools that can succeed', async (t) => {
   const box = wiki()
   t.after(() => box.cleanup())
   const client = await connect(box.root)
   t.after(() => client.close())
 
-  const refusal = json(
-    await client.callTool({name: 'rename', arguments: {path: 'design/shape.md', name: 'form.md'}}),
+  const {tools} = await client.listTools()
+  assert.deepEqual(
+    tools.map((tool) => tool.name).sort(),
+    ['check', 'connections', 'fmt', 'resolve', 'search', 'workspace_info'],
   )
-  assert.match(refusal.error, /--allow-writes/)
+
+  // A write is not there to call.
+  const result = await client.callTool({name: 'rename', arguments: {path: 'design/shape.md', name: 'form.md'}})
+  assert.equal(result.isError, true)
+  assert.equal(readFileSync(join(box.root, 'design/shape.md'), 'utf8').length > 0, true, 'untouched')
 })
 
 test('with writes allowed, a rename comes back in the structured shape', async (t) => {

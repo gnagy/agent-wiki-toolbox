@@ -242,13 +242,10 @@ export function createServer({
     server.tool(toolName, description, schema, async (args) => reply(await handler(args ?? {})))
   }
 
-  for (const [toolName, description, schema, handler] of writes) {
+  // Without `--allow-writes` the write verbs are not registered, so the tool list
+  // holds only what the server can do.
+  for (const [toolName, description, schema, handler] of allowWrites ? writes : []) {
     server.tool(toolName, description, {...schema, dryRun: DRY_RUN}, async (args) => {
-      if (!allowWrites) {
-        return reply({
-          error: `${toolName} is a write, and this server was started read-only. Start it with --allow-writes.`,
-        })
-      }
       try {
         // Awaited, because `fmt` runs a whole unified pipeline and the verbs do
         // not. An un-awaited promise here serialises as `{}` and reads as success.
