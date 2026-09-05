@@ -64,8 +64,9 @@ function warnLegacy(projectDir) {
   if (warned || process.env.AWT_QUIET_LEGACY) return
   warned = true
   process.stderr.write(
-    `awt: ${projectDir} is laid out the old way (docs/wiki + site). It still works; the wiki-docs skill's\n` +
-      '  adoption.md says how to move it under one wiki/ home named by rootDir in awt.config.mjs.\n',
+    `awt: ${projectDir} is laid out the old way (docs/wiki + site). It still works.\n` +
+      '  The current layout is one home directory, wiki/ by default, holding notes/, site/, schemas/ and inbox/;\n' +
+      '  rootDir in awt.config.mjs names it.\n',
   )
 }
 

@@ -410,6 +410,9 @@ test('the old docs/wiki + site layout still resolves, and says so once', (t) => 
   const {stdout, stderr} = awt(['check', '--json'], {cwd: dir, env: {...process.env, AWT_QUIET_LEGACY: ''}})
   assert.equal(JSON.parse(stdout).notesDir, join(dir, 'docs/wiki'))
   assert.match(stderr, /laid out the old way/)
+  // The notice states the facts and names no other project's files.
+  assert.match(stderr, /rootDir in awt\.config\.mjs/)
+  assert.doesNotMatch(stderr, /skill|adoption\.md/)
 })
 
 /**
