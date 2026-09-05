@@ -85,7 +85,7 @@ function port(value, what, fallback) {
   return number
 }
 
-/** Who is listening on `port`, as `pid` plus how it was started — or null. */
+/** Who is listening on `port`, as `pid` plus how it was started, or null. */
 function heldBy(port) {
   const found = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], { encoding: "utf8" })
   const pid = (found.stdout ?? "").trim().split("\n")[0]
@@ -122,13 +122,13 @@ export function serve(argv = process.argv.slice(2)) {
 
   const quartz = path.join(site, ".quartz-src")
   if (!fs.existsSync(quartz)) {
-    die(`${show(quartz)} missing — the Quartz clone is not set up. Run \`awt bootstrap-quartz\` first.`)
+    die(`${show(quartz)} missing; the Quartz clone is not set up. Run \`awt bootstrap-quartz\` first.`)
   }
 
   // The release is served by a static host, not built into. Overwriting it with a
   // dev build would leave every cross-wiki link pointing at localhost.
   if (path.resolve(out) === path.join(site, "release")) {
-    die("refusing to build a dev server into site/release — that is the published copy")
+    die("refusing to build a dev server into site/release, the published copy")
   }
 
   // A flag beats the project's config, which beats the default — the flag is for a
@@ -157,8 +157,6 @@ export function serve(argv = process.argv.slice(2)) {
     die(
       `${what} ${used} is already in use, by pid ${holder.pid}:\n` +
         `    ${holder.how}\n` +
-        "Quartz would print its success line before failing on this, and the port answers 200\n" +
-        "throughout — so a stale server on this same wiki reads as a working build of yours.\n" +
         "Stop it, or pass --port / --wsPort for this run.",
     )
   }

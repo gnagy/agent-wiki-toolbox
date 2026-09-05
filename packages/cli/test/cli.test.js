@@ -150,11 +150,11 @@ test('check leads with the verdict, so truncating it cannot hide one', (t) => {
 
   const {status, stdout} = awt(['check', '-w', box.root])
   assert.equal(status, 1)
-  assert.match(stdout.split('\n')[0], /^1 problem\(s\) —/)
+  assert.match(stdout.split('\n')[0], /^1 problem\(s\);/)
 
   const healthy = awt(['check', '-w', wiki({'a.md': '# A\n\nSee [[b]].\n', 'b.md': '# B\n\nSee [[a]].\n'}).root])
   assert.equal(healthy.status, 0)
-  assert.match(healthy.stdout.split('\n')[0], /^graph is healthy —/)
+  assert.match(healthy.stdout.split('\n')[0], /^graph is healthy;/)
 })
 
 test('check --quiet prints the problems and nothing else', (t) => {

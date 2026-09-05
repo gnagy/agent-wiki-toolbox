@@ -57,7 +57,7 @@ for (const pkg of fs.readdirSync(root)) {
   const manifest = path.join(root, pkg, "package.json")
   if (!fs.existsSync(manifest)) continue
   const allowed = ALLOWED[pkg]
-  if (!allowed) { report(`unknown package: ${pkg} — add it to ALLOWED or delete it`); continue }
+  if (!allowed) { report(`unknown package: ${pkg}; add it to ALLOWED or delete it`); continue }
 
   const declared = new Set(
     Object.keys(JSON.parse(fs.readFileSync(manifest, "utf8")).dependencies ?? {})
@@ -79,7 +79,7 @@ for (const pkg of fs.readdirSync(root)) {
 
   for (const [dep, where] of [...imported].sort()) {
     if (dep === pkg) continue // a package naming itself resolves to its own index
-    if (!allowed.includes(dep)) report(`${where} imports ${dep} — ${pkg} must not depend on it`)
+    if (!allowed.includes(dep)) report(`${where} imports ${dep}; ${pkg} must not depend on it`)
     else if (!declared.has(dep)) report(`${where} imports ${dep}, which ${pkg}/package.json does not declare`)
   }
 
@@ -94,4 +94,4 @@ if (bad) {
   console.error(`\n${bad} layering violation${bad === 1 ? "" : "s"}. The dependency graph is the architecture.`)
   process.exit(1)
 }
-console.log(`layering ok — ${Object.keys(ALLOWED).length} packages`)
+console.log(`layering ok, ${Object.keys(ALLOWED).length} packages`)

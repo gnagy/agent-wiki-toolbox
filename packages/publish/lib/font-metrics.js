@@ -43,7 +43,7 @@ export async function loadFont(file = findFont()) {
   if (!file) {
     throw new Error(
       'no font file found to measure diagram text with. Mermaid sizes every node from the width of ' +
-        'its label, so this cannot be guessed — set AWT_DIAGRAM_FONT to a .ttf.',
+        'its label. Set AWT_DIAGRAM_FONT to a .ttf.',
     )
   }
 

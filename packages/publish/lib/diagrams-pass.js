@@ -101,16 +101,13 @@ export async function prerenderDiagrams(root, _quartz, log) {
     throw new Error(
       byHash.size +
         " mermaid diagrams to render, and no font to measure their text with.\n" +
-        "Mermaid sizes every node from the width of its label, so this is the one thing\n" +
-        "that cannot be guessed — a stub guessing from the character count emits a diagram\n" +
-        "27,040 pixels wide. Set AWT_DIAGRAM_FONT to a .ttf.",
+        "Mermaid sizes every node from the width of its label. Set AWT_DIAGRAM_FONT to a .ttf.",
     )
   }
 
   const hashes = [...byHash.keys()]
   log(
-    `  rendering ${hashes.length} diagrams with mermaid as a library — no browser, ` +
-      `measuring ${path.basename(font)}`,
+    `  rendering ${hashes.length} diagrams with mermaid as a library, measuring text with ${path.basename(font)}`,
   )
   const rendered = await renderDiagrams(hashes.map((hash) => byHash.get(hash)))
 

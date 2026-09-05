@@ -186,7 +186,7 @@ export default function crossWikiLinks(userOpts) {
         if (!abs) {
           if (opts.warnOnMissingIndex) {
             console.warn(
-              `⚠ cross-wiki-links: no ${serving ? "buildIndex" : "publishedIndex"} configured for "${prefix}" — slugs will be guessed`,
+              `⚠ cross-wiki-links: no ${serving ? "buildIndex" : "publishedIndex"} configured for "${prefix}"; slugs will be guessed`,
             )
           }
         } else {
@@ -195,7 +195,7 @@ export default function crossWikiLinks(userOpts) {
           } catch {
             if (opts.warnOnMissingIndex) {
               console.warn(
-                `⚠ cross-wiki-links: cannot read ${prefix}'s content index at ${abs} — ` +
+                `⚠ cross-wiki-links: cannot read ${prefix}'s content index at ${abs}; ` +
                   `slugs will be guessed. Build that wiki to fix this.`,
               )
             }
@@ -241,7 +241,7 @@ export default function crossWikiLinks(userOpts) {
               if (opts.warnOnUnknownPrefix && !warnedPrefixes.has(prefix)) {
                 warnedPrefixes.add(prefix)
                 console.warn(
-                  `⚠ cross-wiki-links: unknown wiki prefix "${prefix}" (first seen in ${where}) — left as written`,
+                  `⚠ cross-wiki-links: unknown wiki prefix "${prefix}" (first seen in ${where}); left as written`,
                 )
               }
               return
@@ -261,7 +261,7 @@ export default function crossWikiLinks(userOpts) {
             if (!baseUrl) {
               if (opts.warnOnUnknownPrefix) {
                 console.warn(
-                  `⚠ cross-wiki-links: "${prefix}" has no ${serving ? "dev" : "published"} base URL — left as written (${where})`,
+                  `⚠ cross-wiki-links: "${prefix}" has no ${serving ? "dev" : "published"} base URL; left as written (${where})`,
                 )
               }
               return
@@ -283,7 +283,7 @@ export default function crossWikiLinks(userOpts) {
               if (anchors && !anchors.has(anchor.slice(1))) {
                 console.warn(
                   `⚠ cross-wiki-links: ${prefix}:${target} has no heading "${anchor}" ` +
-                    `(referenced in ${where}) — the link lands on the page, not the place`,
+                    `(referenced in ${where}); the link lands on the page, not the place`,
                 )
               }
             }

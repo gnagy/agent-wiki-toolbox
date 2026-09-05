@@ -72,7 +72,7 @@ function readPin(site) {
   const pinFile = path.join(site, "quartz.pin")
   if (!fs.existsSync(pinFile)) {
     die(
-      `no ${pinFile} — create it with the Quartz commit to pin, e.g.\n` +
+      `no ${pinFile}. Create it with the Quartz commit to pin, e.g.\n` +
         `    echo 075afd3f712da0088a07f5284a7b3aba37dd61b6 > ${pinFile}\n` +
         "Pick a commit on the v5 branch; there is no usable release to pin instead.",
     )
@@ -89,7 +89,7 @@ function readPin(site) {
 // machine's install. Written before the clone rather than after, so the tree is
 // never untracked-and-huge in a `git status`; one `git add -A` in a project that
 // has nothing to do with publishing would otherwise commit ~300 MB.
-const GITIGNORE = `# Quartz itself is cloned at the commit in quartz.pin, never vendored — see
+const GITIGNORE = `# Quartz itself is cloned at the commit in quartz.pin, never vendored; see
 # README.md here. Nothing of it belongs in this repo, including its node_modules
 # (~250 MB, entirely separate from the project's own).
 .quartz-src/
@@ -97,7 +97,7 @@ const GITIGNORE = `# Quartz itself is cloned at the commit in quartz.pin, never 
 # Build output. Disposable: rebuild it with the serve command in README.md.
 public/
 
-# The last published build — the release itself (nothing about a release enters
+# The last published build: the release itself (nothing about a release enters
 # git), plus awt publish's staging directory and the release it replaced.
 release/
 .release-staging/
@@ -151,7 +151,7 @@ function writeGitignore(site) {
     const missing = gitignoreGaps(file)
     if (missing.length === 0) return
     console.log(
-      `\n${shown} exists and is yours, so it was left alone — but it does not ignore\n` +
+      `\n${shown} exists and was left alone. It does not ignore\n` +
         `${missing.length} thing${missing.length === 1 ? "" : "s"} this bootstrap creates. Append:\n\n` +
         missing.map((line) => `    ${line}`).join("\n"),
     )
@@ -159,7 +159,7 @@ function writeGitignore(site) {
   }
 
   fs.writeFileSync(file, GITIGNORE)
-  console.log(`wrote ${shown} — commit it`)
+  console.log(`wrote ${shown}; commit it`)
 }
 
 function relink(linkPath, target) {
@@ -185,7 +185,7 @@ export function bootstrap(argv = process.argv.slice(2)) {
     : path.join(requireProjectRoot(die), "site")
   if (!fs.existsSync(site) || !fs.statSync(site).isDirectory()) die(`no site directory at ${site}`)
   if (!fs.existsSync(path.join(site, "quartz.config.yaml")))
-    die(`no ${path.join(site, "quartz.config.yaml")} — a site directory needs its Quartz config`)
+    die(`no ${path.join(site, "quartz.config.yaml")}; a site directory needs its Quartz config`)
 
   const pin = readPin(site)
   const src = path.join(site, ".quartz-src")

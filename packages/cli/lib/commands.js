@@ -119,12 +119,12 @@ function reportLines(report) {
   list('created', report.created)
   list('changed', report.changed)
   list('deleted', report.deleted)
-  for (const entry of report.skipped ?? []) lines.push(`  SKIPPED ${entry.path} — ${entry.reason}`)
+  for (const entry of report.skipped ?? []) lines.push(`  SKIPPED ${entry.path}: ${entry.reason}`)
   for (const entry of report.unresolved ?? []) {
-    lines.push(`  UNRESOLVED ${entry.from}:${entry.line} [[${entry.target}]] — ${entry.reason}`)
+    lines.push(`  UNRESOLVED ${entry.from}:${entry.line} [[${entry.target}]]: ${entry.reason}`)
   }
   for (const note of report.notes ?? []) lines.push(`  note: ${note}`)
-  if (!report.ok) lines.push('  re-run when the reason above is dealt with; every verb is re-runnable')
+  if (!report.ok) lines.push('  the verb can be re-run once the reason above is dealt with')
   return lines.join('\n')
 }
 
@@ -304,7 +304,7 @@ export const COMMANDS = [
         const counts =
           `${value.notes} notes, ${value.links} links, ${value.placeholders.length} placeholders, ` +
           `${value.orphans.length} orphans, ${value.deadends.length} dead ends`
-        return [`${verdict} — ${counts}`, ...problems].join('\n')
+        return [`${verdict}; ${counts}`, ...problems].join('\n')
       })
       return health.healthy ? 0 : 1
     },
@@ -394,7 +394,7 @@ export const COMMANDS = [
         value.error
           ? value.error
           : [
-              `${value.path} — ${value.title}`,
+              `${value.path}: ${value.title}`,
               `  links:     ${value.links.map((e) => e.path).join(', ') || 'none'}`,
               `  backlinks: ${value.backlinks.map((e) => e.path).join(', ') || 'none'}`,
             ].join('\n'),

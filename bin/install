@@ -35,7 +35,7 @@ if [[ "$SRC" == "$LIB" ]]; then
 fi
 
 if [[ -n "$(git -C "$SRC" status --porcelain 2>/dev/null)" ]]; then
-  say "note: the working copy has uncommitted changes — they will be installed."
+  say "note: the working copy has uncommitted changes; they will be installed."
   say "      Commit first if you want the installed copy to match a commit."
 fi
 
@@ -67,7 +67,7 @@ if [[ -f "$SRC/packages/cli/bin/awt.mjs" ]]; then
   do_ ln -sfn "$LIB/packages/cli/bin/awt.mjs" "$BIN/awt"
   say "  $BIN/awt -> $LIB/packages/cli/bin/awt.mjs"
 else
-  say "  (no cli package yet — nothing linked onto PATH)"
+  say "  (no cli package yet; nothing linked onto PATH)"
 fi
 
 if [[ -z "$DRY" ]]; then

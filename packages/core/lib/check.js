@@ -37,8 +37,8 @@ export function check(workspace) {
       path: site.from,
       line: site.line,
       message:
-        `[[${site.target}]] names ${site.to}, which exists — but the link resolves to nothing, ` +
-        'so it yields no edge. Link it by a form that resolves, or as a relative markdown link',
+        `[[${site.target}]] names ${site.to}, which exists, but the link resolves to nothing and ` +
+        'yields no edge. Link it by a form that resolves, or as a relative markdown link',
     })
   }
 
@@ -73,7 +73,7 @@ export function check(workspace) {
       path: note.path,
       line: 1,
       message:
-        `it sits beside a folder of its own name, so it should be served at ${note.address} — ` +
+        `it sits beside a folder of its own name, so it would be served at ${note.address}, ` +
         `but ${note.heldBy} already is. One of the two has to go`,
     })
   }
@@ -92,8 +92,8 @@ export function check(workspace) {
         line: 1,
         message:
           `it is served at ${collision.address}, and so ${others.length > 1 ? 'are' : 'is'} ` +
-          `${others.join(', ')} — one page. The index keeps whichever the walk reached last, ` +
-          'so rename or move all but one',
+          `${others.join(', ')}: one page. The index keeps whichever the walk reached last; ` +
+          'rename or move all but one',
       })
     }
   }
@@ -104,7 +104,7 @@ export function check(workspace) {
       rule: 'unclosed-wikilink',
       path: site.from,
       line: site.line,
-      message: `a "[[" that never became a link — it yields no edge and no placeholder: …${site.text}…`,
+      message: `a "[[" that never became a link; it yields no edge and no placeholder: …${site.text}…`,
     })
   }
 
