@@ -144,7 +144,7 @@ export function splitByHeading(notesDir, {path, plan, source, workspace, dryRun}
       ...(properties.tags ? {tags: properties.tags} : {}),
     })
     context.edit.create(childPath, serialize(child))
-    notes.push(`${childPath} has no description: that is judgment, and it is yours to write`)
+    notes.push(`${childPath} has no description`)
   }
 
   // The source note.

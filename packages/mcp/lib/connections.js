@@ -14,8 +14,8 @@ export function connections(workspace, {path, depth = 1, direction = 'both'} = {
     return {
       path,
       error:
-        `no note at ${path} — connections takes a workspace-relative path such as ` +
-        'meta/conventions.md; resolve is the one that finds a note from a bare stem',
+        `no note at ${path}; connections takes a workspace-relative path such as meta/conventions.md, ` +
+        'and resolve takes a bare stem',
     }
   }
 

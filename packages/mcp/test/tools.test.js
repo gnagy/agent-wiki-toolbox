@@ -72,7 +72,7 @@ test('resolve explains an ambiguous stem instead of guessing', (t) => {
   const outcome = resolve(box.index(), {target: 'shape'})
   assert.equal(outcome.status, 'ambiguous')
   assert.deepEqual(outcome.candidates, ['analysis/shape.md', 'design/shape.md'])
-  assert.match(outcome.note, /error, not a guess/)
+  assert.match(outcome.note, /folder segment/)
 })
 
 test('resolve checks the anchor against the target\'s real headings', (t) => {
@@ -84,12 +84,12 @@ test('resolve checks the anchor against the target\'s real headings', (t) => {
   assert.equal(resolve(index, {target: 'conventions#nope'}).anchor.status, 'missing')
 })
 
-test('resolve names a placeholder as a note worth writing, not an error', (t) => {
+test('resolve reports a placeholder as nothing matching, not as an error', (t) => {
   const box = wiki(NOTES)
   t.after(() => box.cleanup())
   const outcome = resolve(box.index(), {target: 'missing-note'})
   assert.equal(outcome.status, 'placeholder')
-  assert.match(outcome.note, /worth writing/)
+  assert.equal(outcome.note, 'nothing matches')
 })
 
 test('resolve recognises a cross-wiki reference as not ours', (t) => {

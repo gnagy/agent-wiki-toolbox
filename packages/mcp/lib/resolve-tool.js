@@ -18,7 +18,7 @@ export function resolve(workspace, {target, from} = {}) {
       prefix: crossWiki.prefix,
       path: crossWiki.path,
       anchor: crossWiki.anchor,
-      note: 'a reference into another wiki: not an edge in this graph, and resolved by the renderer',
+      note: 'a reference into another wiki; not resolved here',
     }
   }
 
@@ -30,11 +30,11 @@ export function resolve(workspace, {target, from} = {}) {
       target,
       status: 'ambiguous',
       candidates: outcome.candidates.map((candidate) => candidate.path),
-      note: 'add a folder segment to the link, or rename one of the notes — this is an error, not a guess',
+      note: 'add a folder segment to the link, or rename one of the notes',
     }
   }
   if (outcome.status !== 'resolved' || !outcome.resource) {
-    return {target, status: 'placeholder', candidates: [], note: 'nothing matches: this is a note worth writing'}
+    return {target, status: 'placeholder', candidates: [], note: 'nothing matches'}
   }
 
   const resource = outcome.resource
