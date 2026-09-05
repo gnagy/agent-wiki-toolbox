@@ -21,19 +21,15 @@ export function check(workspace) {
     })
   }
 
-  // Open-questions 37, answered: an aliased link is an error, with the same weight
-  // as an ambiguous one. Decision 27's reasoning is that a link needing a label is
-  // a naming failure, so the fix is nearly always the filename rather than the
-  // link — and a rule that only warns is a ban nobody ever finishes applying.
+  // An aliased link is an error because `rename` rewrites the target and leaves
+  // the label, so the label goes stale.
   for (const site of workspace.aliasedLinks) {
     problems.push({
       severity: 'error',
       rule: 'aliased-link',
       path: site.from,
       line: site.line,
-      message:
-        `[[${site.target}|${site.alias}]] carries a label. A link that needs one is a naming ` +
-        'failure (decision 27): rename the note so its own name reads in the sentence',
+      message: `[[${site.target}|${site.alias}]] carries a label; rename does not rewrite the label, so it goes stale`,
     })
   }
 

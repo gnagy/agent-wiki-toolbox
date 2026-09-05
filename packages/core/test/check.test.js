@@ -56,6 +56,9 @@ test('an aliased link is an error: the label is the finding', () => {
   const problems = check(wiki({'one.md': '# One\n\nTo [[two|the other]].\n', 'two.md': '# Two\n'})).problems
   assert.deepEqual(problems.map((problem) => problem.rule), ['aliased-link'])
   assert.equal(problems[0].severity, 'error')
+  // The message states what the tool does with the label and cites nothing.
+  assert.match(problems[0].message, /rename does not rewrite the label/)
+  assert.doesNotMatch(problems[0].message, /decision|naming failure/)
   // It resolves perfectly well. The objection is to needing the label at all.
   assert.equal(check(wiki({'one.md': '# One\n\nTo [[two]].\n', 'two.md': '# Two\n'})).problems.length, 0)
 })
