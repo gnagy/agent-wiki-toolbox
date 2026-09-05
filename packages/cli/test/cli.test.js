@@ -435,3 +435,37 @@ test('with no path, fmt inside a project means the notes', (t) => {
   // A path still names what to format, project or not.
   assert.equal(awt(['fmt', '--check', 'README.md'], {cwd: dir}).status, 1)
 })
+
+/**
+ * A path is tried against the cwd first and against the notes directory second,
+ * so `awt fmt meta/conventions.md` from the project root means the note, as the
+ * MCP tool does. `--json` says which base was used.
+ */
+test('fmt resolves a path against the cwd, then against the notes, and says which', (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'awt-fmt-base-')))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  writeFileSync(join(dir, 'awt.config.mjs'), 'export default {}\n')
+  mkdirSync(join(dir, 'wiki/notes/meta'), {recursive: true})
+  writeFileSync(join(dir, 'wiki/notes/meta/conventions.md'), '# C\n\n* unformatted\n')
+  writeFileSync(join(dir, 'README.md'), '# R\n\n- fine\n')
+
+  const viaNotes = awt(['fmt', '--check', '--json', 'meta/conventions.md'], {cwd: dir})
+  assert.equal(viaNotes.status, 1, viaNotes.stderr)
+  const notesReport = JSON.parse(viaNotes.stdout)
+  assert.equal(notesReport.base, 'notes')
+  assert.equal(notesReport.files, 1)
+  assert.equal(notesReport.ok, false)
+
+  const viaCwd = awt(['fmt', '--check', '--json', 'README.md'], {cwd: dir})
+  assert.equal(viaCwd.status, 0, viaCwd.stderr)
+  assert.equal(JSON.parse(viaCwd.stdout).base, 'cwd')
+
+  // A path that exists against neither is reported, and the base stays the cwd.
+  const missing = awt(['fmt', '--check', '--json', 'nowhere.md'], {cwd: dir})
+  assert.notEqual(missing.status, 0)
+  assert.equal(JSON.parse(missing.stdout).base, 'cwd')
+
+  // -w names the base outright.
+  const explicit = awt(['fmt', '--check', '--json', '-w', join(dir, 'wiki/notes'), 'meta/conventions.md'])
+  assert.equal(JSON.parse(explicit.stdout).base, 'workspace')
+})

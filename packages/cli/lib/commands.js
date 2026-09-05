@@ -11,7 +11,7 @@
  * makes decision 26's acceptance test — *`awt --help` alone is enough to find every
  * operation* — hold by construction rather than by discipline.
  */
-import {readFileSync} from 'node:fs'
+import {existsSync, readFileSync} from 'node:fs'
 import {resolve as resolvePath} from 'node:path'
 import process from 'node:process'
 
@@ -178,28 +178,37 @@ export const COMMANDS = [
       'awt fmt [paths...] [--verbose]\n' +
       '       awt fmt --check [paths...]\n' +
       '       awt fmt --stdin',
+    notes: [
+      'With -w, paths are relative to the notes directory. Without it, a path is tried against the',
+      'current directory first and the notes directory second; --json reports which as `base`.',
+      'With no path, no -w and no `files` in the config, the whole wiki is formatted.',
+    ],
     options: {
       ...WORKSPACE_OPTION,
+      ...OUTPUT_OPTIONS,
       check: {type: 'boolean', short: 'c', default: false},
       stdin: {type: 'boolean', default: false},
       verbose: {type: 'boolean', default: false},
     },
     /**
-     * Two jobs, one command — decision 17, which put the standalone formatter and
-     * the wiki's on the same binary so `mdfmt` is not a second thing to reach for.
-     * `--workspace` is which of them you are doing:
-     *
-     * **With it**, paths are the wiki's own — `meta/conventions.md`, the form every
-     * other subcommand and the whole MCP surface take — the config is the wiki's
-     * whatever directory the shell is in, and no path means the whole wiki. It was
-     * the one command on this binary that did not take `-w`, so an agent holding a
-     * note path had to translate it and then got the wrong config for its trouble.
-     *
-     * **Without it**, this is still the lone-`CLAUDE.md` formatter with no wiki in
-     * sight, and the config comes from the files named rather than from the cwd.
+     * One command for both the standalone formatter and the wiki's, so `mdfmt` is
+     * not a second binary. `--workspace` picks the wiki reading outright. Without
+     * it a path is resolved against the cwd, then against the project's notes
+     * directory; the config comes from the files named rather than from the cwd.
      */
     async run({values, positionals}) {
-      let cwd = values.workspace ? await notesDirFor(values) : process.cwd()
+      let cwd = process.cwd()
+      let base = 'cwd'
+      if (values.workspace) {
+        cwd = await notesDirFor(values)
+        base = 'workspace'
+      } else if (positionals.length && !positionals.every((entry) => existsSync(resolvePath(cwd, entry)))) {
+        const layout = await resolveLayout(cwd, {quiet: true})
+        if (layout && positionals.every((entry) => existsSync(resolvePath(layout.notesDir, entry)))) {
+          cwd = layout.notesDir
+          base = 'notes'
+        }
+      }
 
       let config
       let configPath
@@ -215,13 +224,13 @@ export const COMMANDS = [
       }
 
       // No path, no -w, no `files` in the config: inside a project, that means the
-      // wiki — the same reading `check` gives a bare command — and not every
-      // markdown file under wherever the shell is standing. A path names what to
-      // format; `files` in the config names it for the project; and with neither,
-      // a lone directory with no project around it still means itself.
+      // notes, as a bare `check` does.
       if (!positionals.length && !values.workspace && !config.files) {
         const layout = await resolveLayout(cwd, {quiet: true})
-        if (layout) cwd = layout.notesDir
+        if (layout) {
+          cwd = layout.notesDir
+          base = 'notes'
+        }
       }
 
       if (values.stdin) {
@@ -253,8 +262,22 @@ export const COMMANDS = [
         streamError: report,
       })
 
-      if (result.code !== 2) process.stdout.write(`${verdict(result, values.check)}\n`)
       const text = report.text()
+      if (values.json) {
+        emit(values, {
+          ok: result.code === 0,
+          mode: values.check ? 'check' : 'format',
+          files: result.files,
+          problems: result.problems,
+          paths: positionals.length ? positionals : ['.'],
+          base,
+          baseDir: cwd,
+          config: configPath ?? null,
+          report: text.trimEnd() || null,
+        })
+        return result.code
+      }
+      if (result.code !== 2) process.stdout.write(`${verdict(result, values.check)}\n`)
       if (text) process.stderr.write(text)
       return result.code
     },
