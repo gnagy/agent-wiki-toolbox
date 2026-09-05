@@ -598,6 +598,21 @@ test('buildListing renders an area column as the area, headed like the others', 
   assert.match(listing, /\| \[\[one]] +\| design +\| The first note\. +\|/)
 })
 
+test('buildListing skips the OKF reserved files at the root instead of listing a blank row', (t) => {
+  const box = wiki({
+    'index.md': `# Index\n\n${MARKER_START}\n${MARKER_END}\n`,
+    'log.md': '# Log\n\n## 2026-09-05\n\nSomething.\n',
+    'design/one.md': front('One', 'description: The first note.\n'),
+  })
+  t.after(() => box.cleanup())
+
+  const report = buildListing(box.root)
+  const listing = box.read('index.md')
+  assert.doesNotMatch(listing, /log/)
+  assert.doesNotMatch(report.notes.join(' '), /log\.md/)
+  assert.match(listing, /\[\[one]]/)
+})
+
 test('buildListing refuses a file with no managed block', (t) => {
   const box = wiki({'index.md': '# Wiki\n\nNo markers here.\n'})
   t.after(() => box.cleanup())

@@ -19,6 +19,9 @@ import {shortestResolvingForm} from './rewrite.js'
 export const MARKER_START = '<!-- awt:listing:start -->'
 export const MARKER_END = '<!-- awt:listing:end -->'
 
+/** OKF reserves these two names at the bundle root for the listing and the chronology. */
+const RESERVED = new Set(['index.md', 'log.md'])
+
 /**
  * @param path     the listing file, default `index.md`.
  * @param areas    the order areas appear in; anything else follows, sorted.
@@ -43,7 +46,9 @@ export function buildListing(notesDir, {path = 'index.md', areas, columns, works
 
   const wanted = columns ?? ['note', 'about']
   const order = areas ?? ['analysis', 'design', 'implementation', 'worklog', 'meta']
-  const withoutSelf = index.resources.filter((resource) => resource.path !== path)
+  // The listing file itself and the OKF reserved names at the bundle root are not
+  // notes, so they get no row.
+  const withoutSelf = index.resources.filter((resource) => resource.path !== path && !RESERVED.has(resource.path))
 
   const byArea = new Map()
   const missing = []
