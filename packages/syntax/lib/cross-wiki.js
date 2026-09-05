@@ -21,8 +21,8 @@
  * transformer restates both — it is symlinked into `.quartz/plugins/` and cannot
  * import them. `packages/publish/test/cross-wiki-agreement.test.js` drives the two
  * over one corpus and fails when they part company, because a prefix `core`
- * excludes from the graph and the renderer leaves as written is a link nothing in
- * the estate reports (decision 11's drift, exactly).
+ * excludes from the graph and the renderer leaves as written is a link nothing
+ * reports.
  */
 const URL_SCHEMES = new Set([
   'about',

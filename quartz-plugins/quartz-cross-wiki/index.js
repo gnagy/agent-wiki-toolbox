@@ -97,9 +97,7 @@ function joinUrl(base, slug) {
 
 /**
  * The heading anchors `awt-headings` publishes beside `contentIndex.json`, keyed
- * by slug. This is the consumer [[open-questions]] 17 asked for: without it the
- * data was emitted and read by nothing, so `vsf:meta/scope.md#not-a-heading`
- * resolved to the page and warned about nothing.
+ * by slug. Read so that `prefix:path.md#anchor` can be checked against a real heading.
  */
 function readHeadings(indexPath) {
   const file = path.join(path.dirname(indexPath), "awtHeadings.json")
@@ -279,9 +277,8 @@ export default function crossWikiLinks(userOpts) {
               }
               slug = slugifyFallback(target)
             } else if (anchor && opts.warnOnMissingAnchor) {
-              // Resolving the page was only ever half of open-questions 17. A
-              // warning and never a failure, by rule 2 above: the target wiki may
-              // simply not have been rebuilt since the heading was written.
+              // A warning and never a failure, by rule 2 above: the target wiki
+              // may not have been rebuilt since the heading was written.
               const anchors = targetHeadings(prefix, entry)?.get(slug)
               if (anchors && !anchors.has(anchor.slice(1))) {
                 console.warn(

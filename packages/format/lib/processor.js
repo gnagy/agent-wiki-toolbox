@@ -43,7 +43,7 @@ export function remarkCheckFormatting() {
  * asks for plus the formatting check; `mode: 'format'` stays purely mechanical.
  *
  * A `wikiLinks` key in an old config is accepted and ignored: the dialect is
- * `syntax`'s and is not configurable, which is the entire point of decision 11.
+ * `syntax`'s and is not configurable.
  */
 export function buildProcessor(config = {}, mode = 'format') {
   const processor = unified().use(remarkParse).use(syntaxPlugins())

@@ -205,8 +205,8 @@ export async function resolveProjectConfig(roots = [], cwd = process.cwd()) {
  *
  * **`globBase` is where the globs are read from, and it is the notes directory
  * when the project has a `rootDir` layout** — so a map says `meta/**` rather than
- * spelling `wiki/notes/meta/**` out, which would be the layout copied into a second
- * place ([[toolbox-decisions]] 38). A legacy project, and a config with no layout
+ * spelling `wiki/notes/meta/**` out, which would copy the layout into a second
+ * place. A legacy project, and a config with no layout
  * around it, keep the config's directory as the base, which is what their globs
  * were written against.
  */

@@ -1,11 +1,4 @@
-/**
- * `search` — one call over full text, front matter and tags.
- *
- * Foam needed three tools for this and **none of them read note bodies**, so every
- * session here ended up shelling out to `grep` — repeatedly, to find which notes
- * cite an open question by number. A search that cannot find a citation in prose is
- * not the search a wiki needs ([[toolbox-decisions]] 24).
- */
+/** `search`: one call over full text, front matter and tags. */
 import {readFileSync} from 'node:fs'
 import {join} from 'node:path'
 

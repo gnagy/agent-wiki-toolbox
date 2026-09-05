@@ -2,10 +2,8 @@
  * Replacing the mermaid blocks in a built site with the PNGs `diagrams.js`
  * renders.
  *
- * The HTML side moved across from `quartz-wiki-tools` unchanged — finding the
- * blocks, hashing them so one picture embedded in five notes renders once, and
- * swapping in an `<img>`. What changed underneath it is decision 23: there is no
- * browser any more.
+ * Finds the blocks, hashes them so one picture embedded in five notes renders
+ * once, and swaps in an `<img>`. Rendering uses no browser.
  *
  * A diagram that will not render is **reported and left as its source text**
  * rather than failing the build — the same judgement placeholders get. One bad

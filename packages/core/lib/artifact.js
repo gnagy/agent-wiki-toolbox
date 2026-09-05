@@ -3,9 +3,8 @@
  *
  * This is what makes the three Quartz plugins possible at all: Quartz symlinks a
  * local plugin directory into `.quartz/plugins/`, so a plugin that imported `core`
- * would have to resolve a bare specifier from outside the Quartz tree. **They read
- * the index as an artifact instead** ([[toolbox-shape]]), which is the same reason
- * decision 9 makes the index a pure function of the tree.
+ * would have to resolve a bare specifier from outside the Quartz tree. They read
+ * the index as an artifact instead.
  *
  * Keyed by slug, because that is the identity Quartz knows a page by. Everything is
  * sorted, so two runs over an unchanged wiki produce the same bytes and a diff of
@@ -38,11 +37,9 @@ export function materialiseIndex(workspace) {
       unresolved: [],
       ambiguous: [],
       // Where Quartz lands an ambiguous link. It resolves only on a unique match
-      // and otherwise falls through *silently* to this root-relative slug, which
-      // is usually a 404 and occasionally a real page. Published because the
-      // shadow cannot predict which, and must not read either as drift: an
-      // ambiguous link is a deliberate difference (decision 7), reported by
-      // `awt check` at edit time rather than by a build.
+      // and otherwise falls through silently to this root-relative slug, which
+      // is usually a 404 and occasionally a real page. Published so the shadow can
+      // exclude it from the comparison; `awt check` reports the ambiguity.
       ambiguousSlugs: [],
       headings: resource.headings.map((heading) => heading.anchor),
     }

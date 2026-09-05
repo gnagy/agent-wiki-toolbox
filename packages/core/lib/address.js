@@ -33,9 +33,8 @@
  * This lives in `core` rather than in a Quartz plugin on purpose. A plugin that
  * recomputed it would move the slug the renderer reports without the index
  * knowing, and both the shadow and the published heading list look a page up by
- * exactly that — so every moved note would drop out of the comparison silently,
- * uncounted. Decision 10's rule is that Quartz consumes ours; the address is
- * published in the index artifact and the plugin reads it.
+ * exactly that, so every moved note would drop out of the comparison silently.
+ * The address is published in the index artifact and the plugin reads it.
  */
 
 const INDEX = 'index'

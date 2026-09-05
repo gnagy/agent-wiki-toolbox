@@ -6,8 +6,7 @@
  *   awt mcp --workspace path [--allow-writes]
  *
  * Nothing is watched and nothing is held open: every call reloads the index, which
- * is a few `stat`s warm (decision 9). So the server may be started before the wiki
- * has any notes, and it will see them.
+ * is a few `stat`s warm. The server may be started before the wiki has any notes.
  */
 import {parseArgs} from 'node:util'
 import {resolve} from 'node:path'
@@ -27,9 +26,7 @@ const {values} = parseArgs({
 })
 
 // `--workspace` and `$AWT_WORKSPACE` name the notes outright. With neither, the
-// project's own config says where they are: an agent harness starts this server
-// from the project root, so `awt mcp --allow-writes` is the whole entry and the
-// notes path is written in one place ([[toolbox-decisions]] 38).
+// project's own config says where they are.
 const explicit = values.workspace ?? process.env.AWT_WORKSPACE
 const layout = explicit ? null : await resolveLayout(process.cwd(), {quiet: true})
 const server = createServer({

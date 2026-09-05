@@ -1,10 +1,6 @@
 /**
- * `resolve` — what does this link point at, and what else was a candidate.
- *
- * New, not ported. [[toolbox-decisions]] 7 makes an ambiguous stem a hard error
- * rather than a guess, so **the tool that explains the failure is part of the
- * design**, not a debugging aid: "two notes match, here they are" is the whole
- * answer an author needs, and nothing else in the surface gives it.
+ * `resolve`: what a link points at, and what else was a candidate. An ambiguous
+ * stem is an error, and this is the tool that names the candidates.
  */
 import {checkAnchor} from '@agent-wiki-toolbox/core'
 import {parseCrossWikiTarget} from '@agent-wiki-toolbox/syntax'

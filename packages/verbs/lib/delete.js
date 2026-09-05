@@ -1,11 +1,8 @@
 /**
  * `deleteNote` — remove a note, and say what now points at nothing.
  *
- * **Inbound links are reported, not rewritten and not removed.** A `[[stem]]` with
- * no target is a placeholder, and a placeholder is the backlog signal
- * ([[toolbox-decisions]] 30) — so deleting a note deliberately leaves its inbound
- * links as a question for the author. Silently deleting them would erase the record
- * that something used to be said here.
+ * Inbound links are reported, not rewritten and not removed. A `[[stem]]` with
+ * no target becomes a placeholder, which `check` lists.
  */
 import {createContext, finish, refuse} from './context.js'
 

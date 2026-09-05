@@ -1,11 +1,10 @@
 /**
  * Text measurement for a renderer with no browser.
  *
- * This is the whole reason [[toolbox-decisions]] 23 could be taken. mermaid sizes
- * every node and routes every edge from `getBBox()` and `getComputedTextLength()`,
- * and jsdom performs no layout, so both are missing. **Guessing at text size fails**
- * — a character-count stub emitted a diagram 27,040 px wide, which is the
- * measurement the old note drew the wrong conclusion from. **Measuring it works.**
+ * mermaid sizes every node and routes every edge from `getBBox()` and
+ * `getComputedTextLength()`, and jsdom performs no layout, so both are missing.
+ * A character-count guess emitted a diagram 27,040 px wide; measuring the font
+ * gives the right size.
  */
 import {existsSync, readFileSync} from 'node:fs'
 import process from 'node:process'

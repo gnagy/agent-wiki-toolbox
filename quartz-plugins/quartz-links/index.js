@@ -1,5 +1,5 @@
 /**
- * awt-links — the shadow half of toolbox decision 10.
+ * awt-links: the shadow comparison between two link resolvers.
  *
  * Two resolvers currently compute where every link in this wiki goes: Quartz's
  * `crawl-links`, at the hast layer after `[[wikilinks]]` have already become `<a>`
@@ -167,9 +167,9 @@ export const AwtLinks = (userOptions) => {
         const ours = new Set(page.links)
         const oursBroken = new Set(page.unresolved)
 
-        // An ambiguous link is where the two resolvers differ ON PURPOSE, so
-        // whatever Quartz did with it is not drift. We report two matches as an
-        // authoring error at edit time (decision 7); Quartz resolves only on a
+        // An ambiguous link is where the two resolvers differ by design, so
+        // whatever Quartz did with it is not drift. awt reports two matches as an
+        // error at edit time; Quartz resolves only on a
         // unique match and otherwise falls through *silently* to a root-relative
         // slug — usually a 404, and occasionally a real page, which is what
         // `[[README]]` does in a wiki holding four of them. The shadow cannot

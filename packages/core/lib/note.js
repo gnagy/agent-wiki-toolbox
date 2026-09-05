@@ -49,11 +49,10 @@ function markdownLinkOf(node) {
 }
 
 /**
- * A `[[` that survived into a text node was never tokenised — which almost always
- * means it never closed. Decision 19 records why this needs a lint of its own: a
- * wikilink cannot span a newline, and `[[target-` / `note]]` across two lines yields
- * **no link and no placeholder**. It is not a broken edge, it is an invisible one,
- * and nothing else warns.
+ * A `[[` that survived into a text node was never tokenised, which almost always
+ * means it never closed. A wikilink cannot span a newline, and `[[target-` /
+ * `note]]` across two lines yields no link and no placeholder, so nothing else
+ * warns about it.
  *
  * A deliberately escaped `\[\[` is not that. The escape is gone from the text node
  * by the time we see it, so the raw source is what tells them apart.

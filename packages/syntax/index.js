@@ -2,8 +2,8 @@
  * The mdast dialect: what a wikilink, an embed and front matter *are*.
  *
  * The bottom of the layer graph, and the only package that configures remark.
- * It resolves nothing, reads no directory and knows about no wiki — `core` does
- * that, and `format` deliberately cannot (toolbox decision 11).
+ * It resolves nothing, reads no directory and knows about no wiki; `core` does
+ * that, and `format` cannot reach `core`.
  */
 import {visit} from 'unist-util-visit'
 

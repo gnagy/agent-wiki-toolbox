@@ -1,17 +1,10 @@
 /**
- * The agent-facing surface: thirteen tools, shaped for this estate rather than
- * ported from Foam's twenty-five ([[toolbox-decisions]] 24).
+ * The agent-facing surface: thirteen tools. Each answers something that cannot be
+ * answered by opening a file; reading a note and writing prose into it are left
+ * to the agent's own file tools.
  *
- * The rule that decided the list: **a tool earns its place only if it answers
- * something that cannot be answered by opening a file.** Reading a note, listing its
- * headings and writing prose into it are all things the agent's own `Read`, `Write`
- * and `Edit` do better, so none of them is here.
- *
- * The server is ordinary — decision 9's whole point. It is the same `core` the CLI
- * calls, with an in-process memo in front of the on-disk cache, so there is one code
- * path rather than two skins that drift. Nothing is watched: the index is a pure
- * function of the tree, so an agent's own `Write` between two calls is picked up by
- * the second one.
+ * The server calls the same `core` the CLI does. Nothing is watched: the index is
+ * a pure function of the tree, so a write between two calls is seen by the second.
  */
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {z} from 'zod'
@@ -38,10 +31,9 @@ function reply(value) {
 }
 
 /**
- * `notesDir` is the wiki this server answers for — the notes, never the home around
- * them. `rootDir` is that home when the project has one ([[toolbox-decisions]]
- * 38), reported so an agent sees both directories under distinct names rather than
- * inferring one from the other; null on a legacy layout or a bare directory.
+ * `notesDir` is the wiki this server answers for: the notes, never the home around
+ * them. `rootDir` is that home when the project has one, reported under its own
+ * name; null on a legacy layout or a bare directory.
  * `schemaGlobBase` is where `fmt` reads the schema globs from — the notes
  * directory under a `rootDir` layout — and is null when the config's own
  * directory is the base.
@@ -136,8 +128,7 @@ export function createServer({
   // rather than to each by hand, so the next verb cannot arrive without it.
   const DRY_RUN = z.boolean().optional().describe('report what would change and write nothing')
 
-  // Verb plus object, snake_case on this surface (decision 16). An agent picks a
-  // tool by name before it reads any documentation, so the axis is in the name.
+  // Verb plus object, snake_case on this surface.
   const writes = [
     [
       'rename',

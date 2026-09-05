@@ -1,10 +1,4 @@
-/**
- * `connections` — links out, links in, to a depth.
- *
- * Foam's `get_connections` and `traverse_graph` are one question asked at depth 1
- * and depth n; splitting them makes an agent choose a tool before it knows how far
- * it needs to look ([[toolbox-decisions]] 24).
- */
+/** `connections`: links out, links in, to a depth. One tool for depth 1 and depth n. */
 export function connections(workspace, {path, depth = 1, direction = 'both'} = {}) {
   const start = workspace.get(path)
   if (!start) {

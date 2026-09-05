@@ -1,9 +1,8 @@
 /**
  * `renameTag` — one tag becomes another, everywhere it appears.
  *
- * Front-matter tags only. Obsidian's inline `#tag` is deliberately not a second tag
- * vocabulary here ([[toolbox-decisions]] 8), and Foam never treated it as one
- * either, so there is nothing else to rewrite.
+ * Front-matter tags only. Obsidian's inline `#tag` is not a tag here, so there is
+ * nothing else to rewrite.
  */
 import {editFrontmatter, sequenceItems} from '@agent-wiki-toolbox/syntax'
 

@@ -1,12 +1,7 @@
 /**
- * "Is this graph healthy?" in one call.
+ * Everything wrong with the graph, in one call.
  *
- * Foam answered it in four — `lint`, `list placeholders`, `list orphans`,
- * `list deadends` — and the estate ran all four every time, which is the shape
- * toolbox decision 24 is reacting to.
- *
- * **A placeholder is not a problem.** It is the backlog signal, so it is reported
- * separately from the things that are actually wrong, and it never fails a check.
+ * A placeholder is not a problem. It is reported separately and never fails a check.
  */
 export function check(workspace) {
   const problems = []

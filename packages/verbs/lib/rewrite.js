@@ -1,11 +1,10 @@
 /**
  * Rewriting the links into a note that moved.
  *
- * The edit is **AST-scoped**, not text-scoped, and toolbox decision 19 spells out
- * why: a stem appears in code spans, in URLs and in ordinary prose, and node
- * offsets tell those apart where a line-oriented match does not.
+ * The edit is AST-scoped, not text-scoped: a stem appears in code spans, in URLs
+ * and in ordinary prose, and node offsets tell those apart.
  *
- * The form a rewritten link takes is decision 7's rule run backwards. A link is
+ * A link is
  * written as the **shortest suffix of the new slug that resolves to one note**, so
  * `[[stem]]` stays a bare stem when the basename is still unique and grows a folder
  * segment when it is not. Anything with no unambiguous form comes back in the
@@ -30,8 +29,7 @@ import {slugifyPath} from '@agent-wiki-toolbox/core'
  * has to be the resolver of the wiki that will exist *after* the edit — the note
  * may be about to move, or may not be written yet.
  *
- * `null` when no form resolves, which a caller reports rather than guesses at
- * (decision 3).
+ * `null` when no form resolves, which a caller reports rather than guesses at.
  */
 export function shortestResolvingForm(resource, resolve) {
   const segments = resource.slug.split('/')
@@ -46,8 +44,8 @@ export function shortestResolvingForm(resource, resolve) {
 /**
  * The bare stems that match more than one note.
  *
- * Decision 7's uniqueness rule, asked of the **resolver** rather than of the
- * strings. Comparing last slug segments is a different question and gets two cases
+ * Asked of the resolver rather than of the strings. Comparing last slug segments
+ * is a different question and gets two cases
  * wrong at once: a note named after its own folder has the slug `x/y/index`, whose
  * last segment is `index` — a segment nobody chose and nothing resolves by — so a
  * string comparison called it a clash with the wiki's root note, while a stem that

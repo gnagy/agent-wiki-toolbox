@@ -1,21 +1,7 @@
 /**
- * Formatting, on the agent's surface.
- *
- * It looks like an exception to the rule that decided this list — *a tool earns its
- * place only if it answers something that cannot be answered by opening a file* —
- * and it is not. Formatting a note is exactly what `Read` and `Write` cannot do:
- * the serialisation is a whole toolchain, and an agent reproducing it by hand is
- * how a wiki ends up with hand-aligned tables that drift on the next edit.
- *
- * **The write verbs are not the gap.** Everything they write goes out through the
- * serializer already ([[toolbox-decisions]] 19). The gap is the prose an agent
- * writes with its own `Write` and `Edit`, which is most of what lands in a wiki and
- * the one path no verb sees.
- *
- * Paths are workspace-relative, like every other tool here, and that is the point
- * rather than a detail: an agent holding `meta/conventions.md` had to know where
- * the wiki sat on disk before it could shell out to `awt fmt`, and a path it has to
- * translate by hand is a path it eventually gets wrong or skips.
+ * Formatting, on the agent's surface. The write verbs serialise what they write;
+ * this covers prose written with other tools. Paths are workspace-relative, like
+ * every other tool here.
  */
 import {collectStream, loadProjectConfig, runFormat} from '@agent-wiki-toolbox/format'
 

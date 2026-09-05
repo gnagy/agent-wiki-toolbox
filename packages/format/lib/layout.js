@@ -1,6 +1,6 @@
 /**
- * Where a project keeps its wiki — every directory the toolbox needs, derived from
- * one name ([[toolbox-decisions]] 38).
+ * Where a project keeps its wiki: every directory the toolbox needs, derived from
+ * one name.
  *
  * A wiki used to be spread over the repo root: notes in `docs/wiki`, the site in
  * `site/`, schemas in `.remark/`, the inbox in `docs/wiki-inbox/`, and the notes
@@ -19,7 +19,7 @@
  * why it is at the root rather than inside the home: once the home is configurable
  * there is no fixed directory name left to look for.
  *
- * **The names end in `Dir`, all of them** (row 39). The notes directory was called
+ * The names end in `Dir`, all of them. The notes directory was called
  * `root` on every surface, and `rootDir` naming the *home* would have put two roots
  * a level apart in front of every agent. So the surface says `notesDir`, and `root`
  * is not the name of any directory here.

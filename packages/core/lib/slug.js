@@ -1,10 +1,9 @@
 /**
- * Quartz's slug rules, reimplemented from `@quartz-community/utils` so our
- * resolution and the renderer's cannot disagree (toolbox decision 10).
+ * Quartz's slug rules, reimplemented from `@quartz-community/utils` so this
+ * resolution and the renderer's agree.
  *
- * **These are not our rules, and they move when the pinned Quartz SHA moves.**
- * That is the price decision 10 names out loud, and the shadow stage is the only
- * thing that catches it — nothing in this file can.
+ * These rules move when the pinned Quartz SHA moves. The awt-links shadow stage
+ * catches a divergence; nothing in this file can.
  *
  * Read from the installed `@quartz-community/crawl-links` bundle on 2026-08-21.
  */

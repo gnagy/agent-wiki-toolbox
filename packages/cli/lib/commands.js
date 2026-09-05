@@ -1,15 +1,11 @@
 /**
- * Every operation the toolbox has, as one subcommand each.
- *
- * [[toolbox-decisions]] 22: **one binary, and everything hangs off it.** The package
- * split is unaffected — the constraint is on the dependency graph, not on how many
- * things end up on `PATH`. Decision 16 fixes the casing: `splitByHeading` in the
- * library, `split_by_heading` on the MCP surface, `split-by-heading` here.
+ * Every operation the toolbox has, as one subcommand of the one binary. Names are
+ * `splitByHeading` in the library, `split_by_heading` on the MCP surface and
+ * `split-by-heading` here.
  *
  * A command is data: a name, one line of summary, a usage string, an option map for
- * `parseArgs`, and a `run`. `awt --help` is generated from that list, which is what
- * makes decision 26's acceptance test — *`awt --help` alone is enough to find every
- * operation* — hold by construction rather than by discipline.
+ * `parseArgs`, and a `run`. `awt --help` is generated from that list, so every
+ * command is listed.
  */
 import {existsSync, readFileSync} from 'node:fs'
 import {resolve as resolvePath} from 'node:path'
@@ -38,13 +34,11 @@ import {
 
 /**
  * The notes a command works on: `--workspace`, else `$AWT_WORKSPACE`, else the
- * project's own layout, else here.
+ * project's own layout, else the cwd.
  *
- * The third step is what lets `awt check` run from a repo root and mean the wiki
- * rather than every markdown file in the repo: the nearest `awt.config.mjs` names
- * the home and the notes are a fixed name inside it ([[toolbox-decisions]] 38). A
- * bare directory with no project around it still means itself, which is what every
- * test and every one-off run over a scratch wiki relies on.
+ * The third step lets `awt check` run from a repo root and mean the wiki: the
+ * nearest `awt.config.mjs` names the home and the notes are a fixed name inside it.
+ * A bare directory with no project around it means itself.
  */
 async function notesDirFor(values) {
   const explicit = values.workspace ?? process.env.AWT_WORKSPACE

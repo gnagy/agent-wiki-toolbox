@@ -1,13 +1,8 @@
 /**
- * `splitByHeading` — one note becomes several, and the links into it follow.
+ * `splitByHeading`: one note becomes several, and the links into it follow.
  *
- * **The caller supplies the plan** ([[toolbox-decisions]] 15). A section title
- * becoming a filename is judgment, and the tool holds no naming convention at all:
- * with no plan it refuses rather than inventing names.
- *
- * What the tool does hold is the graph invariant. A basename already in the index
- * is a **hard error** and nothing is written — not a warning, and not a suffix
- * quietly appended.
+ * The caller supplies the heading-to-path plan; with no plan the verb refuses. A
+ * basename already in the index is an error and nothing is written.
  */
 import {createAnchorSlugger, createResolver, slugifyPath} from '@agent-wiki-toolbox/core'
 import {getFrontmatter, setFrontmatter} from '@agent-wiki-toolbox/syntax'
@@ -96,12 +91,10 @@ export function splitByHeading(notesDir, {path, plan, source, workspace, dryRun}
   const after = [...afterByPath.values()]
   const {resolve: resolveAfter} = createResolver(after)
 
-  // Decision 15 makes a name already in the wiki a hard error, and decision 7 says
-  // what that means: a bare stem matching more than one note. Checked for the whole
-  // plan before anything is written, so a collision on the third section does not
-  // leave the first two extracted — and asked of the resolver, so a child named
-  // after its own folder is not mistaken for a clash with the wiki's root note.
-  // `move` asks the identical question and refuses on the identical answer.
+  // A name already in the wiki means a bare stem matching more than one note.
+  // Checked for the whole plan before anything is written, and asked of the
+  // resolver, so a child named after its own folder is not mistaken for a clash
+  // with the wiki's root note. `move` asks the same question.
   const wasAmbiguous = ambiguousStems(index.resources, index.resolve)
   const clashes = [...ambiguousStems(after, resolveAfter)].filter((stem) => !wasAmbiguous.has(stem)).sort()
   if (clashes.length > 0) {
@@ -136,8 +129,7 @@ export function splitByHeading(notesDir, {path, plan, source, workspace, dryRun}
     setFrontmatter(child, {
       title: heading,
       type: properties.type ?? 'note',
-      // [[conventions]] makes `area` equal the top-level folder, so it is derived
-      // and checkable rather than guessed.
+      // `area` is the top-level folder.
       area: childPath.split('/')[0],
       ...(properties.topic ? {topic: properties.topic} : {}),
       status: properties.status ?? 'draft',
@@ -190,7 +182,7 @@ export function splitByHeading(notesDir, {path, plan, source, workspace, dryRun}
 
   // Inbound links. `[[parent#that-section]]` names exactly one child and is
   // rewritten; a bare `[[parent]]` has as many candidates as there are children
-  // and escalates (decision 15).
+  // and is reported as unresolved.
   const anchorToChild = new Map(
     sections.map(({heading, path: childPath}) => [anchorFor(heading), linkTo(childPath)]),
   )

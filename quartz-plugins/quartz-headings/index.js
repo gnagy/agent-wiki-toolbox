@@ -2,14 +2,12 @@
  * awt-headings — publish each page's heading anchors, so a *cross-wiki* anchor
  * becomes checkable.
  *
- * [[cross-wiki-link-resolution]] names this as the one thing that design cannot
- * do: `contentIndex.json` carries `filePath`, `slug`, `title` and `content`, but no
+ * `contentIndex.json` carries `filePath`, `slug`, `title` and `content`, but no
  * heading list, so `handbook:foo.md#a-heading` can be resolved to a page and never
- * to a place on it. Substring-matching the page text is a hack, which is why it was
- * left open ([[open-questions]] 17).
+ * to a place on it.
  *
- * The toolbox index carries headings — that is the thing Foam's index lacked — so
- * publishing them beside `contentIndex.json` costs one file and closes it. The
+ * The toolbox index carries headings, so publishing them beside
+ * `contentIndex.json` costs one file. The
  * shape mirrors `contentIndex.json` deliberately: keyed by slug, with the file path
  * beside it, so a consumer that already reads one can read the other the same way.
  *

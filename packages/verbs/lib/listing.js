@@ -1,17 +1,7 @@
 /**
- * `buildListing` — regenerate the OKF directory listing in the root `index.md`.
- *
- * [[toolbox-decisions]] 14 cut this down to one job. There is no in-file TOC verb
- * (Quartz renders one at the side, from the same headings) and no generated Map of
- * Content (a MoC is a curated reading path, which is the whole point of it). What
- * is left is the table of every note with its topic and its one-line description —
- * a pure function of the tree that drifts by hand, and did: a topic rename rewrote
- * every row of it.
- *
- * **Only the region between the markers is touched.** Everything else in the file —
- * the prose, the Maps of Content table, the reading paths — is curated and is left
- * exactly as it is. That is decision 31's contract, and `meta/conventions.md` states
- * it for authors.
+ * `buildListing`: regenerate the notes table in the root `index.md`. One table per
+ * area, one row per note. Only the region between the markers is touched;
+ * everything else in the file is left exactly as it is.
  */
 import {createContext, finish, refuse} from './context.js'
 import {shortestResolvingForm} from './rewrite.js'
@@ -62,10 +52,8 @@ export function buildListing(notesDir, {path = 'index.md', areas, columns, works
   const known = order.filter((area) => byArea.has(area))
   const extra = [...byArea.keys()].filter((area) => !order.includes(area)).sort()
 
-  // A row names a note the way a person would link to it, so the generated block
-  // has to obey decision 7 like any other: a bare stem where the basename is
-  // unique, a folder segment where it is not. Writing the stem unconditionally put
-  // two `ambiguous-link` errors into a block this verb had just reported `ok`.
+  // A row links to a note by the shortest form that resolves: a bare stem where
+  // the basename is unique, a folder segment where it is not.
   const unnameable = []
   const linkTo = (resource) => {
     const form = shortestResolvingForm(resource, index.resolve)

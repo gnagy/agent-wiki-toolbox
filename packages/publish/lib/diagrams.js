@@ -1,6 +1,5 @@
 /**
- * Mermaid diagrams to PNG, with **mermaid as a library and no browser**
- * ([[toolbox-decisions]] 23).
+ * Mermaid diagrams to PNG, with mermaid as a library and no browser.
  *
  * Quartz draws mermaid in the *reader's* browser, importing it from a CDN — so in a
  * handoff copy a diagram is JavaScript (`file://` runs none), a network request (a

@@ -1,9 +1,8 @@
 /**
- * `moveNote` and `renameNote` — the same operation, named for the two intents.
+ * `moveNote` and `renameNote`: the same operation, named for the two intents.
  *
- * Re-runnable, which decision 20 makes a requirement rather than a nicety: if the
- * source is gone and the destination is there, the move already happened and the
- * verb finishes the link rewriting instead of failing.
+ * Re-runnable: if the source is gone and the destination is there, the move
+ * already happened and the verb finishes the link rewriting instead of failing.
  */
 import {createResolver, slugifyPath} from '@agent-wiki-toolbox/core'
 
@@ -53,10 +52,8 @@ function relocate(verb, notesDir, {from, to, workspace, dryRun}) {
   )
   const {resolve: resolveAfter} = createResolver(after)
 
-  // [[conventions]] requires globally unique basenames and decision 7 makes a
-  // duplicate a hard error rather than a guess — so a move that *creates* one is
-  // refused, the way `splitByHeading` refuses the same thing. The comment here used
-  // to say exactly this while the code pushed a note and carried on.
+  // A move that makes a bare stem ambiguous is refused, as `splitByHeading`
+  // refuses the same thing.
   //
   // Refused rather than reported because of *whose* links break: this verb rewrites
   // the links pointing at the note it moved, and the ones that break are the other
@@ -157,8 +154,7 @@ function relocate(verb, notesDir, {from, to, workspace, dryRun}) {
 
     unresolved.push(...residue.map((entry) => ({from: notePath, ...entry})))
 
-    // A file whose links did not change is not rewritten: decision 19 says every
-    // write is serialized, not that every file gets written.
+    // A file whose links did not change is not rewritten.
     if (rewritten.length === 0) continue
     context.edit.update(readFrom, serialize(tree))
   }

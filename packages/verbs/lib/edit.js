@@ -1,6 +1,5 @@
 /**
- * The one write path (toolbox decision 19), with the concurrency model of
- * decision 20 built into it.
+ * The one write path, and the concurrency model.
  *
  * **Nothing is locked and nothing blocks.** Several agents edit one wiki at once,
  * and the toolbox is deliberately not the only writer — so every file is re-hashed
@@ -21,9 +20,9 @@ const hash = (source) => createHash('sha256').update(source).digest('hex')
 
 /**
  * A batch of file operations that are staged in memory and applied at the end. The
- * batch is not a transaction — it cannot be, without the lock decision 20 refuses —
- * so what it guarantees is per-file: each file is either written from the bytes we
- * read, or left alone and named in the report.
+ * batch is not a transaction, since nothing locks. What it guarantees is per-file:
+ * each file is either written from the bytes we read, or left alone and named in
+ * the report.
  */
 export function createEdit(notesDir) {
   const loaded = new Map()

@@ -2,9 +2,8 @@
  * The scaffolding every verb shares: the index, the serializer, the write batch and
  * the shape of a report.
  *
- * The report is one shape for every verb, because decision 20 makes a partial
- * completion normal rather than exceptional — the caller always has to be able to
- * ask *what did not happen* without knowing which verb it called.
+ * The report is one shape for every verb, so a caller can ask what did not
+ * happen without knowing which verb it called.
  */
 import {loadWorkspace} from '@agent-wiki-toolbox/core'
 import {buildProcessor} from '@agent-wiki-toolbox/format'
@@ -30,7 +29,7 @@ export function parseNote(context, path) {
   return processor.parse(context.edit.current(path))
 }
 
-/** Serialize a tree the one way anything is ever written (decision 19). */
+/** Serialize a tree the one way anything is ever written. */
 export function serialize(tree) {
   return String(processor.stringify(tree))
 }
@@ -38,8 +37,8 @@ export function serialize(tree) {
 /**
  * Finish a verb: apply the batch and return the report.
  *
- * `unresolved` is decision 3's residue — links the tool would not guess at — and it
- * travels beside `skipped` so one return answers both "what did I not do" questions.
+ * `unresolved` lists the links the tool would not guess at. It travels beside
+ * `skipped` so one return answers both "what did I not do" questions.
  */
 export function finish(verb, context, {unresolved = [], notes = []} = {}) {
   const applied = context.edit.commit({dryRun: context.dryRun})

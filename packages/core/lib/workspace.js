@@ -126,14 +126,10 @@ export function buildWorkspace(notesDir, resources, stats = {}) {
         ambiguities.push({...site, candidates: outcome.candidates.map((candidate) => candidate.path)})
         continue
       }
-      // A note sits at exactly this address and the link cannot reach it. That is
-      // not a wish — decision 30's own reasoning, "a path names one file, only a
-      // stem is a wish" — so calling it backlog is false twice over: the note is
-      // written, and `check` passes a wiki whose link into it yields no edge.
-      //
-      // Only the *reporting* moves. Which note a target resolves to is Quartz's
-      // rule and is mirrored exactly; how a miss is reported has always been ours,
-      // the way an ambiguous stem is an error here and a silent fallthrough there.
+      // A note sits at exactly this address and the link cannot reach it. Reported
+      // as an error rather than as a placeholder: the note exists, and the link
+      // yields no edge. Which note a target resolves to is Quartz's rule, mirrored
+      // exactly; how a miss is reported is decided here.
       if (outcome.status !== 'resolved') {
         const held = bySlug.get(slugifyPath(link.target))
         if (held) {
@@ -257,11 +253,7 @@ export function buildWorkspace(notesDir, resources, stats = {}) {
       return [...(outbound.get(path) ?? [])].sort()
     },
 
-    /**
-     * Targets nothing resolves to. **This is the backlog signal, not an error
-     * list** — a placeholder is a note worth writing, which is why a cross-wiki
-     * reference must never be a wikilink.
-     */
+    /** Targets nothing resolves to. Reported separately from problems. */
     placeholders() {
       return [...placeholders.values()].sort((a, b) => (a.target < b.target ? -1 : 1))
     },

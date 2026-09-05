@@ -9,10 +9,9 @@
  *
  * **Where we differ, on purpose:** Quartz resolves only on a unique match and
  * otherwise falls through *silently* to a root-relative path — which, for an
- * ambiguous stem, is a URL that 404s. Here two matches is an authoring error
- * reported at edit time (toolbox decision 7). There is no confidence threshold and
- * no "best" candidate: one match is a link, anything else is a question for the
- * author.
+ * ambiguous stem, is a URL that 404s. Here two matches is an error reported at
+ * edit time. There is no confidence threshold and no "best" candidate: one match
+ * is a link, anything else is reported.
  */
 import {isFolderPath, simplifySlug, slugifyPath, stripSlashes} from './slug.js'
 
@@ -125,8 +124,7 @@ function byPath(a, b) {
 
 /**
  * Does the target note have this heading? A `^blockid` is Obsidian's block
- * reference, which decision 8 declines to model — so it is skipped rather than
- * reported, because reporting a thing we chose not to support is noise.
+ * reference, which is not modelled, so it is skipped rather than reported.
  */
 export function checkAnchor(resource, anchor) {
   if (!anchor) return 'none'

@@ -1,10 +1,7 @@
 #!/usr/bin/env node
 /**
- * `awt` — one binary, everything a subcommand ([[toolbox-decisions]] 22 and 26).
- *
- * `awt --help` lists every operation, generated from the command table, so the
- * acceptance test for this milestone holds by construction rather than by anyone
- * remembering to update a help string.
+ * `awt`: one binary, everything a subcommand. `awt --help` is generated from the
+ * command table.
  */
 import {parseArgs} from 'node:util'
 import process from 'node:process'

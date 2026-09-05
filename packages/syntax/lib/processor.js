@@ -1,7 +1,7 @@
 /**
- * The one place remark is configured. `core` and `format` both parse, and the one
- * place drift between them would be fatal is the wikilink dialect — so neither
- * assembles a processor of its own (toolbox decision 11).
+ * The one place remark is configured. `core` and `format` both parse, and neither
+ * assembles a processor of its own, so the wikilink dialect cannot drift between
+ * them.
  */
 import {unified} from 'unified'
 import remarkFrontmatter from 'remark-frontmatter'

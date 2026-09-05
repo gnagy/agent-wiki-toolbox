@@ -1,13 +1,12 @@
 /**
  * The structural verbs: the writes that corrupt something when done by hand.
  *
- * [[toolbox-decisions]] 12 draws the line — rename, move, delete, split, merge,
- * tag-rename, and the generated listing. Ordinary prose edits stay with the agent's
- * own `Write` and `Edit`, and the index picks them up on the next call.
+ * Rename, move, delete, split, merge, tag-rename, and the generated listing.
+ * Ordinary prose edits stay with the agent's own file tools, and the index picks
+ * them up on the next call.
  *
- * Every verb here is **re-runnable**, because decision 20 makes a partial
- * completion normal: nothing locks, a file that moved under us is skipped and
- * reported, and re-running is how the rest gets finished.
+ * Every verb is re-runnable: nothing locks, a file that changed underneath is
+ * skipped and reported, and re-running finishes the rest.
  */
 export {moveNote, renameNote} from './lib/move.js'
 export {deleteNote} from './lib/delete.js'

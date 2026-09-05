@@ -21,8 +21,7 @@
  *
  * `target` is exactly what was written between the brackets — resolution is
  * `core`'s business, and this package deliberately knows nothing about it.
- * `alias` is parsed although the estate bans it (toolbox decision 27), because a
- * ban is only enforceable on something the parser can see.
+ * `alias` is parsed so that `check` can report it.
  */
 import {markdownLineEnding, markdownSpace} from 'micromark-util-character'
 

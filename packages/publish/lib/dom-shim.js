@@ -2,10 +2,9 @@
  * The jsdom environment mermaid needs, and the two SVG methods jsdom does not
  * implement.
  *
- * **This is a compatibility surface with mermaid's internals that no upstream
- * contract protects**, and saying so is part of decision 23. It works against
- * mermaid 11; a major bump is a thing to re-verify against the fixture rather than
- * to assume.
+ * This is a compatibility surface with mermaid's internals that no upstream
+ * contract protects. It works against mermaid 11; re-verify against the fixture
+ * on a major bump.
  */
 import {JSDOM} from 'jsdom'
 
@@ -128,9 +127,7 @@ function boundsOf(element, font) {
  * mermaid writes a label as one `<tspan>` per line, each holding one inline
  * `<tspan>` per word — and the word tspans carry no `x`. Unioning them therefore
  * stacks every word at x=0 and reports the width of the **longest word** instead of
- * the line. That is not an exception: it is a node drawn narrower than its own
- * label, which is exactly the class of failure decision 23 says a run that does not
- * throw cannot rule out.
+ * the line. That does not throw; it draws a node narrower than its own label.
  */
 function textBounds(element, font) {
   const size = fontSizeOf(element)

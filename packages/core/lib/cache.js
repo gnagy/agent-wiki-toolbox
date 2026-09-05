@@ -1,8 +1,7 @@
 /**
  * The index is a pure function of the file tree, memoized on disk and keyed by
- * content (toolbox decision 9). Measured on this estate: walking 300 notes costs
- * 1.8 ms and `stat`-ing them 1.6 ms, against ~1,780 ms to parse them — so knowing
- * what changed costs about 1% of reparsing it, and a watcher buys nothing.
+ * content. Walking and stat-ing 300 notes costs about 1% of parsing them, so
+ * nothing watches the tree.
  *
  * Correct after an editor save, an agent's `Write`, a `git checkout` or a rebase,
  * because nothing had to be watching when the change happened.
