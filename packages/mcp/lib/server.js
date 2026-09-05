@@ -190,7 +190,7 @@ export function createServer({
       'Regenerate the notes listing between its markers in the wiki index. Everything outside the markers is left alone.',
       {
         path: z.string().optional(),
-        columns: z.array(z.enum(['note', 'topic', 'about'])).optional(),
+        columns: z.array(z.enum(['note', 'topic', 'area', 'about'])).optional().describe('default note, about'),
       },
       (args) => buildListing(notesDir, args),
     ],

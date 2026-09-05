@@ -48,7 +48,7 @@ export function buildListing(notesDir, {path = 'index.md', areas, columns, works
   const byArea = new Map()
   const missing = []
   for (const resource of withoutSelf) {
-    const area = resource.properties.area ?? resource.path.split('/')[0]
+    const area = areaOf(resource)
     if (!byArea.has(area)) byArea.set(area, [])
     byArea.get(area).push(resource)
     if (!resource.properties.description) missing.push(resource.path)
@@ -110,12 +110,18 @@ function formatDocument(context, source) {
   return String(context.processor.stringify(context.processor.parse(source)))
 }
 
-const HEADERS = {note: 'Note', topic: 'Topic', about: 'About'}
+/** The `area` front-matter field, else the top-level folder. */
+function areaOf(resource) {
+  return resource.properties.area ?? resource.path.split('/')[0]
+}
+
+const HEADERS = {note: 'Note', topic: 'Topic', area: 'Area', about: 'About'}
 
 function table(resources, columns, linkTo) {
   const cell = (resource, column) => {
     if (column === 'note') return linkTo(resource)
     if (column === 'topic') return escapePipes(String(resource.properties.topic ?? ''))
+    if (column === 'area') return escapePipes(String(areaOf(resource)))
     return escapePipes(String(resource.properties.description ?? ''))
   }
 

@@ -585,6 +585,19 @@ test('buildListing renders a topic column when asked for one', (t) => {
   assert.match(listing, /\| \[\[one]] +\| things +\| The first note\. +\|/)
 })
 
+test('buildListing renders an area column as the area, headed like the others', (t) => {
+  const box = wiki({
+    'index.md': `# Index\n\n${MARKER_START}\n${MARKER_END}\n`,
+    'design/one.md': front('One', 'description: The first note.\n'),
+  })
+  t.after(() => box.cleanup())
+
+  buildListing(box.root, {columns: ['note', 'area', 'about']})
+  const listing = box.read('index.md')
+  assert.match(listing, /\| Note +\| Area +\| About +\|\n/)
+  assert.match(listing, /\| \[\[one]] +\| design +\| The first note\. +\|/)
+})
+
 test('buildListing refuses a file with no managed block', (t) => {
   const box = wiki({'index.md': '# Wiki\n\nNo markers here.\n'})
   t.after(() => box.cleanup())
