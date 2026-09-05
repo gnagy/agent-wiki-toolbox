@@ -241,15 +241,6 @@ export function bootstrap(argv = process.argv.slice(2)) {
   const i = run("npm", ["install", "--no-audit", "--no-fund"], { cwd: src, stdio: "ignore" })
   if (i.status !== 0) die("npm install failed")
 
-  console.log(
-    "\nready. Serve the site with:\n" +
-      "    awt serve\n" +
-      "\nIt emits the toolbox index and then runs Quartz's dev server. Both halves\n" +
-      "matter: the awt-links shadow compares the rendered pages against that index,\n" +
-      "so a build started any other way is comparing against a stale one — and it\n" +
-      "now refuses to, rather than passing quietly.\n" +
-      "\nAnd publish — a build without --serve, into site/release:\n" +
-      "    awt publish",
-  )
+  console.log("\nready. Next:\n    awt serve       dev server\n    awt publish     release build into site/release")
   return 0
 }
