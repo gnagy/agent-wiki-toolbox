@@ -561,12 +561,28 @@ test('buildListing writes only between its markers', (t) => {
   assert.match(listing, /### analysis\n/)
   assert.match(listing, /### design\n/)
   assert.doesNotMatch(listing, /how things are|what we will do/)
-  assert.match(listing, /\| \[\[one]] +\| things +\| The first note\. +\|/)
+  // Two columns by default; topic is opt-in.
+  assert.match(listing, /\| Note +\| About +\|\n/)
+  assert.match(listing, /\| \[\[one]] +\| The first note\. +\|/)
+  assert.doesNotMatch(listing, /things/)
   assert.doesNotMatch(listing, /stale/)
 
   const second = buildListing(box.root)
   assert.match(second.notes.join(' '), /already current/)
   assert.equal(box.read('index.md'), listing)
+})
+
+test('buildListing renders a topic column when asked for one', (t) => {
+  const box = wiki({
+    'index.md': `# Index\n\n${MARKER_START}\n${MARKER_END}\n`,
+    'design/one.md': front('One', 'topic: things\ndescription: The first note.\n'),
+  })
+  t.after(() => box.cleanup())
+
+  buildListing(box.root, {columns: ['note', 'topic', 'about']})
+  const listing = box.read('index.md')
+  assert.match(listing, /\| Note +\| Topic +\| About +\|\n/)
+  assert.match(listing, /\| \[\[one]] +\| things +\| The first note\. +\|/)
 })
 
 test('buildListing refuses a file with no managed block', (t) => {
@@ -615,7 +631,7 @@ test('buildListing escapes a pipe in a topic as well as in a description', (t) =
   })
   t.after(() => box.cleanup())
 
-  buildListing(box.root)
+  buildListing(box.root, {columns: ['note', 'topic', 'about']})
   const row = box.read('index.md').split('\n').find((line) => line.includes('[[one]]'))
   // Only the cell walls are unescaped pipes: three cells, not five.
   assert.equal(row.split(/(?<!\\)\|/).length, 5)

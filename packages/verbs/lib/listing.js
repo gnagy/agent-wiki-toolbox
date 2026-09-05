@@ -22,8 +22,7 @@ export const MARKER_END = '<!-- awt:listing:end -->'
 /**
  * @param path     the listing file, default `index.md`.
  * @param areas    the order areas appear in; anything else follows, sorted.
- * @param columns  `['note', 'topic', 'about']` by default; drop `topic` for a wiki
- *                 that has no topic axis.
+ * @param columns  `['note', 'about']` by default; `topic` and `area` are opt-in.
  */
 export function buildListing(notesDir, {path = 'index.md', areas, columns, workspace, dryRun} = {}) {
   const verb = 'buildListing'
@@ -42,7 +41,7 @@ export function buildListing(notesDir, {path = 'index.md', areas, columns, works
     )
   }
 
-  const wanted = columns ?? ['note', 'topic', 'about']
+  const wanted = columns ?? ['note', 'about']
   const order = areas ?? ['analysis', 'design', 'implementation', 'worklog', 'meta']
   const withoutSelf = index.resources.filter((resource) => resource.path !== path)
 

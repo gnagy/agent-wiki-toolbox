@@ -511,7 +511,8 @@ export const COMMANDS = [
   {
     name: 'build-listing',
     summary: 'Regenerate the notes listing between its markers in the wiki index; everything outside is left alone',
-    usage: 'awt build-listing [--path index.md] [--columns note,topic,about]',
+    usage: 'awt build-listing [--path index.md] [--columns note,about]',
+    notes: ['--columns defaults to note,about. topic and area are the other columns.'],
     options: {
       ...WORKSPACE_OPTION,
       ...OUTPUT_OPTIONS,
