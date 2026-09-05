@@ -557,7 +557,10 @@ test('buildListing writes only between its markers', (t) => {
   const listing = box.read('index.md')
   assert.match(listing, /Curated prose nobody generates\./)
   assert.match(listing, /## Reading paths\n\nAlso curated\./)
-  assert.match(listing, /### Analysis — how things are/)
+  // A heading is the folder name, nothing added.
+  assert.match(listing, /### analysis\n/)
+  assert.match(listing, /### design\n/)
+  assert.doesNotMatch(listing, /how things are|what we will do/)
   assert.match(listing, /\| \[\[one]] +\| things +\| The first note\. +\|/)
   assert.doesNotMatch(listing, /stale/)
 

@@ -19,14 +19,6 @@ import {shortestResolvingForm} from './rewrite.js'
 export const MARKER_START = '<!-- awt:listing:start -->'
 export const MARKER_END = '<!-- awt:listing:end -->'
 
-const AREA_TITLES = {
-  analysis: 'Analysis — how things are',
-  design: 'Design — what we will do',
-  implementation: 'Implementation — what exists today',
-  worklog: 'Worklog — dated activity',
-  meta: 'Meta',
-}
-
 /**
  * @param path     the listing file, default `index.md`.
  * @param areas    the order areas appear in; anything else follows, sorted.
@@ -82,7 +74,7 @@ export function buildListing(notesDir, {path = 'index.md', areas, columns, works
 
   const blocks = []
   for (const area of [...known, ...extra]) {
-    blocks.push(`### ${AREA_TITLES[area] ?? area}`, '')
+    blocks.push(`### ${area}`, '')
     blocks.push(...table(byArea.get(area), wanted, linkTo))
     blocks.push('')
   }
