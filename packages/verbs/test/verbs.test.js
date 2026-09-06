@@ -351,6 +351,24 @@ test('deleteNote reports what now points at nothing, and does not rewrite it', (
   assert.match(second.notes.join(' '), /already deleted/)
 })
 
+test('deleteNote takes the path as the shell shows it, and refuses one outside the wiki', (t) => {
+  const box = wiki({
+    'a/gone.md': `${front('Gone')}Body.\n`,
+    'b/one.md': `${front('One')}See [[gone]].\n`,
+  })
+  t.after(() => box.cleanup())
+
+  // The path a caller reads off `git status`, not the notes-relative one. Before
+  // this, a note that was there was reported as already deleted.
+  const report = deleteNote(box.root, {path: join(box.root, 'a/gone.md')})
+  assert.deepEqual(report.deleted, ['a/gone.md'])
+  assert.equal(report.unresolved.length, 1)
+  assert.match(report.notes.join(' '), /relative to the notes directory/)
+
+  // A path this wiki never held is a refusal, not a success.
+  assert.throws(() => deleteNote(box.root, {path: '../elsewhere.md'}), /is not a note in/)
+})
+
 test('splitByHeading needs a plan and a decision about the source', (t) => {
   const box = wiki({'a/big.md': `${front('Big')}## One\n\nText.\n`})
   t.after(() => box.cleanup())
@@ -463,6 +481,31 @@ test('mergeFiles appends each source as a section and repoints its links', (t) =
   })
   assert.match(second.notes.join(' '), /already merged/)
   assert.equal(box.read('design/target.md'), target, 'a second run changes nothing')
+})
+
+test('mergeFiles takes the paths as the shell shows them, and refuses one outside the wiki', (t) => {
+  const box = wiki({
+    'design/target.md': `${front('Target')}Intro.\n`,
+    'design/a.md': `${front('Alpha')}Alpha body.\n`,
+  })
+  t.after(() => box.cleanup())
+
+  // Before this, a source given this way was reported as already merged, and the
+  // target as missing.
+  const report = mergeFiles(box.root, {
+    sources: [join(box.root, 'design/a.md')],
+    into: join(box.root, 'design/target.md'),
+    source: 'delete',
+  })
+  assert.equal(report.ok, true)
+  assert.match(box.read('design/target.md'), /^## Alpha$/m)
+  assert.match(report.notes.join(' '), /relative to the notes directory/)
+
+  // A path this wiki never held is a refusal, not a skip.
+  assert.throws(
+    () => mergeFiles(box.root, {sources: ['../elsewhere.md'], into: 'design/target.md', source: 'keep'}),
+    /not a note in/,
+  )
 })
 
 test('mergeFiles repoints a relative markdown link into a source it deleted', (t) => {

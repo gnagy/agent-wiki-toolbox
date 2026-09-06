@@ -5,6 +5,9 @@
  * The report is one shape for every verb, so a caller can ask what did not
  * happen without knowing which verb it called.
  */
+import {isAbsolute, relative, resolve} from 'node:path'
+import process from 'node:process'
+
 import {loadWorkspace} from '@agent-wiki-toolbox/core'
 import {buildProcessor} from '@agent-wiki-toolbox/format'
 
@@ -19,6 +22,48 @@ export function createContext(notesDir, {workspace, dryRun = false} = {}) {
     processor,
     dryRun,
   }
+}
+
+/**
+ * Does this path name a note the verbs' own way, relative to the notes directory?
+ * A path that escapes the workspace when read that way names nothing here.
+ */
+export function namesANote(notesDir, path) {
+  if (!path || isAbsolute(path)) return false
+  const inside = relative(notesDir, resolve(notesDir, path))
+  return Boolean(inside) && !inside.startsWith('..')
+}
+
+/**
+ * The same path read the way the shell shows it, from the working directory, or
+ * `null` when that lands outside the workspace.
+ *
+ * The verbs take notes-relative paths. A caller working from the repo root types
+ * the path `git status` printed instead — `wiki/notes/design/x.md` — and a verb
+ * that treats a miss as "nothing to do" then reports success for a note that is
+ * sitting right there. Reading the path this second way is what turns that into
+ * a hit. `fmt` already resolves against the cwd before the notes directory.
+ */
+export function fromWorkingDirectory(notesDir, path) {
+  if (!path) return null
+  const absolute = isAbsolute(path) ? path : resolve(process.cwd(), path)
+  const inside = relative(notesDir, absolute)
+  if (!inside || inside.startsWith('..') || isAbsolute(inside)) return null
+  return inside
+}
+
+/**
+ * The path this wiki knows the note by, given what the caller typed.
+ *
+ * Returns the path unchanged when the index already holds it, which is the
+ * ordinary case, and the re-read form when that is what the caller meant. A verb
+ * compares the two to say it re-read the path.
+ */
+export function resolveNotePath(notesDir, index, path) {
+  if (index.get(path)) return path
+  const asTyped = fromWorkingDirectory(notesDir, path)
+  if (asTyped && asTyped !== path && (index.get(asTyped) || !namesANote(notesDir, path))) return asTyped
+  return path
 }
 
 /**

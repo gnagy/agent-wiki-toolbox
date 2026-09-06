@@ -9,7 +9,7 @@
 import {getFrontmatter} from '@agent-wiki-toolbox/syntax'
 import {createAnchorSlugger, createResolver, slugifyPath} from '@agent-wiki-toolbox/core'
 
-import {createContext, finish, parseNote, refuse, serialize} from './context.js'
+import {createContext, finish, namesANote, parseNote, refuse, resolveNotePath, serialize} from './context.js'
 import {relativePathFrom, shortestResolvingForm, visitLinks} from './rewrite.js'
 
 /**
@@ -29,16 +29,30 @@ export function mergeFiles(notesDir, {sources, into, depth = 2, source, workspac
   if (!['delete', 'keep'].includes(source)) {
     throw refuse(verb, `the sources' fate is part of the call: source must be delete or keep`)
   }
-  const target = index.get(into)
-  if (!target) throw refuse(verb, `no note at ${into} to merge into`)
-  if (sources.includes(into)) throw refuse(verb, `${into} cannot be merged into itself`)
+  // The paths as this wiki names them, so a caller who types them the way the
+  // shell shows them gets a hit rather than "already merged".
+  const named = (path) => {
+    const found = resolveNotePath(notesDir, index, path)
+    if (found !== path) notes.push(`read ${path} as ${found}, relative to the notes directory`)
+    return found
+  }
+  const intoPath = named(into)
+  const sourcePaths = sources.map((path) => named(path))
 
-  const present = sources.filter((path) => index.get(path))
-  const already = sources.filter((path) => !index.get(path))
-  if (already.length > 0) notes.push(`already merged, and skipped: ${already.join(', ')}`)
+  const target = index.get(intoPath)
+  if (!target) throw refuse(verb, `no note at ${intoPath} to merge into`)
+  if (sourcePaths.includes(intoPath)) throw refuse(verb, `${intoPath} cannot be merged into itself`)
+
+  const present = sourcePaths.filter((path) => index.get(path))
+  const missing = sourcePaths.filter((path) => !index.get(path))
+  // A path this wiki has never held is a refusal. Calling it already merged
+  // reports success for a note the caller can still see on disk.
+  const strangers = missing.filter((path) => !namesANote(notesDir, path))
+  if (strangers.length > 0) throw refuse(verb, `not a note in ${notesDir}: ${strangers.join(', ')}`)
+  if (missing.length > 0) notes.push(`already merged, and skipped: ${missing.join(', ')}`)
   if (present.length === 0) return finish(verb, context, {notes})
 
-  const targetTree = parseNote(context, into)
+  const targetTree = parseNote(context, intoPath)
   const anchorOf = createAnchorSlugger()
   for (const heading of targetTree.children.filter((node) => node.type === 'heading')) {
     // Prime the slugger with the headings already on the page, so a new section
@@ -84,7 +98,7 @@ export function mergeFiles(notesDir, {sources, into, depth = 2, source, workspac
     merged.push({path, title, anchor: sectionAnchor, anchors})
   }
 
-  context.edit.update(into, serialize(targetTree))
+  context.edit.update(intoPath, serialize(targetTree))
 
   // Resolution as it will be once the sources are gone: dropping them can shorten
   // the form the target is named by, and the form has to resolve in the wiki that
@@ -92,7 +106,7 @@ export function mergeFiles(notesDir, {sources, into, depth = 2, source, workspac
   const {resolve: resolveAfter} = createResolver(
     index.resources.filter((resource) => source !== 'delete' || !present.includes(resource.path)),
   )
-  const targetForm = shortestResolvingForm(target, resolveAfter) ?? slugifyPath(into)
+  const targetForm = shortestResolvingForm(target, resolveAfter) ?? slugifyPath(intoPath)
 
   for (const {path, anchor, anchors} of merged) {
     /**
@@ -105,12 +119,12 @@ export function mergeFiles(notesDir, {sources, into, depth = 2, source, workspac
       if (!written) return anchor
       const after = anchors.get(written)
       if (after !== undefined) return after
-      unresolved.push({...site, reason: `${path} has no heading "#${written}"`, candidates: [into]})
+      unresolved.push({...site, reason: `${path} has no heading "#${written}"`, candidates: [intoPath]})
       return anchor
     }
 
     for (const notePath of index.backlinks(path)) {
-      if (notePath === into) continue
+      if (notePath === intoPath) continue
       const tree = parseNote(context, notePath)
       let touched = false
       visitLinks(tree, (node) => {
@@ -137,7 +151,7 @@ export function mergeFiles(notesDir, {sources, into, depth = 2, source, workspac
         if (outcome.status !== 'resolved' || outcome.resource.path !== path) return
 
         const to = follow(writtenAnchor, {from: notePath, line, target: node.url})
-        node.url = `${relativePathFrom(notePath, into)}#${to}`
+        node.url = `${relativePathFrom(notePath, intoPath)}#${to}`
         touched = true
       })
       if (touched) context.edit.update(notePath, serialize(tree))
