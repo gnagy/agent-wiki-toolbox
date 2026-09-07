@@ -112,8 +112,10 @@ other there — every one of them passes when its file is run alone, and the sam
 end to end through the real CLI under bun. And the Quartz plugins are imported by Quartz's own node
 process, which is what keeps this source plain node-compatible ESM rather than anything bun-specific.
 
-Install it with `bin/install`, which is the only step that exposes a change: builds and agent jobs
-read `~/.local/lib/agent-wiki-toolbox`, never this working copy.
+Install it with `scripts/install`, the only step that exposes a change. It copies this working copy
+to `~/.claude/skills/awt`, where Claude Code adopts it as the **`awt` plugin** — the `wiki-docs`
+skill as `/awt:wiki-docs`, a guard hook, and the MCP server over the project's wiki — and points
+`~/.local/bin/awt` at the same tree, so a shell, a site build and a session all run one copy.
 
 ## Where the reasoning lives
 
