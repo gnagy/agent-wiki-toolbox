@@ -50,7 +50,7 @@ the way. Run it from the project being tested; it changes nothing on the machine
 | Plugin     | `--plugin-dir`, per session, writes nothing           | a directory in `~/.claude/skills` | delete it                     |
 | Skill      | type `/awt:wiki-docs`; or unlink the standalone one   | `skills add` stops being run      | one `ln -s`                   |
 | MCP server | `--disallowedTools 'mcp__agent-wiki-toolbox__*'`      | drop the project `.mcp.json` entry | `git checkout .mcp.json`      |
-| `awt`      | untestable through the shim by design                 | shim installs to plugin data      | `bin/install` again           |
+| `awt`      | `AWT_SHIM_PREFER_INSTALL=1` runs the machine's copy   | nothing: deps install in place    | `bin/install` again           |
 
 **A marketplace is not the only way to install one.** A directory under `~/.claude/skills/` holding a
 `.claude-plugin/plugin.json` is adopted as a plugin in its own right, as `<name>@skills-dir` — the
@@ -120,3 +120,38 @@ deleted. The version that keeps one stamp per machine is the reverse: **`bin/ins
 plugin too**, into `~/.claude/skills/awt`, so one command produces both targets at the same commit
 and the marketplace is only ever for other machines. Untested; it is a step 4 decision, not a spike
 finding.
+
+## How other plugins ship a node dependency
+
+Surveyed the 40 plugins in `claude-plugins-official`. Four ship a node server of their own — discord,
+telegram, imessage, fakechat — and all four do the same thing:
+
+```json
+"start": "bun install --no-summary && bun server.ts"
+```
+
+launched as `bun run --cwd ${CLAUDE_PLUGIN_ROOT} --shell=bun --silent start`. **Dependencies install
+in place, at server start, into the plugin's own directory.** No install step, no committed
+`node_modules`, no data directory: the plugin directory is writable, and the install is idempotent
+enough to run every time. The rest reach for `npx -y <pkg>@latest`, `uvx`, `docker run`, or a remote
+HTTP server — every one of them a way to avoid shipping a dependency at all.
+
+Measured for this toolbox, which is a seven-package npm workspace: **1.9s cold, 0.4s once installed**,
+silent on both streams, with a warm npm cache. A machine that has never fetched these packages pays
+network time on that first call, once.
+
+So the `${CLAUDE_PLUGIN_DATA}` shim the analysis note called for is unnecessary, and `bin/awt` now
+installs in place instead. Two details that pattern does not have to handle and this one does:
+
+- **cwd.** Those servers do not care where they run; `awt` resolves the wiki by walking up from its
+  cwd. So the install runs in a subshell and the exec keeps the caller's directory. `npm --prefix` or
+  `bun --cwd` would move the server into the plugin root, where it would find no project.
+- **stdout.** An MCP server speaks on stdout. `npm install --silent` is quiet, but `telegram` writes
+  its install output to stderr explicitly (`bun install --no-summary 1>&2`), which is the safe habit.
+
+One hazard the pattern brings to a `--plugin-dir` trial: the plugin directory **is** the working copy,
+so `--omit=dev` there would prune the dev dependencies and break `npm test`. `bin/awt` installs only
+when `node_modules` is absent, which is why a working copy that already has one is left alone.
+
+**No plugin in that marketplace has a `bin/` directory at all**, so putting `awt` on the session PATH
+is a road nobody has walked. The MCP server is how every one of them exposes its tool.

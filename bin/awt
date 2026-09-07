@@ -1,32 +1,43 @@
 #!/usr/bin/env bash
-# The plugin's own `awt`. Three sources, in order, so the packaging step can be
-# switched on and off independently of everything else the plugin does:
+# The plugin's own `awt`.
 #
-#   1. ${CLAUDE_PLUGIN_DATA}/lib  a real plugin install, what ships eventually
-#   2. ~/.local/lib/...           whatever `bin/install` put there, the default
-#                                 for the trial: same code both sides, so a
-#                                 difference in behaviour is the plugin form
-#   3. the working copy           only when it has node_modules
+# Dependencies install in place on first use, the way the official plugins that
+# ship a node server do (`bun install && bun server.ts` as their start script).
+# There is no separate install step and no plugin data directory: the plugin
+# directory is writable and 247 MB of node_modules belongs in it.
 #
-# AWT_SHIM_DEBUG=1 prints the source it chose to stderr. During a trial where
-# both the old install and the plugin are live, that line is the only way to
-# know which one answered.
+# Two things that pattern does not have to worry about and this does:
+#
+#   cwd     awt resolves the wiki by walking up from where it runs, so the
+#           install happens in a subshell and the exec keeps the caller's
+#           directory. `npm --cwd`/`--prefix` would move the server into the
+#           plugin root, where it would find no project.
+#   stdout  an MCP server speaks on stdout, so install chatter has to go to
+#           stderr or it corrupts the handshake.
+#
+# AWT_SHIM_PREFER_INSTALL=1 runs ~/.local/lib instead, for an A/B against the
+# machine's copy. AWT_SHIM_DEBUG=1 prints which one answered.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DATA="${CLAUDE_PLUGIN_DATA:-}/lib/packages/cli/bin/awt.mjs"
+OWN="$ROOT/packages/cli/bin/awt.mjs"
 INSTALLED="$HOME/.local/lib/agent-wiki-toolbox/packages/cli/bin/awt.mjs"
-WORKING="$ROOT/packages/cli/bin/awt.mjs"
 
 say() { [[ "${AWT_SHIM_DEBUG:-}" == "1" ]] && printf 'awt: plugin shim -> %s\n' "$1" >&2; return 0; }
 
-if [[ -n "${CLAUDE_PLUGIN_DATA:-}" && -f "$DATA" ]]; then
-  say "$DATA"; exec "$DATA" "$@"
-elif [[ -f "$INSTALLED" ]]; then
+if [[ "${AWT_SHIM_PREFER_INSTALL:-}" == "1" && -f "$INSTALLED" ]]; then
   say "$INSTALLED"; exec "$INSTALLED" "$@"
-elif [[ -f "$WORKING" && -d "$ROOT/node_modules" ]]; then
-  say "$WORKING"; exec "$WORKING" "$@"
 fi
 
-echo "awt: no plugin install, no ~/.local install, no usable working copy at $ROOT" >&2
+if [[ -f "$OWN" ]]; then
+  if [[ ! -d "$ROOT/node_modules" ]]; then
+    ( cd "$ROOT" && npm install --omit=dev --silent --no-audit --no-fund ) 1>&2 || {
+      echo "awt: dependency install failed in $ROOT" >&2; exit 1; }
+  fi
+  say "$OWN"; exec "$OWN" "$@"
+elif [[ -f "$INSTALLED" ]]; then
+  say "$INSTALLED"; exec "$INSTALLED" "$@"
+fi
+
+echo "awt: no cli in $ROOT and no install at $INSTALLED" >&2
 exit 127
