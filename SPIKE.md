@@ -47,13 +47,22 @@ the way. Run it from the project being tested; it changes nothing on the machine
 
 | Piece      | Trial                                                 | Switch                            | Reverse                       |
 |------------|-------------------------------------------------------|-----------------------------------|-------------------------------|
-| Plugin     | `--plugin-dir`, per session, writes nothing           | marketplace + install             | uninstall                     |
+| Plugin     | `--plugin-dir`, per session, writes nothing           | a directory in `~/.claude/skills` | delete it                     |
 | Skill      | type `/awt:wiki-docs`; or unlink the standalone one   | `skills add` stops being run      | one `ln -s`                   |
 | MCP server | `--disallowedTools 'mcp__agent-wiki-toolbox__*'`      | drop the project `.mcp.json` entry | `git checkout .mcp.json`      |
 | `awt`      | untestable through the shim by design                 | shim installs to plugin data      | `bin/install` again           |
 
-Only the marketplace install writes outside the projects, so the trial stays on `--plugin-dir` for
-its whole length.
+**A marketplace is not the only way to install one.** A directory under `~/.claude/skills/` holding a
+`.claude-plugin/plugin.json` is adopted as a plugin in its own right, as `<name>@skills-dir` — the
+same directory the skills already live in, and what `claude plugin init` scaffolds into. So the
+switch is the shape `skills add` already has: put a copy where the skills go, no marketplace file, no
+`known_marketplaces.json` entry. A marketplace is for other machines and other people.
+
+Both paths write into `~/.claude`, which is why the trial stays on `--plugin-dir`: it is the only one
+that writes nothing at all. Whether a *symlink* under `~/.claude/skills/` is adopted the way a real
+directory is, is untested — and it does not matter much, because the workspace rule against
+symlinking a working copy into a consumer says the install is a copy either way, and `--plugin-dir`
+already gives a trial the live working copy with no footprint.
 
 **`--strict-mcp-config` is not the isolation flag.** It suppresses the plugin's server along with the
 project's; a session started with it has no wiki tools at all. `--disallowedTools` with a glob is
