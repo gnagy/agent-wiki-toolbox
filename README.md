@@ -31,7 +31,7 @@ coordinate.
 ```
 
 Each is a workspace package, so **the dependency graph is the architecture** and a layering violation
-fails a check rather than a review. `npm run layering` is that check.
+fails a check rather than a review. `bun run layering` is that check.
 
 Two of its rules are load-bearing rather than tidy:
 
@@ -102,6 +102,10 @@ A bare `awt fmt` inside a project means the notes too, unless the config's `file
 `-w` and `$AWT_WORKSPACE` still name the notes outright, which is what a scratch directory with no
 project around it needs. A project still laid out as `docs/wiki` beside `site/` keeps working, with
 one line on stderr saying how to move; the `wiki-docs` skill's `adoption.md` carries the steps.
+
+Dependencies come from **bun**, pinned with node in `mise.toml`: `bun install`, then `bun run test`
+and `bun run layering`. Nothing here is written against bun's runtime — the shebangs are `node` and
+the tests are `node --test` — so bun installs the tree and node runs it.
 
 Install it with `bin/install`, which is the only step that exposes a change: builds and agent jobs
 read `~/.local/lib/agent-wiki-toolbox`, never this working copy.

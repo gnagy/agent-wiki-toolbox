@@ -39,6 +39,12 @@ if [[ -n "$(git -C "$SRC" status --porcelain 2>/dev/null)" ]]; then
   say "      Commit first if you want the installed copy to match a commit."
 fi
 
+if ! command -v bun >/dev/null 2>&1; then
+  say "bun is not on PATH, and the lockfile is bun's. Install it (mise.toml pins"
+  say "the version) and run this again."
+  exit 1
+fi
+
 say "installing $SRC"
 say "       -> $LIB"
 
@@ -56,9 +62,9 @@ if [[ -z "$DRY" ]]; then
   # the repo passed.
   git -C "$SRC" ls-files --cached --others --exclude-standard -z |
     tar -C "$SRC" --null -T - -cf - | tar -C "$LIB" -xf -
-  ( cd "$LIB" && npm install --omit=dev --silent --no-audit --no-fund >/dev/null )
+  ( cd "$LIB" && bun install --production --silent )
 else
-  say "  would: replace $LIB with the working tree (git ls-files -co), then npm install --omit=dev"
+  say "  would: replace $LIB with the working tree (git ls-files -co), then bun install --production"
 fi
 
 # The `awt` binary arrives with the cli package (milestone M7). Link it when it

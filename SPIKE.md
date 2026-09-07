@@ -166,11 +166,16 @@ to IntelliJ cannot quietly resolve a different `remark`.
 All three were measured on this repo, cold into an empty tree and warm over an existing
 `node_modules`, with every cache already populated:
 
-| Manager | Cold  | Warm  | Works on this repo as it stands                                     |
+| Manager | Cold  | Warm  | Worked on the repo as it stood                                      |
 |---------|-------|-------|---------------------------------------------------------------------|
 | npm     | 1.9s  | 0.38s | yes                                                                 |
 | bun     | 2.4s  | 0.08s | yes, and it migrates `package-lock.json` to `bun.lock` on first run |
 | pnpm    | 5.3s  | 0.22s | **no** — see below                                                  |
+
+**bun is what the repo uses now**, pinned with node in `mise.toml` and named in `packageManager`.
+`package-lock.json` is gone, `bin/install` runs `bun install --production`, and 238 tests and the
+layering check pass on a tree bun installed from scratch. Nothing is written against bun's runtime:
+the shebangs are still `node` and the tests are still `node --test`, so bun installs and node runs.
 
 **pnpm needs the workspace protocol.** Every internal dependency here is `"@agent-wiki-toolbox/x":
 "*"`, which npm and bun link to the local package and pnpm resolves against the registry, where it
@@ -183,6 +188,5 @@ Disk is the argument the timings do not show. This design ends up with three cop
 from a shared store and bun clones through APFS, so under either the second and third copies cost
 almost nothing.
 
-Nothing has been switched: this repo still has `package-lock.json` and no `packageManager` field, no
-`engines`, and no `mise.toml` of its own, so a clone gets whatever the machine happens to have. If a
-manager is chosen, declaring it is part of choosing it.
+pnpm stays untried beyond the scratch copy. If it is ever wanted, the `workspace:*` rewrite is the
+whole of the work, and `bin/awt` already follows whichever lockfile it finds.

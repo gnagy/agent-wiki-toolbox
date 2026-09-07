@@ -1,0 +1,13 @@
+# This repo's own tools, declared here so a standalone clone builds the same as
+# one sitting inside the AiSandbox workspace -- which deliberately declares none
+# at its level for exactly that reason.
+#
+# bun installs the dependencies; node runs the code. The shebangs are `node`, the
+# test runner is `node --test`, and nothing here is written against bun's
+# runtime, so bun can be swapped for another installer without touching a line
+# of source. What would have to change is `bin/install`, and `bin/awt` in the
+# plugin, which reads the lockfile to decide.
+
+[tools]
+bun = "1.3.14"
+node = "24.18.0"

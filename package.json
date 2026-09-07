@@ -4,6 +4,7 @@
   "private": true,
   "description": "One toolbox for a wikilinked markdown wiki: the link graph, structural edits, formatting, and the site build",
   "type": "module",
+  "packageManager": "bun@1.3.14",
   "workspaces": ["packages/*"],
   "scripts": {
     "test": "node --test",
