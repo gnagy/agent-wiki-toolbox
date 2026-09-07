@@ -1,5 +1,5 @@
 {
-  "description": "Route the first wiki write of a session through the wiki-docs skill, report what the structural verbs would not do, carry the touch record through a compaction, then format what the session wrote and check the graph before it ends",
+  "description": "Route the first wiki write of a session through the wiki-docs skill, hand a subagent the same mandate, report what the structural verbs would not do, carry the touch record through a compaction, then format what the session wrote and check the graph before it ends",
   "hooks": {
     "PreToolUse": [
       {
@@ -57,6 +57,16 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/wiki-docs-compact.sh\""
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/wiki-docs-subagent.sh\""
           }
         ]
       }
