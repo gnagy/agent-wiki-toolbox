@@ -1,5 +1,5 @@
 {
-  "description": "Route the first wiki write of a session through the wiki-docs skill, then format what the session wrote and check the graph before it ends",
+  "description": "Route the first wiki write of a session through the wiki-docs skill, report what the structural verbs would not do, carry the touch record through a compaction, then format what the session wrote and check the graph before it ends",
   "hooks": {
     "PreToolUse": [
       {
@@ -21,6 +21,15 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/wiki-docs-touch.sh\""
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*agent-wiki-toolbox__(move|rename|split_by_heading|merge_files)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/wiki-docs-verb-report.sh\""
+          }
+        ]
       }
     ],
     "Stop": [
@@ -39,6 +48,15 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/wiki-docs-mandate.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/wiki-docs-compact.sh\""
           }
         ]
       }
