@@ -90,8 +90,9 @@ against the workspace when `-w` is given; the MCP `fmt` takes workspace-relative
 `awt fmt` tokenises `[[wikilinks]]` and `![[embeds]]`. A remark pipeline without a wikilink
 plugin escapes them to `\[\[x]]` and `!\[\[x]]`. Both still render, so the diff looks cosmetic
 while every edge in the graph is gone. After a bulk markdown operation by any other tool, run
-`awt check` and compare `grep -rc '\[\['` counts before and after. For markdown outside a wiki,
-the `markdown-remark` skill covers remark itself.
+`awt check` and compare `grep -rc '\[\['` counts before and after. `awt fmt` is also the formatter
+for markdown with no wiki around it — a README, a `CLAUDE.md`, a docs tree — because `format` does not
+depend on `core`; there is no second formatter to choose between.
 
 ## Front matter, an optional shape
 

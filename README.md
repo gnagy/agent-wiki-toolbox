@@ -15,8 +15,9 @@ Three things that currently do this job separately, each with its own model of w
 - **`markdown-toolbox`** — the `mdfmt` formatter
 - **`quartz-wiki-tools`** — the site build and the cross-wiki resolver
 
-All three keep working while this is built. Nothing is deprecated, and there is no cutover to
-coordinate.
+`markdown-toolbox` is now retired: `@agent-wiki-toolbox/format` reimplements `mdfmt` on remark with
+no dependency on it, byte-identically, so `awt fmt` is the formatter for a README and a `CLAUDE.md`
+as much as for a note. The other two keep working while this is built.
 
 ## The layers
 
