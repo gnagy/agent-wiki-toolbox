@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Nudge an agent into the wiki-docs skill the first time it touches a wiki.
+# Nudge an agent into the wiki-docs skill the first time it writes to a wiki.
 #
 # The project copy of this hook carried WIKI_ROOT, the one copy of the layout
 # outside awt.config.mjs. The plugin copy has no such setting: it walks up from
@@ -11,19 +11,58 @@ set -u
 
 command -v jq >/dev/null 2>&1 || exit 0
 
+# Does this shell command write a file?
+#
+# The guard has one fire per session, and a session reads a wiki far more often
+# than it writes to one. Spending the fire on a `cat` leaves the session's first
+# real write unguarded, silently -- the same failure the whole-path match below
+# exists to prevent, arriving by a different route.
+#
+# The test is a denylist of mutating operators and utilities, so a command it
+# cannot classify does not fire. That bias is what makes the narrowing safe: a
+# write this misses is still formatted and still checked by the Stop hook before
+# the session ends, so a false negative costs a nudge, while a false positive
+# costs the fire itself.
+#
+# `awt` is deliberately not in the list. Its verbs serialise what they write, and
+# the MCP form of the same verb never reaches this guard at all, so firing on the
+# CLI form would deny a correct call and buy nothing.
+writes_files() {
+  local cmd="$1" bare
+
+  # Redirection, minus the forms that write nowhere: `2>&1`, `>/dev/null`.
+  bare=$(printf '%s' "$cmd" | sed -E 's/[0-9]*>&[0-9-]+//g; s/[0-9]*>>?[[:space:]]*\/dev\/[a-z]+//g')
+  case "$bare" in *'>'*) return 0 ;; esac
+
+  # A mutating utility in command position: line start, or after a separator.
+  # The anchor is the point -- `grep -r mv` is not an `mv`, while the second
+  # stage of a pipeline is still a command position.
+  printf '%s' "$cmd" | grep -qE '(^|[;&|(`]|\$\(|[[:space:]](then|do|else)[[:space:]])[[:space:]]*(sudo[[:space:]]+)?(mv|rm|cp|tee|touch|mkdir|rmdir|ln|dd|truncate|patch|sponge)([[:space:]]|$)' && return 0
+
+  # Editors that write only when a flag says so.
+  printf '%s' "$cmd" | grep -qE '(^|[[:space:]])(sed|perl|ruby)[[:space:]]+([^|;&]*[[:space:]])?(-[[:alnum:]]*i|--in-place)' && return 0
+  printf '%s' "$cmd" | grep -qE '(^|[[:space:]])awk[[:space:]]+[^|;&]*-i[[:space:]]*inplace' && return 0
+
+  # git subcommands that move or rewrite tracked files.
+  printf '%s' "$cmd" | grep -qE '(^|[[:space:]])git[[:space:]]+(mv|rm|apply|restore|checkout|revert|stash)([[:space:]]|$)' && return 0
+
+  return 1
+}
+
 input=$(cat)
 tool=$(jq -r '.tool_name // ""' <<<"$input" 2>/dev/null)
 session=$(jq -r '.session_id // "nosession"' <<<"$input" 2>/dev/null)
 cwd=$(jq -r '.cwd // ""' <<<"$input" 2>/dev/null)
 
 # Cheapest check first: after the guard has fired once, every later call stops
-# here, before any filesystem walking.
+# here, before any classifying or filesystem walking.
 marker="${TMPDIR:-/tmp}/wiki-docs-guard-${session}"
 [[ -e "$marker" ]] && exit 0
 
 case "$tool" in
   Write|Edit|MultiEdit|NotebookEdit) target=$(jq -r '.tool_input.file_path // ""' <<<"$input" 2>/dev/null) ;;
-  Bash)                              target=$(jq -r '.tool_input.command // ""'   <<<"$input" 2>/dev/null) ;;
+  Bash)                              target=$(jq -r '.tool_input.command // ""'   <<<"$input" 2>/dev/null)
+                                     writes_files "$target" || exit 0 ;;
   *) exit 0 ;;
 esac
 [[ -n "$target" ]] || exit 0

@@ -1,5 +1,5 @@
 {
-  "description": "Route the first wiki file touch of a session through the wiki-docs skill, then format what the session wrote and check the graph before it ends",
+  "description": "Route the first wiki write of a session through the wiki-docs skill, then format what the session wrote and check the graph before it ends",
   "hooks": {
     "PreToolUse": [
       {
