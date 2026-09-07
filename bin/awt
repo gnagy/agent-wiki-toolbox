@@ -6,6 +6,11 @@
 # There is no separate install step and no plugin data directory: the plugin
 # directory is writable and 247 MB of node_modules belongs in it.
 #
+# The lockfile picks the package manager, so switching the repo to bun or pnpm
+# needs no change here. A missing manager is an error rather than a fall back to
+# npm: the lockfile is the version guarantee, and a formatter that has to stay
+# byte-identical to IntelliJ cannot quietly resolve a different remark.
+#
 # Two things that pattern does not have to worry about and this does:
 #
 #   cwd     awt resolves the wiki by walking up from where it runs, so the
@@ -29,11 +34,24 @@ if [[ "${AWT_SHIM_PREFER_INSTALL:-}" == "1" && -f "$INSTALLED" ]]; then
   say "$INSTALLED"; exec "$INSTALLED" "$@"
 fi
 
-if [[ -f "$OWN" ]]; then
-  if [[ ! -d "$ROOT/node_modules" ]]; then
-    ( cd "$ROOT" && npm install --omit=dev --silent --no-audit --no-fund ) 1>&2 || {
-      echo "awt: dependency install failed in $ROOT" >&2; exit 1; }
+ensure_deps() {
+  local pm; local -a args
+  if [[ -f "$ROOT/bun.lock" || -f "$ROOT/bun.lockb" ]]; then
+    pm=bun;  args=(install --production --silent)
+  elif [[ -f "$ROOT/pnpm-lock.yaml" ]]; then
+    pm=pnpm; args=(install -r --prod --silent)
+  else
+    pm=npm;  args=(install --omit=dev --silent --no-audit --no-fund)
   fi
+  say "deps via $pm"
+  [[ -d "$ROOT/node_modules" ]] && return 0
+  command -v "$pm" >/dev/null 2>&1 || {
+    echo "awt: $ROOT has a $pm lockfile but no $pm on PATH" >&2; return 1; }
+  ( cd "$ROOT" && "$pm" "${args[@]}" ) 1>&2
+}
+
+if [[ -f "$OWN" ]]; then
+  ensure_deps || exit 1
   say "$OWN"; exec "$OWN" "$@"
 elif [[ -f "$INSTALLED" ]]; then
   say "$INSTALLED"; exec "$INSTALLED" "$@"

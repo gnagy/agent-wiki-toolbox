@@ -155,3 +155,34 @@ when `node_modules` is absent, which is why a working copy that already has one 
 
 **No plugin in that marketplace has a `bin/` directory at all**, so putting `awt` on the session PATH
 is a road nobody has walked. The MCP server is how every one of them exposes its tool.
+
+## Which package manager installs it
+
+The shim reads the lockfile and runs the manager that wrote it, so switching this repo needs no
+change to the plugin. A manager named by a lockfile but missing from PATH is an error, not a fall
+back to npm: the lockfile is the version guarantee, and a formatter that has to stay byte-identical
+to IntelliJ cannot quietly resolve a different `remark`.
+
+All three were measured on this repo, cold into an empty tree and warm over an existing
+`node_modules`, with every cache already populated:
+
+| Manager | Cold  | Warm  | Works on this repo as it stands                                     |
+|---------|-------|-------|---------------------------------------------------------------------|
+| npm     | 1.9s  | 0.38s | yes                                                                 |
+| bun     | 2.4s  | 0.08s | yes, and it migrates `package-lock.json` to `bun.lock` on first run |
+| pnpm    | 5.3s  | 0.22s | **no** — see below                                                  |
+
+**pnpm needs the workspace protocol.** Every internal dependency here is `"@agent-wiki-toolbox/x":
+"*"`, which npm and bun link to the local package and pnpm resolves against the registry, where it
+404s. Six `package.json` files have to say `"workspace:*"` instead, plus a `pnpm-workspace.yaml`,
+because pnpm does not read npm's `workspaces` field. With that done it installs and `awt` runs.
+`link-workspace-packages=true` in an `.npmrc` did not substitute for the rewrite on pnpm 11.
+
+Disk is the argument the timings do not show. This design ends up with three copies of a 247 MB
+`node_modules` — working copy, `~/.local/lib`, plugin — and npm pays for all three. pnpm hardlinks
+from a shared store and bun clones through APFS, so under either the second and third copies cost
+almost nothing.
+
+Nothing has been switched: this repo still has `package-lock.json` and no `packageManager` field, no
+`engines`, and no `mise.toml` of its own, so a clone gets whatever the machine happens to have. If a
+manager is chosen, declaring it is part of choosing it.
