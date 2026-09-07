@@ -1,5 +1,5 @@
 {
-  "description": "Route the first wiki file touch of a session through the wiki-docs skill",
+  "description": "Route the first wiki file touch of a session through the wiki-docs skill, then format what the session wrote and check the graph before it ends",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,6 +8,27 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/wiki-docs-guard.sh\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|mcp__.*agent-wiki-toolbox__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/wiki-docs-touch.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/wiki-docs-stop.sh\""
           }
         ]
       }

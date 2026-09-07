@@ -66,7 +66,11 @@ that breaks the graph:
 | `build_listing`                    | Hand-maintaining the notes table between markers in the index |
 | `fmt`                              | Any other formatter, see the hazard below                     |
 
-Prose edits are made with ordinary file tools; the index is recomputed on the next call.
+Prose edits are made with ordinary file tools; the index is recomputed on the next call. A note
+written that way is formatted when the session ends, and `awt check` runs then too, holding the
+session open with the problem list if the graph broke. Only the paths a file tool wrote are
+formatted. A note a shell command wrote is named in that report and left alone, because nothing
+knows which files a shell command touched — run `awt fmt <path>` on it yourself.
 
 - Nothing locks. A file that changed under a verb is listed in `skipped`, not overwritten, and
   running the verb again finishes the job.
