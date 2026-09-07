@@ -101,9 +101,10 @@ skill** is either a declared deviation or a leftover. Leftovers do the damage �
 wrong rather than merely redundant.
 
 **One standing rewrite that test cannot reach: a local file naming any formatter other than `awt fmt`
-as the command for *this wiki* is stale.** It escapes the test because the other name is still a live
-command elsewhere — `mdfmt` formats a README perfectly well — so the hit reads as current rather than
-as a leftover. Rewrite it anyway, including where the note says both work.
+is stale.** It escapes the test because the superseded name was a live command once and still reads
+as one — `mdfmt` is the form this usually takes — so the hit looks current rather than like a
+leftover. Rewrite it anyway, including where the file says both work, and including files outside the
+wiki: the split that sent a README to one formatter and a note to another is itself the stale thing.
 
 ## 4. Report, do not silently rewrite
 
