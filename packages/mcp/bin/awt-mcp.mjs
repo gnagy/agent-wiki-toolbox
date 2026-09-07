@@ -13,9 +13,8 @@ import {resolve} from 'node:path'
 import process from 'node:process'
 
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
-import {resolveLayout} from '@agent-wiki-toolbox/format'
 
-import {createServer} from '../index.js'
+import {createServer, projectTarget} from '../index.js'
 
 const {values} = parseArgs({
   options: {
@@ -26,13 +25,12 @@ const {values} = parseArgs({
 })
 
 // `--workspace` and `$AWT_WORKSPACE` name the notes outright. With neither, the
-// project's own config says where they are.
+// project's own config says where they are -- asked per call, so a wiki created
+// after the server started is found, and a directory with no project is refused
+// rather than served as an empty wiki.
 const explicit = values.workspace ?? process.env.AWT_WORKSPACE
-const layout = explicit ? null : await resolveLayout(process.cwd(), {quiet: true})
 const server = createServer({
-  notesDir: explicit ? resolve(explicit) : (layout?.notesDir ?? process.cwd()),
-  rootDir: layout?.rootDir ?? null,
-  schemaGlobBase: layout && !layout.legacy ? layout.notesDir : null,
+  ...(explicit ? {notesDir: resolve(explicit)} : {resolveTarget: () => projectTarget()}),
   allowWrites: values['allow-writes'],
   name: values.name,
 })

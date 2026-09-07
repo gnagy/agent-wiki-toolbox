@@ -691,14 +691,11 @@ export const COMMANDS = [
     ],
     options: {...WORKSPACE_OPTION, 'allow-writes': {type: 'boolean', default: false}, name: {type: 'string'}},
     async run({values}) {
-      const {createServer} = await import('@agent-wiki-toolbox/mcp')
+      const {createServer, projectTarget} = await import('@agent-wiki-toolbox/mcp')
       const {StdioServerTransport} = await import('@modelcontextprotocol/sdk/server/stdio.js')
       const explicit = values.workspace ?? process.env.AWT_WORKSPACE
-      const layout = explicit ? null : await resolveLayout(process.cwd(), {quiet: true})
       const server = createServer({
-        notesDir: explicit ? resolvePath(explicit) : (layout?.notesDir ?? process.cwd()),
-        rootDir: layout?.rootDir ?? null,
-        schemaGlobBase: layout && !layout.legacy ? layout.notesDir : null,
+        ...(explicit ? {notesDir: resolvePath(explicit)} : {resolveTarget: () => projectTarget()}),
         allowWrites: values['allow-writes'],
         name: values.name,
       })

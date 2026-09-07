@@ -37,19 +37,49 @@ function reply(value) {
  * `schemaGlobBase` is where `fmt` reads the schema globs from — the notes
  * directory under a `rootDir` layout — and is null when the config's own
  * directory is the base.
+ *
+ * Those three are the fixed form, for a server handed a path outright: `-w`, and
+ * the read-only mounts. `resolveTarget` is the other form — a function returning
+ * the same three, or null for "there is no wiki here" — and it is asked on every
+ * call rather than once at startup.
  */
 export function createServer({
   notesDir,
   rootDir = null,
   schemaGlobBase = null,
+  resolveTarget = null,
   allowWrites = false,
   name = 'agent-wiki-toolbox',
 } = {}) {
   const server = new McpServer({name, version: '0.0.0'})
 
-  // One in-process memo in front of the on-disk cache. Reloaded on every call, so
-  // an edit made by anything else — the agent, the IDE, `git checkout` — is seen.
-  const index = () => loadWorkspace(notesDir)
+  // Resolved per call, not once at startup. A server started in a directory that
+  // becomes a wiki later — bootstrapped by the very session talking to it — sees
+  // it on the next call rather than never.
+  const target = resolveTarget ?? (async () => ({notesDir, rootDir, schemaGlobBase}))
+
+  /**
+   * The wiki this call is about, or null when there is none. The index is a memo
+   * in front of the on-disk cache, reloaded per call, so an edit made by anything
+   * else — the agent, the IDE, `git checkout` — is seen by the next one.
+   */
+  const wiki = async () => {
+    const t = await target()
+    if (!t?.notesDir) return null
+    return {...t, index: () => loadWorkspace(t.notesDir)}
+  }
+
+  // A directory with no project above it is not an empty wiki, and saying so is
+  // the whole point: served as one it reports zero notes and a clean graph, which
+  // is what a healthy wiki also reports.
+  const noWiki = () =>
+    reply({
+      error:
+        'no wiki here: no awt.config.mjs in this directory or any above it, so there is no project ' +
+        'to serve. Create one to mark the project root, or start the server with -w pointing at a ' +
+        'notes directory.',
+      wiki: null,
+    })
 
   const readOnly = [
     [
@@ -65,7 +95,7 @@ export function createServer({
         topic: z.string().optional(),
         limit: z.number().int().positive().optional(),
       },
-      (args) => search(index(), args),
+      (args, w) => search(w.index(), args),
     ],
     [
       'connections',
@@ -75,7 +105,7 @@ export function createServer({
         depth: z.number().int().positive().max(6).optional(),
         direction: z.enum(['in', 'out', 'both']).optional(),
       },
-      (args) => connections(index(), args),
+      (args, w) => connections(w.index(), args),
     ],
     [
       'check',
@@ -84,7 +114,7 @@ export function createServer({
         'labelled wikilinks, broken section anchors, broken relative links and unclosed wikilinks. ' +
         'Placeholders, orphans and dead ends are listed separately and are not problems.',
       {},
-      () => check(index()),
+      (args, w) => check(w.index()),
     ],
     [
       'resolve',
@@ -93,18 +123,18 @@ export function createServer({
         target: z.string().describe('the link as written, e.g. stem, folder/stem#anchor, vsf:meta/scope.md'),
         from: z.string().optional().describe('the note it is written in, for a bare #anchor'),
       },
-      (args) => resolve(index(), args),
+      (args, w) => resolve(w.index(), args),
     ],
     [
       'workspace_info',
       'Which wiki this server is talking to (notesDir, and the rootDir home around it when there is one), how big it is, whether it may be written to, and its whole tag vocabulary.',
       {},
-      () => {
-        const workspace = index()
+      (args, w) => {
+        const workspace = w.index()
         const health = check(workspace)
         return {
-          notesDir,
-          rootDir,
+          notesDir: w.notesDir,
+          rootDir: w.rootDir,
           allowWrites,
           notes: workspace.resources.length,
           links: workspace.edges.length,
@@ -134,19 +164,19 @@ export function createServer({
       'rename',
       'Rename a note within its folder, rewriting every link into it.',
       {path: z.string(), name: z.string().describe('the new basename, e.g. new-name.md')},
-      (args) => renameNote(notesDir, args),
+      (args, w) => renameNote(w.notesDir, args),
     ],
     [
       'move',
       'Move a note to a new path, rewriting every link into it.',
       {from: z.string(), to: z.string()},
-      (args) => moveNote(notesDir, args),
+      (args, w) => moveNote(w.notesDir, args),
     ],
     [
       'delete',
       'Delete a note. Links into it are reported, not rewritten.',
       {path: z.string()},
-      (args) => deleteNote(notesDir, args),
+      (args, w) => deleteNote(w.notesDir, args),
     ],
     [
       'split_by_heading',
@@ -157,7 +187,7 @@ export function createServer({
         plan: z.array(z.object({heading: z.string(), path: z.string()})).min(1),
         source: z.enum(['delete', 'stub', 'keep']),
       },
-      (args) => splitByHeading(notesDir, args),
+      (args, w) => splitByHeading(w.notesDir, args),
     ],
     [
       'merge_files',
@@ -168,13 +198,13 @@ export function createServer({
         depth: z.number().int().min(1).max(6).optional(),
         source: z.enum(['delete', 'keep']),
       },
-      (args) => mergeFiles(notesDir, args),
+      (args, w) => mergeFiles(w.notesDir, args),
     ],
     [
       'rename_tag',
       'Rename a front-matter tag everywhere it appears.',
       {from: z.string(), to: z.string()},
-      (args) => renameTag(notesDir, args),
+      (args, w) => renameTag(w.notesDir, args),
     ],
     [
       'build_listing',
@@ -183,7 +213,7 @@ export function createServer({
         path: z.string().optional(),
         columns: z.array(z.enum(['note', 'topic', 'area', 'about'])).optional().describe('default note, about'),
       },
-      (args) => buildListing(notesDir, args),
+      (args, w) => buildListing(w.notesDir, args),
     ],
   ]
 
@@ -214,6 +244,8 @@ export function createServer({
       dryRun: DRY_RUN,
     },
     async (args) => {
+      const w = await wiki()
+      if (!w) return noWiki()
       if (!allowWrites && args?.dryRun !== true) {
         return reply({
           error:
@@ -222,7 +254,7 @@ export function createServer({
         })
       }
       try {
-        return reply(await fmt(notesDir, {...args, globBase: schemaGlobBase, check: !allowWrites || args?.dryRun === true}))
+        return reply(await fmt(w.notesDir, {...args, globBase: w.schemaGlobBase, check: !allowWrites || args?.dryRun === true}))
       } catch (error) {
         return reply({ok: false, error: error.message})
       }
@@ -230,17 +262,23 @@ export function createServer({
   )
 
   for (const [toolName, description, schema, handler] of readOnly) {
-    server.tool(toolName, description, schema, async (args) => reply(await handler(args ?? {})))
+    server.tool(toolName, description, schema, async (args) => {
+      const w = await wiki()
+      if (!w) return noWiki()
+      return reply(await handler(args ?? {}, w))
+    })
   }
 
   // Without `--allow-writes` the write verbs are not registered, so the tool list
   // holds only what the server can do.
   for (const [toolName, description, schema, handler] of allowWrites ? writes : []) {
     server.tool(toolName, description, {...schema, dryRun: DRY_RUN}, async (args) => {
+      const w = await wiki()
+      if (!w) return noWiki()
       try {
         // Awaited, because `fmt` runs a whole unified pipeline and the verbs do
         // not. An un-awaited promise here serialises as `{}` and reads as success.
-        return reply(await handler(args ?? {}))
+        return reply(await handler(args ?? {}, w))
       } catch (error) {
         // A verb that cannot start reports in the same shape as one that finished
         // partially: the caller should never have to tell a refusal from a crash.

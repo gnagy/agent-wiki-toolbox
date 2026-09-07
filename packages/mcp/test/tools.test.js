@@ -120,3 +120,46 @@ test('every write tool exposes dryRun', (t) => {
   // And a read-only tool does not pretend to: there is nothing to preview.
   assert.ok(!Object.keys(tools.search.inputSchema?.shape ?? {}).includes('dryRun'))
 })
+
+/** The tool's own handler, as the transport would call it. */
+function call(server, name, args = {}) {
+  return server._registeredTools[name].handler(args, {})
+}
+
+function textOf(result) {
+  return JSON.parse(result.content[0].text)
+}
+
+/**
+ * A directory with no project above it is not an empty wiki, and the server used
+ * to serve it as one: `notesDir` was its own cwd, and zero notes with a clean
+ * graph is exactly what a healthy empty wiki reports. Harmless while every server
+ * was declared per project; under a user-scoped plugin it starts in every session
+ * on the machine, wiki or not.
+ */
+test('a directory with no project is refused rather than served as an empty wiki', async () => {
+  const server = createServer({resolveTarget: async () => null, allowWrites: true})
+
+  for (const name of ['workspace_info', 'check', 'search', 'rename', 'fmt']) {
+    const body = textOf(await call(server, name, {path: 'x.md', name: 'y.md', dryRun: true}))
+    assert.match(body.error ?? '', /no wiki here/, `${name} did not refuse`)
+  }
+})
+
+/**
+ * The layout is resolved per call, not once at startup, so the session that
+ * bootstraps a wiki can use it without restarting the server that will serve it.
+ */
+test('a wiki that appears after the server started is found on the next call', async (t) => {
+  const box = wiki(NOTES)
+  t.after(() => box.cleanup())
+
+  let exists = false
+  const server = createServer({resolveTarget: async () => (exists ? {notesDir: box.root} : null), allowWrites: true})
+
+  assert.match(textOf(await call(server, 'workspace_info')).error ?? '', /no wiki here/)
+  exists = true
+  const after = textOf(await call(server, 'workspace_info'))
+  assert.equal(after.notesDir, box.root)
+  assert.ok(after.notes > 0, 'the wiki that appeared has notes')
+})
