@@ -86,3 +86,37 @@ assuming. Ghostbusters has a server entry and no guard.
 plugin's directory is appended, not prepended — which is luck, not design. At switch time `install`
 belongs in `scripts/`, leaving `bin/` holding only what the plugin means to publish. Moving it is a
 rename in `README.md`, the workspace `CLAUDE.md` and the wiki, so it waits for the switch.
+
+## `bin/install` does not go away
+
+Three consumers of `~/.local/lib/agent-wiki-toolbox` are outside any Claude Code session, so no
+plugin install reaches them:
+
+- **Quartz site builds.** A rendered wiki's `site/` holds symlinks straight into the install:
+  `wiki/site/awt-links -> ~/.local/lib/agent-wiki-toolbox/quartz-plugins/quartz-links`, four of them
+  in this workspace alone. Repointing those at a plugin directory would make a site build depend on
+  an agent harness being installed, which is the coupling the repo's own standalone rule forbids.
+- **`.mcp.json` mount entries.** A read-only mount is `awt mcp -w ../other/wiki/notes --name other`
+  in the project's own config, and a project config has no `${CLAUDE_PLUGIN_ROOT}` to name. This one
+  can disappear, but only by moving mounts into `awt.config.mjs` so the plugin's own server starts
+  them.
+- **A plain shell, and every agent that is not this one.** `awt check` in a terminal, `awt --version`
+  as the answer to what is running, a junie or universal session. The plugin's `bin/` is on PATH
+  inside a Claude Code session that loaded it, and nowhere else.
+
+And the plugin needs the install logic rather than replacing it: a shim that installs into
+`${CLAUDE_PLUGIN_DATA}` on first use is `bin/install`'s copy-tree plus `npm install --omit=dev` with
+a different target.
+
+So the split is: **the plugin releases the agent-facing parts** — skill, hooks, server — and
+`bin/install` keeps releasing the machine-facing ones. What the plugin removes is having to run
+`bin/install` to pick up a new skill or hook, not the install itself.
+
+**Which raises a version question the analysis note answers differently.** It has release as
+`claude plugin update`, refreshing skill, hook, server and binary together. But a machine with both
+then has two `awt` copies that drift, and `awt --version` answers differently depending on whether it
+is typed in a terminal or inside a session — the drift the plugin exists to remove, moved rather than
+deleted. The version that keeps one stamp per machine is the reverse: **`bin/install` installs the
+plugin too**, into `~/.claude/skills/awt`, so one command produces both targets at the same commit
+and the marketplace is only ever for other machines. Untested; it is a step 4 decision, not a spike
+finding.
