@@ -197,3 +197,16 @@ file whose shebang is `bun`. That includes the `.mcp.json` entries in Atlas and 
 name a bare `awt`, and any non-Claude agent or scheduled job. bun comes from the global mise config
 here, so an interactive shell and anything that inherits its environment has it; a launchd job with a
 minimal PATH would not.
+
+## There is a Setup hook, and it does not fire on install
+
+`Setup` is a hook event alongside `SessionStart` and the rest, carrying
+`trigger: "init" | "maintenance"`. It is not in the public hook docs; the binary declares it, and two
+hidden flags drive it — `claude --init` (or `--init-only`) fires `trigger=init`, `claude
+--maintenance` fires `trigger=maintenance`. Probed with a hook that logged what it received: both
+fire, and a plain session fires neither.
+
+So it cannot make installing the plugin create the `~/.local/bin/awt` symlink on its own. Something
+still has to run `claude --init` — which is an install step wearing a standard name rather than no
+install step. It is the right home for that symlink if design B is taken, since it is idempotent and
+already the convention for "set this machine up".
