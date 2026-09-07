@@ -25,7 +25,15 @@
 # machine's copy. AWT_SHIM_DEBUG=1 prints which one answered.
 set -u
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Follow symlinks to the real file: this is reachable as ~/.local/bin/awt, and
+# `dirname $BASH_SOURCE` on a symlink gives the link's directory, which would
+# make ROOT the wrong tree. `readlink -f` is GNU-only, so walk the chain.
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+  target="$(readlink "$SELF")"
+  [[ "$target" == /* ]] && SELF="$target" || SELF="$(dirname "$SELF")/$target"
+done
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
 OWN="$ROOT/packages/cli/bin/awt.mjs"
 INSTALLED="$HOME/.local/lib/agent-wiki-toolbox/packages/cli/bin/awt.mjs"
 
