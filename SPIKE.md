@@ -37,3 +37,43 @@ wiki outside a project, and still resolves the layout once at startup.
 
 The guard still fires on read-only Bash commands, spending its one fire per session on a `cat`. That
 narrowing waits on the `Stop`-time check.
+
+## Testing it beside the old install
+
+`scripts/plugin-session` starts a session with the plugin loaded and the project's own server out of
+the way. Run it from the project being tested; it changes nothing on the machine.
+
+**The switch is three switches, not one**, and each reverses on its own:
+
+| Piece      | Trial                                                 | Switch                            | Reverse                       |
+|------------|-------------------------------------------------------|-----------------------------------|-------------------------------|
+| Plugin     | `--plugin-dir`, per session, writes nothing           | marketplace + install             | uninstall                     |
+| Skill      | type `/awt:wiki-docs`; or unlink the standalone one   | `skills add` stops being run      | one `ln -s`                   |
+| MCP server | `--disallowedTools 'mcp__agent-wiki-toolbox__*'`      | drop the project `.mcp.json` entry | `git checkout .mcp.json`      |
+| `awt`      | untestable through the shim by design                 | shim installs to plugin data      | `bin/install` again           |
+
+Only the marketplace install writes outside the projects, so the trial stays on `--plugin-dir` for
+its whole length.
+
+**`--strict-mcp-config` is not the isolation flag.** It suppresses the plugin's server along with the
+project's; a session started with it has no wiki tools at all. `--disallowedTools` with a glob is
+what works: the project server still starts, but its tools are gone from the list and only
+`mcp__plugin_awt_agent-wiki-toolbox__*` remains.
+
+**The skill is the one thing a flag cannot separate.** Both `wiki-docs` and `awt:wiki-docs` are
+listed, with the same description, so an automatic load picks one and the transcript is the only
+place that says which. Naming it settles a single session; unlinking `~/.claude/skills/wiki-docs`
+settles a week of them, and the canonical copy under `~/.agents/skills` survives the unlink.
+
+**Three wikis exist to test in**, and they are not equivalent: this workspace has no guard hook, so it
+tests the plugin's guard alone. Atlas has the copied guard and tests the two together — they share a
+marker file, so a session is denied once rather than twice, which is worth confirming rather than
+assuming. Ghostbusters has a server entry and no guard.
+
+## One thing the switch has to fix
+
+`bin/` is a PATH namespace once the plugin is loaded, so `bin/install` becomes a command called
+`install` on every machine that installs the plugin. It loses to `/usr/bin/install` today because the
+plugin's directory is appended, not prepended — which is luck, not design. At switch time `install`
+belongs in `scripts/`, leaving `bin/` holding only what the plugin means to publish. Moving it is a
+rename in `README.md`, the workspace `CLAUDE.md` and the wiki, so it waits for the switch.

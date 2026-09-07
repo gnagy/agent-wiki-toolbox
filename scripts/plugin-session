@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Start a session with the plugin loaded and the old MCP server out of the way,
+# without changing anything on the machine.
+#
+# What it isolates and what it does not:
+#
+#   MCP     isolated. --disallowedTools drops the project .mcp.json server's
+#           tools, leaving only mcp__plugin_awt_agent-wiki-toolbox__*. Both
+#           servers still start; only one is reachable. (--strict-mcp-config
+#           does NOT do this: it suppresses the plugin's server too.)
+#   hooks   isolated by construction. Only the plugin has them here; a project
+#           that copied the guard runs both, and they share a marker file, so
+#           the session is still denied once rather than twice.
+#   skill   NOT isolated. The standalone `wiki-docs` is still installed and
+#           still listed. Type `/awt:wiki-docs` to be sure which one loaded, or
+#           unlink the standalone one for a longer trial:
+#             rm ~/.claude/skills/wiki-docs
+#             ln -s ../../.agents/skills/wiki-docs ~/.claude/skills/wiki-docs
+#           The canonical copy in ~/.agents/skills is untouched either way.
+#   awt     NOT isolated, deliberately. bin/awt execs the ~/.local install, so
+#           both sides run the same code. AWT_SHIM_DEBUG=1 says which answered.
+#
+# Usage:  scripts/plugin-session [claude args...]      from the project to test
+set -u
+
+PLUGIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+exec claude \
+  --plugin-dir "$PLUGIN" \
+  --disallowedTools 'mcp__agent-wiki-toolbox__*' \
+  "$@"

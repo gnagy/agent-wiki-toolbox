@@ -1,21 +1,32 @@
 #!/usr/bin/env bash
-# Spike shim. The plugin form is what is being tested here, not the packaging,
-# so this execs whatever `bin/install` already put on the machine and falls back
-# to the working copy only when there is no install.
+# The plugin's own `awt`. Three sources, in order, so the packaging step can be
+# switched on and off independently of everything else the plugin does:
 #
-# The real thing (analysis step 4) installs into ${CLAUDE_PLUGIN_DATA} on first
-# use, because a marketplace copy does not carry 247 MB of node_modules.
+#   1. ${CLAUDE_PLUGIN_DATA}/lib  a real plugin install, what ships eventually
+#   2. ~/.local/lib/...           whatever `bin/install` put there, the default
+#                                 for the trial: same code both sides, so a
+#                                 difference in behaviour is the plugin form
+#   3. the working copy           only when it has node_modules
+#
+# AWT_SHIM_DEBUG=1 prints the source it chose to stderr. During a trial where
+# both the old install and the plugin are live, that line is the only way to
+# know which one answered.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DATA="${CLAUDE_PLUGIN_DATA:-}/lib/packages/cli/bin/awt.mjs"
 INSTALLED="$HOME/.local/lib/agent-wiki-toolbox/packages/cli/bin/awt.mjs"
 WORKING="$ROOT/packages/cli/bin/awt.mjs"
 
-if [[ -f "$INSTALLED" ]]; then
-  exec "$INSTALLED" "$@"
+say() { [[ "${AWT_SHIM_DEBUG:-}" == "1" ]] && printf 'awt: plugin shim -> %s\n' "$1" >&2; return 0; }
+
+if [[ -n "${CLAUDE_PLUGIN_DATA:-}" && -f "$DATA" ]]; then
+  say "$DATA"; exec "$DATA" "$@"
+elif [[ -f "$INSTALLED" ]]; then
+  say "$INSTALLED"; exec "$INSTALLED" "$@"
 elif [[ -f "$WORKING" && -d "$ROOT/node_modules" ]]; then
-  exec "$WORKING" "$@"
+  say "$WORKING"; exec "$WORKING" "$@"
 fi
 
-echo "awt: no installed toolbox at $INSTALLED and no usable working copy at $ROOT" >&2
+echo "awt: no plugin install, no ~/.local install, no usable working copy at $ROOT" >&2
 exit 127

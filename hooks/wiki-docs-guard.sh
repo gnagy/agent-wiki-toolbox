@@ -54,12 +54,16 @@ rootdir=$(grep -oE "rootDir:[[:space:]]*['\"][^'\"]+['\"]" "$root/awt.config.mjs
           head -1 | sed -E "s/.*['\"]([^'\"]+)['\"].*/\1/")
 notes="${rootdir:-wiki}/notes"
 
-# A file path is matched absolutely, a Bash command as a substring — the same
-# split the project copy used, and the same blind spot: a path a script builds
-# at runtime is not seen.
-case "$tool" in
-  Bash) [[ "$target" == *"$notes"* || "$target" == *"$root/$notes"* ]] || exit 0 ;;
-  *)    [[ "$target" == "$root/$notes"* || "$target" == *"/$notes/"* ]] || exit 0 ;;
+# Match the notes path as a whole path, not a prefix, the way the project copy
+# in Atlas does: a sibling whose name begins with it (`wiki-inbox/` beside
+# `wiki/`) must not spend the one fire, and the inbox is the one path in another
+# repo the interop protocol says to write to. The trailing space folds "target
+# ends with the notes path" into "notes path followed by whitespace". A Bash
+# command and a file path go through the same test; the blind spot both share is
+# a path a script builds at runtime.
+case "$target " in
+  *"$notes"/*|*"$notes"[[:space:]]*|*"$notes"\"*|*"$notes"\'*) ;;
+  *) exit 0 ;;
 esac
 
 : > "$marker" 2>/dev/null || exit 0
