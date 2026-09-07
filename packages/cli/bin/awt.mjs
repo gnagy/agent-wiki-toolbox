@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * `awt`: one binary, everything a subcommand. `awt --help` is generated from the
  * command table.

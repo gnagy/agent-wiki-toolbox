@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // The layer rules, enforced.
 //
 // Two of these are load-bearing rather than tidy:

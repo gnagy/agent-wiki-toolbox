@@ -103,9 +103,14 @@ A bare `awt fmt` inside a project means the notes too, unless the config's `file
 project around it needs. A project still laid out as `docs/wiki` beside `site/` keeps working, with
 one line on stderr saying how to move; the `wiki-docs` skill's `adoption.md` carries the steps.
 
-Dependencies come from **bun**, pinned with node in `mise.toml`: `bun install`, then `bun run test`
-and `bun run layering`. Nothing here is written against bun's runtime — the shebangs are `node` and
-the tests are `node --test` — so bun installs the tree and node runs it.
+**bun installs it and bun runs it**, pinned with node in `mise.toml`: `bun install`, then
+`bun run test` and `bun run layering`. Both binaries carry a `bun` shebang.
+
+node stays pinned for two reasons. The test runner is `node --test`, because `bun test` shares one
+process across files and the tests that assert behaviour *per working directory* leak into each
+other there — every one of them passes when its file is run alone, and the same schema check passes
+end to end through the real CLI under bun. And the Quartz plugins are imported by Quartz's own node
+process, which is what keeps this source plain node-compatible ESM rather than anything bun-specific.
 
 Install it with `bin/install`, which is the only step that exposes a change: builds and agent jobs
 read `~/.local/lib/agent-wiki-toolbox`, never this working copy.

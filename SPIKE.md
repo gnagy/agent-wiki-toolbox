@@ -170,23 +170,30 @@ All three were measured on this repo, cold into an empty tree and warm over an e
 |---------|-------|-------|---------------------------------------------------------------------|
 | npm     | 1.9s  | 0.38s | yes                                                                 |
 | bun     | 2.4s  | 0.08s | yes, and it migrates `package-lock.json` to `bun.lock` on first run |
-| pnpm    | 5.3s  | 0.22s | **no** — see below                                                  |
+| pnpm    | 5.3s  | 0.22s | no: it resolves the internal `"*"` ranges against the registry      |
 
-**bun is what the repo uses now**, pinned with node in `mise.toml` and named in `packageManager`.
-`package-lock.json` is gone, `bin/install` runs `bun install --production`, and 238 tests and the
-layering check pass on a tree bun installed from scratch. Nothing is written against bun's runtime:
-the shebangs are still `node` and the tests are still `node --test`, so bun installs and node runs.
-
-**pnpm needs the workspace protocol.** Every internal dependency here is `"@agent-wiki-toolbox/x":
-"*"`, which npm and bun link to the local package and pnpm resolves against the registry, where it
-404s. Six `package.json` files have to say `"workspace:*"` instead, plus a `pnpm-workspace.yaml`,
-because pnpm does not read npm's `workspaces` field. With that done it installs and `awt` runs.
-`link-workspace-packages=true` in an `.npmrc` did not substitute for the rewrite on pnpm 11.
+**bun is what the repo uses now** — it installs the tree and runs it. `package-lock.json` is gone,
+`bun.lock` is committed, `mise.toml` pins bun and node, `bin/install` runs `bun install --production`,
+and both binaries carry a `bun` shebang. The plugin's `.mcp.json` therefore starts a bun process, and
+the handshake was smoke-tested through the shim.
 
 Disk is the argument the timings do not show. This design ends up with three copies of a 247 MB
 `node_modules` — working copy, `~/.local/lib`, plugin — and npm pays for all three. pnpm hardlinks
 from a shared store and bun clones through APFS, so under either the second and third copies cost
 almost nothing.
 
-pnpm stays untried beyond the scratch copy. If it is ever wanted, the `workspace:*` rewrite is the
-whole of the work, and `bin/awt` already follows whichever lockfile it finds.
+**The test runner stays `node --test`.** Under `bun test` the suite is 237 of 238: the one failure is
+the test that asserts schema validation fires *wherever the run is rooted*, and it passes when its
+file runs alone — `bun test` shares a process across files, so the cwd another test changes leaks
+into it. The behaviour itself is fine under bun, checked end to end: a scratch project with a schema
+and a bad note reports the identical warning through the real CLI under both runtimes. Making the
+suite cwd-independent is the price of moving it, and it buys little while node is pinned anyway for
+the Quartz plugins.
+
+## What running under bun costs
+
+Every consumer of `awt` now needs bun on PATH, not node: the `~/.local/bin/awt` symlink resolves to a
+file whose shebang is `bun`. That includes the `.mcp.json` entries in Atlas and Ghostbusters, which
+name a bare `awt`, and any non-Claude agent or scheduled job. bun comes from the global mise config
+here, so an interactive shell and anything that inherits its environment has it; a launchd job with a
+minimal PATH would not.

@@ -2,11 +2,10 @@
 # one sitting inside the AiSandbox workspace -- which deliberately declares none
 # at its level for exactly that reason.
 #
-# bun installs the dependencies; node runs the code. The shebangs are `node`, the
-# test runner is `node --test`, and nothing here is written against bun's
-# runtime, so bun can be swapped for another installer without touching a line
-# of source. What would have to change is `bin/install`, and `bin/awt` in the
-# plugin, which reads the lockfile to decide.
+# bun installs the dependencies and runs the code: both binaries carry a `bun`
+# shebang. node is still pinned because the test runner is `node --test` and
+# because the Quartz plugins are imported by Quartz's own node process, which
+# is what keeps the source plain node-compatible ESM rather than bun-specific.
 
 [tools]
 bun = "1.3.14"

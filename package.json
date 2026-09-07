@@ -8,7 +8,7 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "test": "node --test",
-    "layering": "node scripts/check-layering.mjs"
+    "layering": "bun scripts/check-layering.mjs"
   },
   "license": "MIT"
 }
