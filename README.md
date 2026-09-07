@@ -101,7 +101,7 @@ export default {
 A bare `awt fmt` inside a project means the notes too, unless the config's `files` says otherwise.
 `-w` and `$AWT_WORKSPACE` still name the notes outright, which is what a scratch directory with no
 project around it needs. A project still laid out as `docs/wiki` beside `site/` keeps working, with
-one line on stderr saying how to move; the `wiki-docs` skill's `adoption.md` carries the steps.
+one line on stderr saying how to move, and `/awt:move-layout` carries the steps.
 
 **bun installs it and bun runs it**, pinned with node in `mise.toml`: `bun install`, then
 `bun run test` and `bun run layering`. Both binaries carry a `bun` shebang.
@@ -113,15 +113,26 @@ end to end through the real CLI under bun. And the Quartz plugins are imported b
 process, which is what keeps this source plain node-compatible ESM rather than anything bun-specific.
 
 Install it with `scripts/install`, the only step that exposes a change. It copies this working copy
-to `~/.claude/skills/awt`, where Claude Code adopts it as the **`awt` plugin** — the `wiki-docs`
-skill as `/awt:wiki-docs`, a guard hook, and the MCP server over the project's wiki — and points
+to `~/.claude/skills/awt`, where Claude Code adopts it as the **`awt` plugin** — and points
 `~/.local/bin/awt` at the same tree, so a shell, a site build and a session all run one copy.
+
+What the plugin is, beyond the binary:
+
+| Part                                                | What it does                                                                                                                              |
+|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| The `wiki-docs` skill, as `/awt:wiki-docs`          | The tool, its verbs and the hazards                                                                                                       |
+| The MCP server                                      | The verbs over whichever project's wiki the session is in                                                                                 |
+| `SessionStart`, `PreToolUse`, `PostToolUse`, `Stop` | Inject the mandate, guard the first wiki write, record what the session wrote, then format it and check the graph before the session ends |
+| `/awt:adopt` · `/awt:move-layout` · `/awt:init`     | The deliberate acts: the drift sweep, the layout move, bootstrapping a wiki                                                               |
+
+Every automatic part is gated on `awt.config.mjs` and inert without it, so a project is not something
+that installs the plugin — it is something the plugin recognises.
 
 ## Where the reasoning lives
 
 This repo carries the code. The design, the thirty-three decisions behind it and the measurements
 they rest on are in the AiSandbox workspace wiki, under the `agent-wiki-toolbox` topic —
-`docs/wiki/design/agent-wiki-toolbox/toolbox-shape.md` is the entry point, and `docs/awt-plan.md` is
+`wiki/notes/projects/agent-wiki-toolbox/design/toolbox-shape.md` is the entry point, and `docs/awt-plan.md` is
 the milestone-by-milestone plan.
 
 That wiki is where this was designed, not a dependency: **this repo has to be clonable and workable on
