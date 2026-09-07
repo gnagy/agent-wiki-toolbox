@@ -392,3 +392,24 @@ test('anchorSchemas leaves a config with no file behind it alone', () => {
   const config = {schemas: {'./s.json': ['**/*.md']}}
   assert.equal(anchorSchemas(config, null, '/anywhere'), config)
 })
+
+/**
+ * vfile-reporter renders a message as five columns: place, label, reason, rule
+ * id, source. This message has no position, so the place column is empty and the
+ * two trailing columns sit against the prose with nothing to align to. A rule id
+ * that is an English word therefore reads as the next word of the sentence --
+ * *run `awt fmt` to fix formatted agent-wiki-toolbox*, which is what shipped.
+ * The id has to stay something the eye takes for an identifier.
+ */
+test('--check reports an unformatted file with a rule id that reads as one', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'awt-format-'))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  writeFileSync(join(dir, 'note.md'), fixture('intellij.input.md'))
+
+  const stream = collectStream()
+  await runFormat({files: [dir], mode: 'check', streamError: stream, color: false})
+  const report = stream.text()
+
+  assert.match(report, /file-not-formatted/)
+  assert.doesNotMatch(report, /to fix formatted/)
+})

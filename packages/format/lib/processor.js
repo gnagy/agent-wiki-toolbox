@@ -32,7 +32,12 @@ export function remarkCheckFormatting() {
     const formatted = String(processor.stringify(tree, file))
     if (String(file.value) !== formatted) {
       const message = file.message('File is not formatted; run `awt fmt` to fix')
-      message.ruleId = 'formatted'
+      // Hyphenated, because vfile-reporter prints the rule id and the source as
+      // the two columns after the reason -- and this message has no position, so
+      // the place column is empty and there is no table for the eye to line up
+      // against. A one-word id read as the next word of the sentence: *run `awt
+      // fmt` to fix formatted agent-wiki-toolbox*.
+      message.ruleId = 'file-not-formatted'
       message.source = 'agent-wiki-toolbox'
     }
   }
