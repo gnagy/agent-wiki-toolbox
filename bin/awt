@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Spike shim. The plugin form is what is being tested here, not the packaging,
+# so this execs whatever `bin/install` already put on the machine and falls back
+# to the working copy only when there is no install.
+#
+# The real thing (analysis step 4) installs into ${CLAUDE_PLUGIN_DATA} on first
+# use, because a marketplace copy does not carry 247 MB of node_modules.
+set -u
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INSTALLED="$HOME/.local/lib/agent-wiki-toolbox/packages/cli/bin/awt.mjs"
+WORKING="$ROOT/packages/cli/bin/awt.mjs"
+
+if [[ -f "$INSTALLED" ]]; then
+  exec "$INSTALLED" "$@"
+elif [[ -f "$WORKING" && -d "$ROOT/node_modules" ]]; then
+  exec "$WORKING" "$@"
+fi
+
+echo "awt: no installed toolbox at $INSTALLED and no usable working copy at $ROOT" >&2
+exit 127
