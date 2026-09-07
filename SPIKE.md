@@ -32,11 +32,17 @@ collisions are real but neither is dangerous today. The one that matters: a skil
 
 ## What it does not do
 
-Step 2's toolbox changes are not in it: the server still serves the current directory as a zero-note
-wiki outside a project, and still resolves the layout once at startup.
+Both things this section listed are done. Step 2's toolbox changes landed in `4dcc0d5`: the server
+refuses a directory that is not a wiki, and resolves the layout on every call instead of once at
+startup, so a wiki bootstrapped mid-session is found on the next call. The guard narrowed to writes
+once there was a `Stop`-time check to catch what it stopped nudging about — a `cat` no longer spends
+the session's one fire, and a shell command it cannot classify is let through on purpose, because a
+missed write is still formatted and still checked before the session ends.
 
-The guard still fires on read-only Bash commands, spending its one fire per session on a `cat`. That
-narrowing waits on the `Stop`-time check.
+What is left is outside the plugin. **Two of the three wikis have not been switched over**: Atlas and
+Ghostbusters still declare their own `agent-wiki-toolbox` server in `.mcp.json`, which beside a
+user-scoped plugin is the second node process on one wiki this spike said to expect. Atlas still
+carries the copied guard hook as well. Both are `/awt:adopt` §1 when their turn comes.
 
 ## Testing it beside the old install
 
@@ -45,12 +51,12 @@ the way. Run it from the project being tested; it changes nothing on the machine
 
 **The switch is three switches, not one**, and each reverses on its own:
 
-| Piece      | Trial                                                 | Switch                            | Reverse                       |
-|------------|-------------------------------------------------------|-----------------------------------|-------------------------------|
-| Plugin     | `--plugin-dir`, per session, writes nothing           | a directory in `~/.claude/skills` | delete it                     |
-| Skill      | type `/awt:wiki-docs`; or unlink the standalone one   | `skills add` stops being run      | one `ln -s`                   |
-| MCP server | `--disallowedTools 'mcp__agent-wiki-toolbox__*'`      | drop the project `.mcp.json` entry | `git checkout .mcp.json`      |
-| `awt`      | `AWT_SHIM_PREFER_INSTALL=1` runs the machine's copy   | nothing: deps install in place    | `bin/install` again           |
+| Piece      | Trial                                               | Switch                             | Reverse                  |
+|------------|-----------------------------------------------------|------------------------------------|--------------------------|
+| Plugin     | `--plugin-dir`, per session, writes nothing         | a directory in `~/.claude/skills`  | delete it                |
+| Skill      | type `/awt:wiki-docs`; or unlink the standalone one | `skills add` stops being run       | one `ln -s`              |
+| MCP server | `--disallowedTools 'mcp__agent-wiki-toolbox__*'`    | drop the project `.mcp.json` entry | `git checkout .mcp.json` |
+| `awt`      | `AWT_SHIM_PREFER_INSTALL=1` runs the machine's copy | nothing: deps install in place     | `bin/install` again      |
 
 **A marketplace is not the only way to install one.** A directory under `~/.claude/skills/` holding a
 `.claude-plugin/plugin.json` is adopted as a plugin in its own right, as `<name>@skills-dir` — the
@@ -74,10 +80,16 @@ listed, with the same description, so an automatic load picks one and the transc
 place that says which. Naming it settles a single session; unlinking `~/.claude/skills/wiki-docs`
 settles a week of them, and the canonical copy under `~/.agents/skills` survives the unlink.
 
-**Three wikis exist to test in**, and they are not equivalent: this workspace has no guard hook, so it
-tests the plugin's guard alone. Atlas has the copied guard and tests the two together — they share a
-marker file, so a session is denied once rather than twice, which is worth confirming rather than
-assuming. Ghostbusters has a server entry and no guard.
+**Three wikis exist to test in**, and they are not equivalent. **This workspace is the switched-over
+one** — no project guard hook, no `.mcp.json` at all — so it tests the plugin alone, and it now has.
+In a session on `2542a0e` the `SessionStart` mandate arrived in the system prompt; the `PostToolUse`
+record was rebuilt after deletion, with the notes directory resolved out of `awt.config.mjs`; and the
+guard denied a read-only `cat`, which is the fire the narrowing since then stops spending. So the
+payload shape and the matchers are no longer the untested part.
+
+Atlas has the copied guard and tests the two together — they share a marker file, so a session is
+denied once rather than twice, which is worth confirming rather than assuming. Ghostbusters has a
+server entry and no guard.
 
 ## One thing the switch has to fix
 
@@ -166,11 +178,11 @@ to IntelliJ cannot quietly resolve a different `remark`.
 All three were measured on this repo, cold into an empty tree and warm over an existing
 `node_modules`, with every cache already populated:
 
-| Manager | Cold  | Warm  | Worked on the repo as it stood                                      |
-|---------|-------|-------|---------------------------------------------------------------------|
-| npm     | 1.9s  | 0.38s | yes                                                                 |
-| bun     | 2.4s  | 0.08s | yes, and it migrates `package-lock.json` to `bun.lock` on first run |
-| pnpm    | 5.3s  | 0.22s | no: it resolves the internal `"*"` ranges against the registry      |
+| Manager | Cold | Warm  | Worked on the repo as it stood                                      |
+|---------|------|-------|---------------------------------------------------------------------|
+| npm     | 1.9s | 0.38s | yes                                                                 |
+| bun     | 2.4s | 0.08s | yes, and it migrates `package-lock.json` to `bun.lock` on first run |
+| pnpm    | 5.3s | 0.22s | no: it resolves the internal `"*"` ranges against the registry      |
 
 **bun is what the repo uses now** — it installs the tree and runs it. `package-lock.json` is gone,
 `bun.lock` is committed, `mise.toml` pins bun and node, `bin/install` runs `bun install --production`,
@@ -202,8 +214,7 @@ minimal PATH would not.
 
 `Setup` is a hook event alongside `SessionStart` and the rest, carrying
 `trigger: "init" | "maintenance"`. It is not in the public hook docs; the binary declares it, and two
-hidden flags drive it — `claude --init` (or `--init-only`) fires `trigger=init`, `claude
---maintenance` fires `trigger=maintenance`. Probed with a hook that logged what it received: both
+hidden flags drive it — `claude --init` (or `--init-only`) fires `trigger=init`, `claude --maintenance` fires `trigger=maintenance`. Probed with a hook that logged what it received: both
 fire, and a plain session fires neither.
 
 So it cannot make installing the plugin create the `~/.local/bin/awt` symlink on its own. Something
