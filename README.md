@@ -119,12 +119,13 @@ to `~/.claude/skills/awt`, where Claude Code adopts it as the **`awt` plugin** �
 
 What the plugin is, beyond the binary:
 
-| Part                                                | What it does                                                                                                                              |
-|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| The `wiki-docs` skill, as `/awt:wiki-docs`          | The tool, its verbs and the hazards                                                                                                       |
-| The MCP server                                      | The verbs over whichever project's wiki the session is in                                                                                 |
-| `SessionStart`, `PreToolUse`, `PostToolUse`, `Stop` | Inject the mandate, guard the first wiki write, record what the session wrote, then format it and check the graph before the session ends |
-| `/awt:adopt` · `/awt:move-layout` · `/awt:init`     | The deliberate acts: the drift sweep, the layout move, bootstrapping a wiki                                                               |
+| Part                                                                 | What it does                                                                                                                                                                                                                               |
+|----------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| The `wiki-docs` skill, as `/awt:wiki-docs`                           | The tool, its verbs and the hazards                                                                                                                                                                                                        |
+| The MCP server                                                       | The verbs over whichever project's wiki the session is in                                                                                                                                                                                  |
+| `SessionStart`, `SubagentStart`, `PreToolUse`, `PostToolUse`, `Stop` | Inject the mandate, hand a subagent the same one, guard the first wiki write, report what the structural verbs refused, carry the touch record through a compaction, then format what the session wrote and check the graph before it ends |
+| `/awt:check` · `/awt:orient`                                         | The everyday two: both health checks as one answer, and the reading pass before work starts                                                                                                                                                |
+| `/awt:adopt` · `/awt:move-layout` · `/awt:init`                      | The deliberate acts: the drift sweep, the layout move, bootstrapping a wiki                                                                                                                                                                |
 
 Every automatic part is gated on `awt.config.mjs` and inert without it, so a project is not something
 that installs the plugin — it is something the plugin recognises.
