@@ -260,7 +260,7 @@ function build(quartz, wiki, out, configName) {
  * so a release missing it resolves nothing and warns in someone else's build.
  * Checked before the swap, while the previous release is still standing.
  */
-function verify(staging, offline) {
+export function verify(staging, offline) {
   const standing = `The standing release is untouched; the build is left at ${show(staging)}.`
   // contentIndex.json is what a dependent wiki's registry reads by path; a
   // handoff copy has no dependents, and nothing offline can fetch it anyway.
@@ -287,7 +287,7 @@ function verify(staging, offline) {
  * the site served a minute ago, and rolling back is then a rename rather than a
  * rebuild from a working tree that has since moved on.
  */
-function swap(staging, out, prev) {
+export function swap(staging, out, prev) {
   fs.rmSync(prev, { recursive: true, force: true })
   const had = fs.existsSync(out)
   if (had) fs.renameSync(out, prev)
@@ -311,7 +311,7 @@ function swap(staging, out, prev) {
  * Returns the file name, relative to `site/`, since that is what the symlink
  * inside the clone has to name.
  */
-async function offlineConfig(site, quartz) {
+export async function offlineConfig(site, quartz) {
   const own = "quartz.offline.yaml"
   if (fs.existsSync(path.join(site, own))) {
     console.log(`config: ${own} (the project's own)`)
@@ -376,7 +376,7 @@ async function offlineConfig(site, quartz) {
  * A missing `src` is treated as a defect and does fail, because an asset the
  * build was supposed to emit and did not is a broken build, not a backlog.
  */
-function toFileUrls(root) {
+export function toFileUrls(root) {
   const walk = (d) =>
     fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => {
       const p = path.join(d, e.name)
@@ -556,7 +556,7 @@ function walk_dirs(root) {
  * reader who clicks into a "file not found" has no way to tell it from the
  * document being broken.
  */
-function verifyFileUrls(root) {
+export function verifyFileUrls(root) {
   const bad = []
   let total = 0
   const walk = (d) =>
