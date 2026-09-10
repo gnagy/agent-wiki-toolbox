@@ -60,9 +60,12 @@ test('--help lists every command, and every command is findable from it', () => 
 })
 
 /**
- * A command with no section, or one spelled differently, is silently absent from
- * `awt --help` — the overview walks the sections and lists what is in each. That
- * is a worse failure than a wrong heading, so it is asserted rather than trusted.
+ * A command with no section, or one spelled differently, used to be silently
+ * absent from `awt --help` — the overview walks the sections and lists what is in
+ * each, so anything unclaimed appeared nowhere while running perfectly. The
+ * renderer now files strays under `Unfiled`, which reads as the mistake it is;
+ * this asserts the section names themselves, so the fallback stays a safety net
+ * rather than somewhere commands quietly collect.
  */
 test('every command is filed under a section the overview prints', () => {
   const known = new Set(SECTIONS)
@@ -73,6 +76,10 @@ test('every command is filed under a section the overview prints', () => {
   for (const section of SECTIONS) {
     const used = COMMANDS.some((command) => command.section === section)
     assert.equal(stdout.includes(`  ${section}\n`), used, `section ${section} in --help`)
+  }
+  assert.ok(!stdout.includes('Unfiled'), 'a command reached the fallback heading')
+  for (const command of COMMANDS) {
+    assert.ok(stdout.includes(command.group ?? command.name), `${command.name} is nowhere in --help`)
   }
 })
 

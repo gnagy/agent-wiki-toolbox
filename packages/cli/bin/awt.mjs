@@ -32,8 +32,16 @@ const membersOf = (name) => COMMANDS.filter((command) => command.group === name)
  */
 function overview() {
   const entries = []
-  for (const section of SECTIONS) {
-    const inSection = COMMANDS.filter((command) => command.section === section)
+  // A command whose section was forgotten, or spelled differently, would run
+  // perfectly and appear nowhere here. There is a test for that, but a renderer
+  // that can silently omit a command is worth not having: anything the sections
+  // do not claim is listed last under a heading that reads as the mistake it is.
+  const filed = new Set(SECTIONS)
+  const sections = [...SECTIONS, ...(COMMANDS.some((command) => !filed.has(command.section)) ? ['Unfiled'] : [])]
+  for (const section of sections) {
+    const inSection = COMMANDS.filter((command) =>
+      section === 'Unfiled' ? !filed.has(command.section) : command.section === section,
+    )
     if (inSection.length === 0) continue
     const seen = new Set()
     const rows = []
