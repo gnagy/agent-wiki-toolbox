@@ -3,7 +3,7 @@
  *
  * It started as the formatter's and is now the project's: one file per project,
  * read by whichever subcommand cares. The formatter reads `settings`, `plugins`,
- * `schemas` and `validateLinks`; `awt serve` reads `serve`, so a wiki keeps the
+ * `schemas` and `validateLinks`; `awt site serve` reads `serve`, so a wiki keeps the
  * same ports every run instead of having them retyped.
  *
  *     export default {

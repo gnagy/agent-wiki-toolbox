@@ -347,8 +347,10 @@ test('deleteNote reports what now points at nothing, and does not rewrite it', (
   assert.match(box.read('b/one.md'), /\[\[gone]]/)
   assert.deepEqual(box.index().placeholders().map((entry) => entry.target), ['gone'])
 
-  const second = deleteNote(box.root, {path: 'a/gone.md'})
-  assert.match(second.notes.join(' '), /already deleted/)
+  // A second delete refuses. The verb cannot tell a re-run from a typo, and it
+  // used to answer `ok` for a path the wiki had never held at all.
+  assert.throws(() => deleteNote(box.root, {path: 'a/gone.md'}), /no note at/)
+  assert.throws(() => deleteNote(box.root, {path: 'a/never-existed.md'}), /no note at/)
 })
 
 test('deleteNote takes the path as the shell shows it, and refuses one outside the wiki', (t) => {

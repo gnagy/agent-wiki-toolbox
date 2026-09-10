@@ -222,7 +222,7 @@ test('and a genuine disagreement still fails, with an ambiguous link in the same
 })
 
 /**
- * Ports are a project's setting, not a thing to retype. `awt serve` on its own has
+ * Ports are a project's setting, not a thing to retype. `awt site serve` on its own has
  * to produce the same pair every run, and two wikis have to be servable at once —
  * a cross-wiki link at dev time needs both up.
  */

@@ -39,7 +39,7 @@ export const AwtHeadings = (userOptions) => {
       try {
         artifact = JSON.parse(fs.readFileSync(file, 'utf-8'))
       } catch {
-        console.warn(`⚠ awt-headings: no index at ${file}; emitting nothing. Run \`awt index --out\` first.`)
+        console.warn(`⚠ awt-headings: no index at ${file}; emitting nothing. Run \`awt site index --out\` first.`)
         return []
       }
 

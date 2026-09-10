@@ -67,16 +67,25 @@ One command, `awt`, with everything as a subcommand — the verbs, formatting, t
 server and the site build. There is no second binary to reach for.
 
 ```shell
-awt --help                       # every operation, in one list
+awt --help                       # every operation, in sections
 awt check                        # everything wrong with the link graph, in one call
 awt search 'unique basenames'    # note bodies, titles, front matter and tags
 awt move a.md design/a.md        # …rewriting every link into it
-awt index --out wiki/site/.awt-index.json
+awt move a.md b.md               # no folder in the destination means rename
 awt mcp --allow-writes           # the MCP server, over stdio
-awt bootstrap-quartz             # clone or re-pin the renderer a site builds from
-awt serve                        # emit the index, then Quartz's dev server
-awt publish                      # build, then swap into wiki/site/release
+
+awt site setup                   # clone or re-pin the renderer a site builds from
+awt site serve                   # emit the index, then Quartz's dev server
+awt site publish                 # build, then swap into wiki/site/release
+awt site index                   # just the artifact the Quartz plugins read
 ```
+
+**`site` is the one group, and a group is a namespace rather than an alias** — there is no flat
+`awt serve` kept working beside `awt site serve`. It is grouped because its four commands share a
+flag family (`--wiki`, `--site`) that nothing else has, which is the test: **a group's options are
+the definition of what the group is**, so grouping the graph reads under their `-w` and `--json` —
+the tool's defaults — would have defined nothing. `awt site setup` also stops a command name
+carrying the renderer's.
 
 **Every command finds the project from anywhere inside it**, by walking up to `awt.config.mjs` at
 the project root. That file names the wiki's home once, and every other directory is a fixed name

@@ -23,7 +23,7 @@ export async function loadFromQuartz(quartz, pkg, die) {
     die(
       `cannot find ${pkg} in ${modules}\n` +
         "It ships as a Quartz dependency, so this usually means the Quartz clone is\n" +
-        "missing or its install did not finish. Run `awt bootstrap-quartz`.",
+        "missing or its install did not finish. Run `awt site setup`.",
     )
   }
   const meta = JSON.parse(fs.readFileSync(manifest, "utf8"))

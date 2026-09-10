@@ -45,9 +45,9 @@ git mv docs/wiki-inbox wiki/inbox        # if it exists — it may not, between 
 ```
 
 `git mv` carries untracked files inside `site/` along — the Quartz clone, `public/`, the plugin
-symlinks — so nothing has to be rebuilt. The symlinks `bootstrap-quartz` made are absolute or
+symlinks — so nothing has to be rebuilt. The symlinks `awt site setup` made are absolute or
 relative within `site/` and survive the move; the one from the clone back to `quartz.config.yaml` is
-relative and survives too. Re-run `bootstrap-quartz` afterwards if anything about the site looks off;
+relative and survives too. Re-run `awt site setup` afterwards if anything about the site looks off;
 it is idempotent.
 
 ## 3. Rewrite `awt.config.mjs`

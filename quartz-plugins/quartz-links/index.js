@@ -25,8 +25,8 @@
  * artifact one edit out of date is worse than not comparing: it reports a
  * disagreement that is not real, and hides one that is. This used to warn and
  * return `[]`, so a build with no index went green while the check this plugin
- * exists for had not run. `awt publish` and `awt serve` emit the index
- * immediately before the build; anything else has to run `awt index --out` first.
+ * exists for had not run. `awt site publish` and `awt site serve` emit the index
+ * immediately before the build; anything else has to run `awt site index --out` first.
  */
 import fs from 'fs'
 import path from 'path'
@@ -111,8 +111,8 @@ export const AwtLinks = (userOptions) => {
       } catch {
         refuse(
           `no index at ${file}, so the comparison this plugin exists for did not run.\n` +
-            '  Build with `awt serve` or `awt publish`, which emit it first, or run\n' +
-            `  \`awt index -w <wiki> --out ${file}\` immediately before the build.`,
+            '  Build with `awt site serve` or `awt site publish`, which emit it first, or run\n' +
+            `  \`awt site index -w <wiki> --out ${file}\` immediately before the build.`,
         )
         return []
       }
@@ -126,7 +126,7 @@ export const AwtLinks = (userOptions) => {
         refuse(
           `${file} is older than the newest note in ${artifact.notesDir}.\n` +
             '  Comparing against a stale index reports disagreements that are not real and\n' +
-            '  hides ones that are. Build with `awt serve` or `awt publish`.',
+            '  hides ones that are. Build with `awt site serve` or `awt site publish`.',
         )
         return []
       }

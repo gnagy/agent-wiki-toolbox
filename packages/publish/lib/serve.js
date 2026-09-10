@@ -1,5 +1,5 @@
 /**
- * `awt serve` — the dev server, run the one way that keeps the shadow honest.
+ * `awt site serve` — the dev server, run the one way that keeps the shadow honest.
  *
  * The build itself is Quartz's, and the command is not hard to type:
  *
@@ -7,7 +7,7 @@
  *       -d ../../docs/wiki -o ../public --serve --port 8080 --wsPort 3001
  *
  * What is hard to remember is that **the index has to be emitted immediately
- * before it**. `awt publish` does that; a hand-typed serve command did not, so a
+ * before it**. `awt site publish` does that; a hand-typed serve command did not, so a
  * dev build compared the rendered pages against whatever `.awt-index.json` was
  * last written — which after any edit is a disagreement that is not real. This
  * subcommand exists so the two cannot come apart; the emitting happens in `cli`,
@@ -20,7 +20,7 @@
  * **Ports live in the project, not in the command.** A wiki keeps the same pair
  * every time it is served — a bookmark that breaks between runs is not a bookmark,
  * and two wikis have to be servable at once for cross-wiki links to resolve — so
- * `awt.config.mjs` carries them and `awt serve` with no arguments is the whole
+ * `awt.config.mjs` carries them and `awt site serve` with no arguments is the whole
  * command. A flag still wins, for a one-off second server.
  *
  * **A configured port is used, whatever it is.** Which range a project should pick
@@ -122,7 +122,7 @@ export function serve(argv = process.argv.slice(2)) {
 
   const quartz = path.join(site, ".quartz-src")
   if (!fs.existsSync(quartz)) {
-    die(`${show(quartz)} missing; the Quartz clone is not set up. Run \`awt bootstrap-quartz\` first.`)
+    die(`${show(quartz)} missing; the Quartz clone is not set up. Run \`awt site setup\` first.`)
   }
 
   // The release is served by a static host, not built into. Overwriting it with a

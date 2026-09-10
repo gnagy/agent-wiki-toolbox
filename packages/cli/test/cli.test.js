@@ -13,7 +13,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
 
-import {COMMANDS, COMMON_OPTIONS} from '../index.js'
+import {COMMANDS, COMMON_OPTIONS, GROUPS, SECTIONS, commandPath, optionsFor} from '../index.js'
 
 const AWT = new URL('../bin/awt.mjs', import.meta.url).pathname
 
@@ -38,20 +38,69 @@ function wiki(notes) {
   return {dir, root, cleanup: () => rmSync(dir, {recursive: true, force: true})}
 }
 
+/**
+ * A grouped command is findable through its group, not by its own line — the
+ * overview shows `site` once with its subcommands beside it, which is the whole
+ * point of the group. So the assertion follows the path a reader would.
+ */
 test('--help lists every command, and every command is findable from it', () => {
   const {stdout} = awt(['--help'])
-  for (const command of COMMANDS) {
+  for (const command of COMMANDS.filter((one) => !one.group)) {
     assert.ok(stdout.includes(command.name), `${command.name} is missing from --help`)
     assert.ok(stdout.includes(command.summary), `${command.name} has no summary in --help`)
   }
+  for (const group of GROUPS) {
+    assert.ok(stdout.includes(group.summary), `${group.name} has no summary in --help`)
+    const listing = awt([group.name, '--help']).stdout
+    for (const command of COMMANDS.filter((one) => one.group === group.name)) {
+      assert.ok(listing.includes(command.name), `${group.name} ${command.name} is missing from its group`)
+      assert.ok(listing.includes(command.summary), `${group.name} ${command.name} has no summary`)
+    }
+  }
+})
+
+/**
+ * A command with no section, or one spelled differently, is silently absent from
+ * `awt --help` — the overview walks the sections and lists what is in each. That
+ * is a worse failure than a wrong heading, so it is asserted rather than trusted.
+ */
+test('every command is filed under a section the overview prints', () => {
+  const known = new Set(SECTIONS)
+  for (const command of COMMANDS) {
+    assert.ok(known.has(command.section), `${commandPath(command).join(' ')}: section "${command.section}"`)
+  }
+  const {stdout} = awt(['--help'])
+  for (const section of SECTIONS) {
+    const used = COMMANDS.some((command) => command.section === section)
+    assert.equal(stdout.includes(`  ${section}\n`), used, `section ${section} in --help`)
+  }
+})
+
+test('a group with no command lists what is under it and exits non-zero', () => {
+  for (const group of GROUPS) {
+    const {status, stdout} = awt([group.name])
+    assert.equal(status, 1, `${group.name} alone`)
+    assert.ok(stdout.includes(group.summary))
+  }
+})
+
+/**
+ * An inherited option comes after the full path. Accepting it before means
+ * parsing options without knowing which option map to parse against.
+ */
+test('a group refuses an option written before its command, and says where it goes', () => {
+  const {status, stderr} = awt(['site', '--wiki', 'x', 'publish'])
+  assert.equal(status, 2)
+  assert.match(stderr, /Options come after the command/)
 })
 
 test('every command carries a usage line and a summary worth reading', () => {
   for (const command of COMMANDS) {
-    assert.ok(command.summary.length > 20, `${command.name}: summary too thin`)
-    assert.ok(command.usage.includes(command.name), `${command.name}: usage does not show the command`)
-    const {stdout} = awt([command.name, '--help'])
-    assert.ok(stdout.includes(command.usage.split('\n')[0].trim()), `${command.name} --help`)
+    const path = commandPath(command)
+    assert.ok(command.summary.length > 20, `${path.join(' ')}: summary too thin`)
+    assert.ok(command.usage.includes(path.join(' ')), `${path.join(' ')}: usage does not show the command`)
+    const {stdout} = awt([...path, '--help'])
+    assert.ok(stdout.includes(command.usage.split('\n')[0].trim()), `${path.join(' ')} --help`)
   }
 })
 
@@ -81,8 +130,8 @@ test('every command-specific option is named in that command\'s usage line', () 
  */
 test('every command names the common options it takes, and none it does not', () => {
   for (const command of COMMANDS) {
-    const declared = Object.keys(command.options ?? {})
-    const {stdout} = awt([command.name, '--help'])
+    const declared = Object.keys(optionsFor(command))
+    const {stdout} = awt([...commandPath(command), '--help'])
     for (const entry of COMMON_OPTIONS) {
       const shown = stdout.includes(entry.flags)
       assert.equal(shown, declared.includes(entry.name), `${command.name} --help vs --${entry.name}`)
@@ -92,7 +141,7 @@ test('every command names the common options it takes, and none it does not', ()
 
 test('no usage line names an option the parser would reject', () => {
   for (const command of COMMANDS) {
-    const declared = new Set(Object.keys(command.options ?? {}))
+    const declared = new Set(Object.keys(optionsFor(command)))
     for (const [, name] of command.usage.matchAll(/--([A-Za-z][A-Za-z-]*)/g)) {
       assert.ok(declared.has(name), `${command.name}: usage names --${name}, which it does not accept`)
     }
@@ -245,7 +294,7 @@ test('an unknown command exits 2 and shows the list', () => {
   const {status, stderr} = awt(['nope'])
   assert.equal(status, 2)
   assert.match(stderr, /no such command "nope"/)
-  assert.match(stderr, /split-by-heading/)
+  assert.match(stderr, /rename-tag/)
 })
 
 test('fmt formats a standalone file with no wiki anywhere near it', (t) => {
@@ -314,7 +363,7 @@ test('fmt refuses paths that two different configs govern', (t) => {
  * It is the one message someone who typed `-w` meaning the workspace is shown.
  */
 test('a command without -w says which flag it has instead', () => {
-  const {status, stderr} = awt(['publish', '-w', 'docs/wiki'])
+  const {status, stderr} = awt(['site', 'publish', '-w', 'docs/wiki'])
   assert.equal(status, 2)
   assert.match(stderr, /takes --wiki and --site, not -w\/--workspace/)
   assert.doesNotMatch(stderr, /place it at the end/)
@@ -357,7 +406,7 @@ test('index writes the artifact a Quartz build reads', (t) => {
   t.after(() => box.cleanup())
 
   const out = join(box.dir, 'index.json')
-  assert.equal(awt(['index', '-w', box.root, '--out', out]).status, 0)
+  assert.equal(awt(['site', 'index', '--wiki', box.root, '--out', out]).status, 0)
   const artifact = JSON.parse(readFileSync(out, 'utf8'))
   assert.deepEqual(artifact.pages['a/one'].links, ['a/two'])
 })

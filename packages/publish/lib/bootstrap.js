@@ -13,12 +13,12 @@
  *
  * Usage, from anywhere inside a project (the site is `<rootDir>/site`, found
  * through awt.config.mjs by `awt`; the legacy `site/` beside `docs/wiki` still resolves):
- *     awt bootstrap-quartz                  # clone or re-pin, then install
- *     awt bootstrap-quartz --site path      # explicit path, resolved against cwd
- *     awt bootstrap-quartz --force          # discard and re-clone
+ *     awt site setup                  # clone or re-pin, then install
+ *     awt site setup --site path      # explicit path, resolved against cwd
+ *     awt site setup --force          # discard and re-clone
  *
  * With no --site it walks up for the legacy `site/quartz.config.yaml` marker —
- * `awt bootstrap-quartz` always passes --site, resolved from the project config.
+ * `awt site setup` always passes --site, resolved from the project config.
  *
  * Idempotent: safe to re-run, and re-running is how a Quartz bump or a newly
  * installed version of these tools is applied. Needs `git`, `node` and `npm`.
@@ -98,12 +98,12 @@ const GITIGNORE = `# Quartz itself is cloned at the commit in quartz.pin, never 
 public/
 
 # The last published build: the release itself (nothing about a release enters
-# git), plus awt publish's staging directory and the release it replaced.
+# git), plus awt site publish's staging directory and the release it replaced.
 release/
 .release-staging/
 .release-prev/
 
-# The handoff copy built by awt publish --offline, and the config it derives
+# The handoff copy built by awt site publish --offline, and the config it derives
 # to build it with. Both are regenerated on demand; quartz.offline.yaml, if the
 # project writes one to take that over, IS tracked.
 handoff/
@@ -112,7 +112,7 @@ handoff/
 .quartz.offline.yaml
 
 # Symlinks to the Quartz plugins installed on this machine, created by
-# \`awt bootstrap-quartz\`, and the index they read. Machine-local by definition,
+# \`awt site setup\`, and the index they read. Machine-local by definition,
 # and regenerated rather than authored.
 awt-links
 awt-cross-wiki
@@ -241,6 +241,6 @@ export function bootstrap(argv = process.argv.slice(2)) {
   const i = run("npm", ["install", "--no-audit", "--no-fund"], { cwd: src, stdio: "ignore" })
   if (i.status !== 0) die("npm install failed")
 
-  console.log("\nready. Next:\n    awt serve       dev server\n    awt publish     release build into site/release")
+  console.log("\nready. Next:\n    awt site serve       dev server\n    awt site publish     release build into site/release")
   return 0
 }

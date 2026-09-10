@@ -23,7 +23,7 @@ const ALLOWED = {
   verbs: ["syntax", "core", "format"],
   mcp: ["syntax", "core", "format", "verbs"],
   // cli reaches mcp and publish because there is one binary: `awt mcp`,
-  // `awt publish`. That is a sideways edge between three packages at the top,
+  // `awt site publish`. That is a sideways edge between three packages at the top,
   // not a downward one; nothing below any of them depends on any of them.
   cli: ["syntax", "core", "format", "verbs", "mcp", "publish"],
   publish: ["syntax", "core"],

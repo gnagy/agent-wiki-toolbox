@@ -79,11 +79,18 @@ knows which files a shell command touched — run `awt fmt <path>` on it yoursel
   `keep`. A target that already exists is skipped and reported; the other sections proceed.
 - Every write accepts `dryRun`.
 
-The CLI has the same verbs in kebab-case. Bare `awt check` and `awt fmt` mean the whole wiki from
-anywhere in the project. `awt fmt <path>` resolves the path against the current directory, or
-against the workspace when `-w` is given; the MCP `fmt` takes workspace-relative paths, and its
-`dryRun` is the CLI's `--check`. `awt fmt --check` also runs the front-matter schemas that
-`awt.config.mjs` maps onto files.
+**The two surfaces are spelled differently, and no longer name quite the same set.** MCP tool names
+are flat and keep their qualifiers — `split_by_heading`, `merge_files`, `build_listing`. The CLI
+drops those (`awt split`, `awt merge`, `awt listing`) and groups the site commands under `awt site`,
+which is a namespace and not an alias: there is no flat `awt serve` still working. One name exists
+on one surface only — **`rename` is an MCP tool and not a command**, because the CLI folded it into
+`awt move`, where a destination with no folder in it renames in place. `awt --help` is the
+authority; this is only the warning not to translate a tool name into a command by habit.
+
+Bare `awt check` and `awt fmt` mean the whole wiki from anywhere in the project. `awt fmt <path>`
+resolves the path against the current directory, or against the workspace when `-w` is given; the
+MCP `fmt` takes workspace-relative paths, and its `dryRun` is the CLI's `--check`. `awt fmt --check`
+also runs the front-matter schemas that `awt.config.mjs` maps onto files.
 
 ## Formatting hazard
 

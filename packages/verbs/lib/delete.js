@@ -17,13 +17,16 @@ export function deleteNote(notesDir, {path, workspace, dryRun} = {}) {
   const resource = index.get(target)
   if (!resource) {
     if (context.edit.exists(target)) throw refuse('deleteNote', `${target} is not an indexed note`)
-    // A path this wiki has never held is a refusal. Calling it already deleted
-    // reports success for a note the caller can still see on disk.
     if (!namesANote(notesDir, target)) throw refuse('deleteNote', `${path} is not a note in ${notesDir}`)
-    // Re-run: already deleted. Report the dangling links anyway, which is the
-    // useful half of the answer.
-    notes.push(`${target} was already deleted`)
-    return finish('deleteNote', context, {notes})
+    // No note here, and nothing to be idempotent about. This used to answer `ok`
+    // and call the path already deleted, which it could not know: the guard meant
+    // to catch a path the wiki never held was `namesANote`, which only tests that
+    // the path is inside the notes directory, so it never fired for an in-wiki
+    // one and a typo came back as success. The verb cannot tell a re-run from a
+    // typo and the typo is likelier, so it refuses, as `rename` and `move` do.
+    // Nothing is lost: this verb never rewrote inbound links, and listing the
+    // placeholders a deletion left is what `check` is for.
+    throw refuse('deleteNote', `no note at ${path}`)
   }
 
   const inbound = index.backlinks(target)
