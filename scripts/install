@@ -82,7 +82,7 @@ if [[ -z "$DRY" ]]; then
   say ""
   say "The Quartz plugins live at $PLUGIN/quartz-plugins/<name>. A site that"
   say "still symlinks the old ~/.local/lib path has to be repointed, and takes a"
-  say "new install by re-running `awt site setup` either way: Quartz never"
+  say "new install by re-running 'awt site setup' either way: Quartz never"
   say "re-resolves a plugin directory it has already installed."
   case ":$PATH:" in
     *":$BIN:"*) ;;
