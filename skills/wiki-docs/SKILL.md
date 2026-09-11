@@ -89,7 +89,7 @@ authority; this is only the warning not to translate a tool name into a command 
 
 Bare `awt check` and `awt fmt` mean the whole wiki from anywhere in the project. `awt fmt <path>`
 resolves the path against the current directory, or against the workspace when `-w` is given; the
-MCP `fmt` takes workspace-relative paths, and its `dryRun` is the CLI's `--check`. `awt fmt --check`
+MCP `fmt` takes workspace-relative paths, and its `dryRun` is the CLI's `--dry-run`. `awt fmt --dry-run`
 also runs the front-matter schemas that `awt.config.mjs` maps onto files.
 
 ## Formatting hazard
@@ -114,7 +114,7 @@ tags: [<tag>, <tag>]
 ```
 
 A project that fixes vocabularies can hold them as JSON schemas in `wiki/schemas/`, mapped to
-globs in `awt.config.mjs` and checked by `awt fmt --check`.
+globs in `awt.config.mjs` and checked by `awt fmt --dry-run`.
 
 ## Open Knowledge Format, optional
 

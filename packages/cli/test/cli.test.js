@@ -13,7 +13,16 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
 
-import {COMMANDS, COMMON_OPTIONS, GROUPS, SECTIONS, commandPath, optionsFor} from '../index.js'
+import {
+  COMMANDS,
+  COMMON_OPTIONS,
+  GROUPS,
+  NAME_COLLISIONS,
+  SECTIONS,
+  SHORT_FLAGS,
+  commandPath,
+  optionsFor,
+} from '../index.js'
 
 const AWT = new URL('../bin/awt.mjs', import.meta.url).pathname
 
@@ -621,4 +630,176 @@ test('-w names a directory, and says so rather than handing back node ENOTDIR', 
   const viaEnv = awt(['check'], {env: {...process.env, AWT_WORKSPACE: file}})
   assert.equal(viaEnv.status, 2, viaEnv.stderr)
   assert.match(viaEnv.stderr, /\$AWT_WORKSPACE names/)
+})
+
+
+/**
+ * Phase 2 of the invocation campaign: the rules of [[awt-argument-shape]] that can
+ * be read off the command table, as tests rather than as prose in a note.
+ *
+ * **This is the deliverable, more than the fixes are.** A fixed deviation stays
+ * fixed for as long as someone remembers it; an asserted one stays fixed. The
+ * audit that found eight undocumented options has not needed repeating since it
+ * became a test, and these are the same shape.
+ *
+ * Where a rule has an exception, the exception is a declared register with a
+ * reason in it -- SHORT_FLAGS, NAME_COLLISIONS, and the `writes` and `server`
+ * markers -- so that adding one is a visible act rather than a silent drift.
+ */
+
+test('every option is kebab-case', () => {
+  for (const command of COMMANDS) {
+    for (const name of Object.keys(optionsFor(command))) {
+      assert.match(name, /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/, `${commandPath(command).join(' ')}: --${name}`)
+    }
+  }
+})
+
+/**
+ * A command that writes takes `--dry-run`, and a command that takes `--dry-run`
+ * says it writes. The biconditional is the point: a one-way rule lets the marker
+ * rot, and the marker is what the next command is checked against.
+ *
+ * `fmt` is the seventh writer and had only `--check`, which is the same flag under
+ * a name the installed Stop hook types. It has both now.
+ */
+test('a command that writes takes --dry-run, and nothing else claims to', () => {
+  for (const command of COMMANDS) {
+    const takesIt = Object.keys(optionsFor(command)).includes('dry-run')
+    assert.equal(takesIt, command.writes === true, `${commandPath(command).join(' ')}: writes vs --dry-run`)
+  }
+})
+
+/**
+ * Every read reports as data on request, so a hook or a script is not parsing
+ * prose. The exception is a server, whose protocol is its output -- `mcp` speaks
+ * MCP over stdio and `site serve` hands the terminal to Quartz's dev server and
+ * never returns. Neither has an end at which to emit a document, which is a
+ * different thing from having nothing to say.
+ */
+test('every command that answers a question takes --json, and a server does not', () => {
+  for (const command of COMMANDS) {
+    const declared = Object.keys(optionsFor(command))
+    const path = commandPath(command).join(' ')
+    assert.equal(declared.includes('json'), command.server !== true, `${path}: --json vs server`)
+  }
+  // The rule is worth stating as coverage too: -w means it works on notes.
+  const readers = COMMANDS.filter((one) => Object.keys(optionsFor(one)).includes('workspace') && !one.server)
+  for (const command of readers) {
+    assert.ok(Object.keys(optionsFor(command)).includes('json'), `${command.name} takes -w but not --json`)
+  }
+})
+
+/**
+ * A flag and a command do not share a name. `awt check` and `awt fmt --check` are
+ * unrelated operations, and a reader who knows one learns the wrong thing about
+ * the other. The register is where an exception is argued rather than smuggled,
+ * and it carries the reason -- an installed hook cannot be migrated from here.
+ */
+test('no flag shares a name with a command, except where the register says why', () => {
+  const commands = new Set(COMMANDS.map((one) => one.name))
+  for (const command of COMMANDS) {
+    for (const name of Object.keys(optionsFor(command))) {
+      if (!commands.has(name)) continue
+      const key = `${commandPath(command).join(' ')} --${name}`
+      assert.ok(NAME_COLLISIONS[key], `${key} collides with the ${name} command and is not in the register`)
+      assert.ok(NAME_COLLISIONS[key].length > 20, `${key}: the register entry has to say why`)
+    }
+  }
+  // And the register does not outlive what it excuses.
+  for (const key of Object.keys(NAME_COLLISIONS)) {
+    const [, flag] = key.split(' --')
+    const command = COMMANDS.find((one) => commandPath(one).join(' ') === key.split(' --')[0])
+    assert.ok(command, `${key}: no such command`)
+    assert.ok(Object.keys(optionsFor(command)).includes(flag), `${key}: excuses a flag that is gone`)
+  }
+})
+
+/**
+ * A short flag is earned by frequency across the whole tool, not by one command's
+ * convenience. `-c` and `-q` were not, and are kept anyway -- removing them breaks
+ * muscle memory to enforce a rule nobody is hurt by. Declaring the set is what
+ * makes the rule about the *next* one enforceable.
+ */
+test('every short flag is declared, and a letter means one thing', () => {
+  for (const command of COMMANDS) {
+    for (const [name, spec] of Object.entries(optionsFor(command))) {
+      if (!spec.short) continue
+      const path = commandPath(command).join(' ')
+      assert.ok(SHORT_FLAGS[spec.short], `${path}: -${spec.short} is not in SHORT_FLAGS`)
+      assert.equal(SHORT_FLAGS[spec.short], name, `${path}: -${spec.short} means ${name} here`)
+    }
+  }
+  const used = new Set(COMMANDS.flatMap((one) => Object.values(optionsFor(one)).map((spec) => spec.short)))
+  for (const letter of Object.keys(SHORT_FLAGS)) {
+    assert.ok(used.has(letter), `-${letter} is declared but nothing takes it`)
+  }
+})
+
+/**
+ * The flag the Stop hook types keeps working, and means what --dry-run means.
+ * This is a behaviour test rather than a table one because what is at stake is
+ * that an installed hook does not start failing on a release of this repo.
+ */
+test('fmt --check is fmt --dry-run, and both leave the file alone', (t) => {
+  const box = wiki({'messy.md': '# Messy\n\n* a bullet\n'})
+  t.after(() => box.cleanup())
+  const before = readFileSync(join(box.root, 'messy.md'), 'utf8')
+
+  for (const flag of ['--check', '--dry-run']) {
+    const {status, stdout} = awt(['fmt', flag, '-w', box.root])
+    assert.equal(status, 1, `fmt ${flag}`)
+    assert.match(stdout, /1 file checked, 1 with problems/)
+    assert.equal(readFileSync(join(box.root, 'messy.md'), 'utf8'), before, `fmt ${flag} wrote`)
+  }
+
+  const formatted = awt(['fmt', '-w', box.root])
+  assert.equal(formatted.status, 0, formatted.stderr)
+  assert.notEqual(readFileSync(join(box.root, 'messy.md'), 'utf8'), before)
+})
+
+/**
+ * `--json` on the site commands, which had none: they are the commands with the
+ * most to report, and `index` reported what it wrote as prose while taking the
+ * group's paths like every command around it.
+ *
+ * The thing worth asserting is not the fields but that **stdout is one document**.
+ * These commands narrate — a release build says what it is doing for minutes
+ * before it says what it did — so `--json` moves the commentary to stderr rather
+ * than turning it off. A second line above the document is the one thing a --json
+ * caller cannot be handed.
+ */
+test('site index reports as data, and says nothing else on stdout', (t) => {
+  const box = wiki({'a.md': '# A\n\nlinks to [[b]].\n', 'b.md': '# B\n\nand [[nowhere]].\n'})
+  t.after(() => box.cleanup())
+  const out = join(box.dir, 'graph.json')
+
+  const {status, stdout} = awt(['site', 'index', '--wiki', box.root, '--out', out, '--json'])
+  assert.equal(status, 0)
+  const report = JSON.parse(stdout)
+  assert.equal(report.ok, true)
+  assert.equal(report.notes, 2)
+  assert.equal(report.placeholders, 1)
+  assert.equal(report.out, out)
+
+  // The same run without --json still answers a person.
+  const human = awt(['site', 'index', '--wiki', box.root, '--out', out])
+  assert.match(human.stdout, /2 notes, .* 1 placeholders/)
+})
+
+/**
+ * `site setup` clones Quartz and runs npm install, so the full run is not a test.
+ * What is testable, and what would actually break, is that the flag reaches
+ * `bootstrap`'s own parser: it is a separate `parseArgs` in the publish package,
+ * and an option the CLI accepts and it does not fails there, under a command name
+ * that has nothing to do with the mistake.
+ */
+test('site setup passes --json through to its own parser', (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'awt-setup-')))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+
+  const {status, stderr} = awt(['site', 'setup', '--json', '--site', dir])
+  assert.equal(status, 2)
+  assert.match(stderr, /a site directory needs its Quartz config/)
+  assert.doesNotMatch(stderr, /Unknown option/)
 })

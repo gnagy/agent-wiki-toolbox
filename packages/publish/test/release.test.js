@@ -52,7 +52,7 @@ function put(root, rel, body) {
 function noExit(t) {
   const errors = []
   t.mock.method(console, 'error', (m) => errors.push(String(m)))
-  t.mock.method(console, 'log', () => {})
+  t.mock.method(process.stdout, 'write', () => true)
   t.mock.method(process, 'exit', (code) => {
     throw new Error(`exit ${code}`)
   })
@@ -223,7 +223,7 @@ test('swap drops the release before last, so only one is kept', () => {
 
 test('verify passes a release that a dependent wiki can resolve against', (t) => {
   const logs = []
-  t.mock.method(console, 'log', (m) => logs.push(String(m)))
+  t.mock.method(process.stdout, 'write', (m) => logs.push(String(m).replace(/\n$/, '')))
   const root = tmp()
   put(root, 'index.html', '<html></html>')
   put(root, 'static/contentIndex.json', '{}')
@@ -277,7 +277,7 @@ function fakeQuartz() {
 
 test("offlineConfig hands back the project's own file untouched when it has one", async (t) => {
   const logs = []
-  t.mock.method(console, 'log', (m) => logs.push(String(m)))
+  t.mock.method(process.stdout, 'write', (m) => logs.push(String(m).replace(/\n$/, '')))
   const site = tmp()
   put(site, 'quartz.offline.yaml', 'configuration: {pageTitle: Mine}\n')
 
@@ -289,7 +289,7 @@ test("offlineConfig hands back the project's own file untouched when it has one"
 
 test('offlineConfig derives one that turns off everything needing a browser', async (t) => {
   const logs = []
-  t.mock.method(console, 'log', (m) => logs.push(String(m)))
+  t.mock.method(process.stdout, 'write', (m) => logs.push(String(m).replace(/\n$/, '')))
   const site = tmp()
   put(
     site,
@@ -328,7 +328,7 @@ test('offlineConfig derives one that turns off everything needing a browser', as
 })
 
 test('offlineConfig rewrites its generated file rather than accumulating', async (t) => {
-  t.mock.method(console, 'log', () => {})
+  t.mock.method(process.stdout, 'write', () => true)
   const site = tmp()
   const quartz = fakeQuartz()
   put(site, 'quartz.config.yaml', 'configuration: {pageTitle: One}\nplugins: []\n')

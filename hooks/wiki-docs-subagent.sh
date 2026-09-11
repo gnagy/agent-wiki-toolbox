@@ -55,7 +55,7 @@ governs it -- the parent session was given this and you were not.
 
 **\`mv\`, \`rm\` and \`sed -i\` break the link graph** and nothing reports it. Renaming, moving,
 deleting, splitting and merging a note are \`awt\` verbs that rewrite every inbound link. Prose edits
-are ordinary file edits. \`awt check\` and \`awt fmt --check\` are what say whether you left it whole.
+are ordinary file edits. \`awt check\` and \`awt fmt --dry-run\` are what say whether you left it whole.
 
 TEXT
 

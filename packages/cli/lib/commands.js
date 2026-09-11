@@ -120,6 +120,36 @@ async function layoutFor(command, values) {
   return undefined
 }
 
+/**
+ * **The short flags that exist, and nothing else may add one.**
+ *
+ * A short flag is earned by frequency across the whole tool, not by one command's
+ * convenience — `-w` is on every command that works on a wiki and qualifies twice
+ * over. `-c` and `-q` are on one command each and do not, but they are kept:
+ * removing them breaks muscle memory to enforce a rule nobody is hurt by, and the
+ * rule they offend is about *adding* the next one. Declaring them is what makes
+ * that distinction enforceable instead of a sentence in a note.
+ *
+ * A letter means the same thing everywhere, which is the other half of the test.
+ */
+export const SHORT_FLAGS = {w: 'workspace', c: 'check', q: 'quiet'}
+
+/**
+ * **Flags allowed to share a name with a command, and why.**
+ *
+ * The rule is that they do not: `awt check` and `awt fmt --check` are unrelated
+ * operations, and a reader who knows one learns the wrong thing about the other.
+ * `fmt --dry-run` is the spelling now, which is what the rest of the tool calls
+ * this, and the hooks and the skill in this repo say so. `--check` is kept because
+ * a hook **already installed** on a machine runs `awt fmt --check`, and an
+ * installed copy cannot be migrated by editing this repo — it only changes on the
+ * next `scripts/install`. The exception is finite rather than permanent, and this
+ * is the register that says when it can go: when no installed hook types it.
+ */
+export const NAME_COLLISIONS = {
+  'fmt --check': 'a Stop hook installed before this release types it; --dry-run is the spelling',
+}
+
 const WORKSPACE_OPTION = {workspace: {type: 'string', short: 'w'}}
 const OUTPUT_OPTIONS = {json: {type: 'boolean', default: false}}
 const SITE_OPTIONS = {wiki: {type: 'string'}, site: {type: 'string'}}
@@ -256,26 +286,45 @@ async function runVerb(values, action) {
  */
 async function emitIndexForSite(command, values) {
   const layout = await layoutFor(command, values)
-  if (layout === undefined) return 2
+  if (layout === undefined) return {code: 2}
   const wiki = values.wiki ? resolvePath(values.wiki) : layout.notesDir
   const site = values.site ? resolvePath(values.site) : layout.siteDir
   const workspace = loadWorkspace(wiki)
-  writeIndexArtifact(workspace, resolvePath(site, '.awt-index.json'))
-  process.stdout.write(`index: ${workspace.resources.length} notes, ${workspace.edges.length} links\n`)
-  return 0
+  const out = resolvePath(site, '.awt-index.json')
+  writeIndexArtifact(workspace, out)
+  const summary = indexSummary(workspace, out)
+  // Publish and serve emit the index before they run, so this line is a step in
+  // someone else's report. Under --json it would be a second document above the
+  // first, which is the one thing a --json caller cannot be handed.
+  if (!values.json) process.stdout.write(`index: ${summary.notes} notes, ${summary.links} links\n`)
+  return {code: 0, ...summary}
+}
+
+/** What was written, the same four numbers whichever command asked for it. */
+function indexSummary(workspace, out) {
+  return {
+    out,
+    notes: workspace.resources.length,
+    links: workspace.edges.length,
+    placeholders: workspace.placeholders().length,
+    ambiguous: workspace.ambiguities.length,
+  }
 }
 
 export const COMMANDS = [
   {
     name: 'fmt',
+    writes: true,
     section: 'Format',
     summary: "Format markdown in IntelliJ's style, inside a wiki or on a lone file",
     usage:
       'awt fmt [paths...] [--verbose]\n' +
-      '       awt fmt --check [paths...]\n' +
+      '       awt fmt --dry-run|--check [paths...]\n' +
       '       awt fmt --stdin',
     positionals: 'any',
     notes: [
+      '--dry-run is the spelling. --check is the same flag, kept because a Stop hook installed',
+      'before this release types it; it goes when none does.',
       'With -w, paths are relative to the notes directory. Without it, a path is tried against the',
       'current directory first and the notes directory second; --json reports which as `base`.',
       'With no path, no -w and no `files` in the config, the whole wiki is formatted.',
@@ -283,6 +332,10 @@ export const COMMANDS = [
     options: {
       ...WORKSPACE_OPTION,
       ...OUTPUT_OPTIONS,
+      // --check is --dry-run under the name the installed Stop hook types. Two
+      // booleans rather than an alias, because parseArgs has no aliases and the
+      // register above is where the exception is argued.
+      'dry-run': {type: 'boolean', default: false},
       check: {type: 'boolean', short: 'c', default: false},
       stdin: {type: 'boolean', default: false},
       verbose: {type: 'boolean', default: false},
@@ -294,6 +347,7 @@ export const COMMANDS = [
      * directory; the config comes from the files named rather than from the cwd.
      */
     async run({values, positionals}) {
+      const checking = values['dry-run'] || values.check
       let cwd = process.cwd()
       let base = 'cwd'
       if (values.workspace) {
@@ -336,7 +390,7 @@ export const COMMANDS = [
         for await (const chunk of process.stdin) chunks.push(chunk)
         const source = Buffer.concat(chunks).toString('utf8')
         const formatted = formatMarkdown(source, config)
-        if (values.check) return formatted === source ? 0 : 1
+        if (checking) return formatted === source ? 0 : 1
         process.stdout.write(formatted)
         return 0
       }
@@ -354,7 +408,7 @@ export const COMMANDS = [
         configPath,
         globBase: layout && !layout.legacy ? layout.notesDir : undefined,
         cwd,
-        mode: values.check ? 'check' : 'format',
+        mode: checking ? 'check' : 'format',
         quiet: !values.verbose,
         streamError: report,
       })
@@ -363,7 +417,7 @@ export const COMMANDS = [
       if (values.json) {
         emit(values, {
           ok: result.code === 0,
-          mode: values.check ? 'check' : 'format',
+          mode: checking ? 'check' : 'format',
           files: result.files,
           problems: result.problems,
           paths: positionals.length ? positionals : ['.'],
@@ -374,7 +428,7 @@ export const COMMANDS = [
         })
         return result.code
       }
-      if (result.code !== 2) process.stdout.write(`${verdict(result, values.check)}\n`)
+      if (result.code !== 2) process.stdout.write(`${verdict(result, checking)}\n`)
       if (text) process.stderr.write(text)
       return result.code
     },
@@ -518,6 +572,7 @@ export const COMMANDS = [
   },
   {
     name: 'move',
+    writes: true,
     section: 'Change',
     summary: 'Move or rename a note, rewriting every link into it',
     usage: 'awt move <from> <to>',
@@ -541,6 +596,7 @@ export const COMMANDS = [
   },
   {
     name: 'delete',
+    writes: true,
     section: 'Change',
     summary: 'Delete a note. Links into it are reported, not rewritten',
     usage: 'awt delete <path>',
@@ -554,6 +610,7 @@ export const COMMANDS = [
   },
   {
     name: 'split',
+    writes: true,
     section: 'Change',
     summary: 'Split a note into several, one per heading named in the plan',
     usage:
@@ -584,6 +641,7 @@ export const COMMANDS = [
   },
   {
     name: 'merge',
+    writes: true,
     section: 'Change',
     summary: 'Merge notes into one, each as a section under its own title, repointing every link into them',
     usage: 'awt merge <source...> --into <path> --source delete|keep [--depth n]',
@@ -610,6 +668,7 @@ export const COMMANDS = [
   },
   {
     name: 'rename-tag',
+    writes: true,
     section: 'Change',
     summary: 'Rename a front-matter tag everywhere it appears',
     usage: 'awt rename-tag <from> <to>',
@@ -623,6 +682,7 @@ export const COMMANDS = [
   },
   {
     name: 'listing',
+    writes: true,
     section: 'Change',
     summary: 'Regenerate the notes listing between its markers in the wiki index. Text outside the markers is not touched',
     usage: 'awt listing [--path index.md] [--columns note,about]',
@@ -657,7 +717,7 @@ export const COMMANDS = [
       "Runs from anywhere inside the project: the site is <rootDir>/site, with rootDir from the project's",
       'awt.config.mjs (default wiki/). --site names another one, resolved against the cwd.',
     ],
-    options: {force: {type: 'boolean', default: false}},
+    options: {...OUTPUT_OPTIONS, force: {type: 'boolean', default: false}},
     async run({values}) {
       const {bootstrap} = await import('@agent-wiki-toolbox/publish')
       const layout = values.site ? null : await resolveLayout()
@@ -669,7 +729,12 @@ export const COMMANDS = [
         )
         return 2
       }
-      return bootstrap(['--site', site, ...(values.force ? ['--force'] : [])])
+      return bootstrap([
+        '--site',
+        site,
+        ...(values.force ? ['--force'] : []),
+        ...(values.json ? ['--json'] : []),
+      ])
     },
   },
   {
@@ -695,6 +760,7 @@ export const COMMANDS = [
       '--nginx prints a server block for the release and exits without building.',
     ],
     options: {
+      ...OUTPUT_OPTIONS,
       out: {type: 'string'},
       offline: {type: 'boolean', default: false},
       diagrams: {type: 'string'},
@@ -705,7 +771,7 @@ export const COMMANDS = [
       const {publish} = await import('@agent-wiki-toolbox/publish')
 
       if (!values.nginx && !values['skip-index']) {
-        const code = await emitIndexForSite('publish', values)
+        const {code} = await emitIndexForSite('publish', values)
         if (code !== 0) return code
       }
 
@@ -722,15 +788,17 @@ export const COMMANDS = [
         ...(values.offline ? ['--offline'] : []),
         ...(values.diagrams ? ['--diagrams', values.diagrams] : []),
         ...(values.nginx ? ['--nginx'] : []),
+        ...(values.json ? ['--json'] : []),
       ])
     },
   },
   {
     name: 'serve',
+    server: true,
     group: 'site',
     section: 'Publish',
     summary: "Emit the index and run Quartz's dev server over the wiki. Ports come from awt.config.mjs",
-    usage: 'awt site serve [--out path] [--port N] [--wsPort N] [--skip-index]',
+    usage: 'awt site serve [--out path] [--port N] [--ws-port N] [--skip-index]',
     positionals: 0,
     notes: [
       "Emits the link-graph index, then runs Quartz's dev server over the wiki. The awt-links",
@@ -740,19 +808,20 @@ export const COMMANDS = [
       '',
       '    export default {serve: {port: 8101}}',
       '',
-      '--wsPort defaults to the port plus 100. Runs from anywhere inside the project.',
+      '--ws-port defaults to the port plus 100. Runs from anywhere inside the project.',
+      'The config key stays `serve: {wsPort}` — that is a JS object, where camelCase is right.',
     ],
     options: {
       out: {type: 'string'},
       port: {type: 'string'},
-      wsPort: {type: 'string'},
+      'ws-port': {type: 'string'},
       'skip-index': {type: 'boolean', default: false},
     },
     async run({values}) {
       const {serve} = await import('@agent-wiki-toolbox/publish')
 
       if (!values['skip-index']) {
-        const code = await emitIndexForSite('serve', values)
+        const {code} = await emitIndexForSite('serve', values)
         if (code !== 0) return code
       }
 
@@ -773,7 +842,7 @@ export const COMMANDS = [
         values.site ?? layout.siteDir,
         ...(values.out ? ['--out', values.out] : []),
         ...(values.port ? ['--port', values.port] : []),
-        ...(values.wsPort ? ['--wsPort', values.wsPort] : []),
+        ...(values['ws-port'] ? ['--ws-port', values['ws-port']] : []),
         ...(ports.port === undefined ? [] : ['--configPort', String(ports.port)]),
         ...(ports.wsPort === undefined ? [] : ['--configWsPort', String(ports.wsPort)]),
       ])
@@ -793,23 +862,30 @@ export const COMMANDS = [
       '',
       '--out names another file and needs no site, for looking at the graph directly.',
     ],
-    options: {out: {type: 'string'}},
+    options: {...OUTPUT_OPTIONS, out: {type: 'string'}},
     async run({values}) {
-      if (!values.out) return emitIndexForSite('site index', values)
+      if (!values.out) {
+        const {code, ...summary} = await emitIndexForSite('site index', values)
+        if (code === 0 && values.json) emit(values, {ok: true, ...summary})
+        return code
+      }
       // --out asks for the graph as a file, which no site has to exist for.
       const layout = await resolveLayout()
       const root = values.wiki ? resolvePath(values.wiki) : (layout?.notesDir ?? process.cwd())
       const workspace = loadWorkspace(root)
-      const artifact = writeIndexArtifact(workspace, resolvePath(values.out))
-      process.stdout.write(
-        `${values.out}: ${Object.keys(artifact.pages).length} notes, ${workspace.edges.length} links, ` +
-          `${workspace.placeholders().length} placeholders, ${workspace.ambiguities.length} ambiguous\n`,
+      const out = resolvePath(values.out)
+      writeIndexArtifact(workspace, out)
+      const summary = indexSummary(workspace, out)
+      emit(values, {ok: true, ...summary}, (value) =>
+        `${values.out}: ${value.notes} notes, ${value.links} links, ` +
+          `${value.placeholders} placeholders, ${value.ambiguous} ambiguous`,
       )
       return 0
     },
   },
   {
     name: 'mcp',
+    server: true,
     section: 'Agents',
     summary: 'Run the MCP server over stdio, for an agent to talk to',
     usage: 'awt mcp [--allow-writes] [--name n]',

@@ -59,6 +59,7 @@ import { spawnSync } from "node:child_process"
 import { parseArgs } from "node:util"
 import { fileURLToPath } from "node:url"
 
+import { narrateTo, say, sayPart } from "./narrate.js"
 import { requireProjectRoot } from "./project-root.js"
 import { loadFromQuartz } from "./quartz-deps.js"
 import { prerenderDiagrams } from "./diagrams-pass.js"
@@ -146,7 +147,7 @@ function checkBaseUrl(site) {
   const m = /^\s*baseUrl:\s*(.*)$/m.exec(fs.readFileSync(config, "utf8"))
   const value = m ? m[1].trim().replace(/^["']|["']$/g, "").replace(/\s+#.*$/, "") : ""
   if (!value || value === "null" || /^(https?:\/\/)?(localhost|127\.0\.0\.1)\b/.test(value)) {
-    console.log(
+    say(
       `\n⚠ baseUrl in quartz.config.yaml is ${value ? `"${value}"` : "unset"}. The sitemap, RSS\n` +
         "  and og: tags in this release carry it. Set it to the host that serves the release.",
     )
@@ -234,7 +235,7 @@ function assertCanonicalConfig(quartz) {
 }
 
 function build(quartz, wiki, out, configName) {
-  process.stdout.write(
+  sayPart(
     configName
       ? `building (offline mode, ${configName}) ... `
       : "building (publish mode, no --serve) ... ",
@@ -245,13 +246,13 @@ function build(quartz, wiki, out, configName) {
     }),
   )
   if (b.status !== 0) {
-    console.log("FAILED")
+    say("FAILED")
     die(
       `quartz build failed. The standing release is untouched; the build is left at ${show(out)}:\n` +
         ((b.stdout ?? "") + (b.stderr ?? "")).slice(-2000),
     )
   }
-  console.log("ok")
+  say("ok")
 }
 
 /**
@@ -275,7 +276,8 @@ export function verify(staging, offline) {
   }
   const [files, pages, bytes] = measure(staging)
   if (pages === 0) die(`the build produced no pages; not swapping.\n${standing}`)
-  console.log(`  ${pages} pages, ${files} files, ${mb(bytes)}`)
+  say(`  ${pages} pages, ${files} files, ${mb(bytes)}`)
+  return { files, pages, bytes }
 }
 
 /**
@@ -314,7 +316,7 @@ export function swap(staging, out, prev) {
 export async function offlineConfig(site, quartz) {
   const own = "quartz.offline.yaml"
   if (fs.existsSync(path.join(site, own))) {
-    console.log(`config: ${own} (the project's own)`)
+    say(`config: ${own} (the project's own)`)
     return own
   }
 
@@ -346,7 +348,7 @@ export async function offlineConfig(site, quartz) {
       "# awt site publish uses that instead, and never touches it.\n" +
       stringify(config),
   )
-  console.log(`config: ${generated} (derived; ${off.length ? off.join(", ") + " off" : "nothing to turn off"})`)
+  say(`config: ${generated} (derived; ${off.length ? off.join(", ") + " off" : "nothing to turn off"})`)
   return generated
 }
 
@@ -614,12 +616,20 @@ export async function publish(argv = process.argv.slice(2)) {
         offline: { type: "boolean", default: false },
         diagrams: { type: "string" },
         nginx: { type: "boolean", default: false },
+        json: { type: "boolean", default: false },
       },
     })
   } catch (e) {
     die(String(e.message))
   }
   const { values } = parsed
+  // --json makes stdout one document. The commentary is still worth having --
+  // this runs for minutes before it says anything conclusive -- so it moves to
+  // stderr rather than being turned off.
+  if (values.json) narrateTo(process.stderr)
+  const report = (value) => {
+    if (values.json) process.stdout.write(`${JSON.stringify(value, null, 1)}\n`)
+  }
 
   const root = values.wiki && values.site ? null : requireProjectRoot(die)
   const wiki = values.wiki ? path.resolve(values.wiki) : path.join(root, "docs/wiki")
@@ -647,7 +657,9 @@ export async function publish(argv = process.argv.slice(2)) {
   }
 
   if (values.nginx) {
-    console.log(nginx(out))
+    // The server block is the answer, not commentary, so it is the document.
+    if (values.json) report({ ok: true, nginx: nginx(out) })
+    else say(nginx(out))
     return 0
   }
 
@@ -663,9 +675,9 @@ export async function publish(argv = process.argv.slice(2)) {
   }
   assertCanonicalConfig(quartz)
 
-  console.log(`wiki: ${wiki}\nsite: ${site}\n${values.offline ? "handoff" : "release"}: ${out}`)
+  say(`wiki: ${wiki}\nsite: ${site}\n${values.offline ? "handoff" : "release"}: ${out}`)
   const configName = values.offline ? await offlineConfig(site, quartz) : null
-  console.log()
+  say()
 
   const staging = path.join(path.dirname(out), `.${path.basename(out)}-staging`)
   const prev = path.join(path.dirname(out), `.${path.basename(out)}-prev`)
@@ -675,17 +687,17 @@ export async function publish(argv = process.argv.slice(2)) {
   fs.rmSync(staging, { recursive: true, force: true })
 
   build(quartz, wiki, staging, configName)
-  verify(staging, values.offline)
+  const measured = verify(staging, values.offline)
 
   if (values.offline) {
     if (diagrams === "png") {
       try {
-        const d = await prerenderDiagrams(staging, quartz, (m) => console.log(m))
+        const d = await prerenderDiagrams(staging, quartz, (m) => say(m))
         if (d.diagrams) {
-          console.log(`  ${d.diagrams} mermaid diagrams pre-rendered to PNG, replacing ${d.replaced} code blocks`)
+          say(`  ${d.diagrams} mermaid diagrams pre-rendered to PNG, replacing ${d.replaced} code blocks`)
         }
         for (const f of d.failed ?? []) {
-          console.log(`\n⚠ a mermaid diagram would not render, left as its source text:\n    ${f.error}\n    ${f.source.trim().split("\n")[0]}`)
+          say(`\n⚠ a mermaid diagram would not render, left as its source text:\n    ${f.error}\n    ${f.source.trim().split("\n")[0]}`)
         }
       } catch (e) {
         die(
@@ -696,11 +708,11 @@ export async function publish(argv = process.argv.slice(2)) {
     }
 
     const r = toFileUrls(staging)
-    console.log(
+    say(
       `  rewrote ${r.rewritten} links to real files, removed ${r.scripts} scripts and ${r.removed} now-unused .js files`,
     )
     if (r.placeholders.length) {
-      console.log(
+      say(
         `  ${r.neutralised - r.dangling.length} links to ${r.placeholders.length} unwritten notes made unclickable: ` +
           r.placeholders.slice(0, 6).join(", ") +
           (r.placeholders.length > 6 ? `, +${r.placeholders.length - 6} more` : ""),
@@ -710,13 +722,13 @@ export async function publish(argv = process.argv.slice(2)) {
       // Not a placeholder and not a missing asset: a link the renderer thought
       // it had resolved. It is broken in the release too, and `awt check` is what
       // says so — this only refuses to hide it.
-      console.log(
+      say(
         `\n⚠ ${r.dangling.length} link${r.dangling.length === 1 ? "" : "s"} the renderer did not mark broken\n` +
           "  resolve to nothing. They are broken in the served site too; awt check reports them.\n" +
           "  Made unclickable in this copy:",
       )
-      for (const d of r.dangling.slice(0, 10)) console.log(`    ${d}`)
-      if (r.dangling.length > 10) console.log(`    … and ${r.dangling.length - 10} more`)
+      for (const d of r.dangling.slice(0, 10)) say(`    ${d}`)
+      if (r.dangling.length > 10) say(`    … and ${r.dangling.length - 10} more`)
     }
     if (r.missingAssets.length) {
       die(
@@ -732,30 +744,40 @@ export async function publish(argv = process.argv.slice(2)) {
           v.bad.slice(0, 10).map((u) => `  ${u}`).join("\n"),
       )
     }
-    console.log(`  ${v.total} clickable references, all of them files a browser can open from disk`)
+    say(`  ${v.total} clickable references, all of them files a browser can open from disk`)
     const inlined = inlineRootIndex(staging)
-    if (inlined) console.log(`  index.html is ${inlined} itself now, not a redirect to it`)
+    if (inlined) say(`  index.html is ${inlined} itself now, not a redirect to it`)
     fs.writeFileSync(path.join(staging, "README.txt"), handoffReadme(siteTitle(site)))
   }
 
   const replaced = swap(staging, out, prev)
+  const summary = {
+    ok: true,
+    mode: values.offline ? "handoff" : "release",
+    wiki,
+    site,
+    out,
+    prev: replaced ? prev : null,
+    ...measured,
+  }
 
-  console.log(`\n${values.offline ? "built the handoff copy" : "published"} ${show(out)}`)
+  say(`\n${values.offline ? "built the handoff copy" : "published"} ${show(out)}`)
   if (replaced) {
     const what = values.offline ? "copy" : "release"
-    console.log(`  previous ${what} kept at ${show(prev)}; roll back with:  mv ${show(prev)} ${show(out)}`)
+    say(`  previous ${what} kept at ${show(prev)}; roll back with:  mv ${show(prev)} ${show(out)}`)
   }
   if (values.offline) {
-    console.log(
+    say(
       "\nThe reader extracts the folder and opens index.html; README.txt inside says so.\n" +
         "Search, the graph, the explorer tree and hover previews are absent: they need\n" +
         "JavaScript, which does not run from file://.",
     )
+    report(summary)
     return 0
   }
 
   checkBaseUrl(site)
-  console.log(
+  say(
     "\nServe it with any static host that tries $uri.html before 404:\n" +
       "    try_files $uri $uri.html $uri/index.html =404;\n" +
       "A full nginx server block:  awt site publish --nginx\n" +
@@ -763,5 +785,6 @@ export async function publish(argv = process.argv.slice(2)) {
       "    awt check                the links on disk\n" +
       "    the awt-links shadow     the rendered pages, during the build above",
   )
+  report(summary)
   return 0
 }

@@ -104,7 +104,7 @@ export function serve(argv = process.argv.slice(2)) {
       site: { type: "string" },
       out: { type: "string" },
       port: { type: "string" },
-      wsPort: { type: "string" },
+      "ws-port": { type: "string" },
       // What the project's own config said, passed in by `cli` rather than read
       // here: `publish` may not reach `format`, which owns config discovery.
       configPort: { type: "string" },
@@ -135,7 +135,7 @@ export function serve(argv = process.argv.slice(2)) {
   // one-off second server, not for the everyday case.
   const named = (flag, key) => (values[flag] ? `--${flag}` : `serve.${key} in awt.config.mjs`)
   const httpPort = port(values.port ?? values.configPort, named("port", "port"), DEFAULT_PORT)
-  const socketPort = port(values.wsPort ?? values.configWsPort, named("wsPort", "wsPort"), wsPortFor(httpPort))
+  const socketPort = port(values["ws-port"] ?? values.configWsPort, named("ws-port", "wsPort"), wsPortFor(httpPort))
 
   const args = [
     "quartz/bootstrap-cli.mjs",
@@ -157,7 +157,7 @@ export function serve(argv = process.argv.slice(2)) {
     die(
       `${what} ${used} is already in use, by pid ${holder.pid}:\n` +
         `    ${holder.how}\n` +
-        "Stop it, or pass --port / --wsPort for this run.",
+        "Stop it, or pass --port / --ws-port for this run.",
     )
   }
 

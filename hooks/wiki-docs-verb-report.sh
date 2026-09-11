@@ -18,7 +18,7 @@
 # of notes or the paths they sit at, and the index table stops matching the wiki
 # the moment one lands. A regenerated index is appended to the session's touch
 # record, so the Stop hook formats it like anything else the session wrote rather
-# than leaving `awt fmt --check` dirty.
+# than leaving `awt fmt --dry-run` dirty.
 #
 # A dry run is a preview the agent asked for: the lists still arrive, nothing is
 # written, and the index is left alone.

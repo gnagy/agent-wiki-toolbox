@@ -58,10 +58,10 @@ fi
 
 # 2. A shell command may have left an unformatted note behind. Name it; do not
 #    reach into notes this session never opened.
-if [[ -f "$state.opaque" ]] && ! "$awt" fmt --check >/dev/null 2>&1; then
+if [[ -f "$state.opaque" ]] && ! "$awt" fmt --dry-run >/dev/null 2>&1; then
   add "A shell command in this session wrote into the wiki, and notes are unformatted:"
   add ""
-  add "$("$awt" fmt --check 2>&1 | strip_ansi | head -20)"
+  add "$("$awt" fmt --dry-run 2>&1 | strip_ansi | head -20)"
   add ""
   add "Run \`awt fmt <path>\` on what you wrote. Not the whole wiki, unless you meant to."
   add ""

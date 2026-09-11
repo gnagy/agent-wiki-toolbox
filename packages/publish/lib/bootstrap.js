@@ -30,6 +30,7 @@ import { spawnSync } from "node:child_process"
 import { parseArgs } from "node:util"
 import { fileURLToPath } from "node:url"
 
+import { narrateTo, say } from "./narrate.js"
 import { requireProjectRoot } from "./project-root.js"
 
 /** The toolbox root: packages/publish/lib -> packages/publish -> packages -> root. */
@@ -149,17 +150,18 @@ function writeGitignore(site) {
   // the index, and finds out by committing them. Say what is missing instead.
   if (fs.existsSync(file)) {
     const missing = gitignoreGaps(file)
-    if (missing.length === 0) return
-    console.log(
+    if (missing.length === 0) return "complete"
+    say(
       `\n${shown} exists and was left alone. It does not ignore\n` +
         `${missing.length} thing${missing.length === 1 ? "" : "s"} this bootstrap creates. Append:\n\n` +
         missing.map((line) => `    ${line}`).join("\n"),
     )
-    return
+    return "incomplete"
   }
 
   fs.writeFileSync(file, GITIGNORE)
-  console.log(`wrote ${shown}; commit it`)
+  say(`wrote ${shown}; commit it`)
+  return "written"
 }
 
 function relink(linkPath, target) {
@@ -177,8 +179,12 @@ export function bootstrap(argv = process.argv.slice(2)) {
       // same as "look for ./site". parseArgs cannot tell a default from a value.
       site: { type: "string" },
       force: { type: "boolean", default: false },
+      json: { type: "boolean", default: false },
     },
   })
+  // Setting up clones Quartz and runs npm install, so it narrates for minutes.
+  // Under --json that goes to stderr and stdout carries the one document.
+  if (values.json) narrateTo(process.stderr)
 
   const site = values.site
     ? path.resolve(values.site)
@@ -190,26 +196,28 @@ export function bootstrap(argv = process.argv.slice(2)) {
   const pin = readPin(site)
   const src = path.join(site, ".quartz-src")
 
-  writeGitignore(site)
+  const gitignore = writeGitignore(site)
 
   if (values.force && fs.existsSync(src)) {
-    console.log(`removing ${src}`)
+    say(`removing ${src}`)
     fs.rmSync(src, { recursive: true, force: true })
   }
 
-  if (!fs.existsSync(src)) {
-    console.log(`cloning Quartz ${BRANCH} into ${path.relative(process.cwd(), src)} ...`)
+  const cloned = !fs.existsSync(src)
+  if (cloned) {
+    say(`cloning Quartz ${BRANCH} into ${path.relative(process.cwd(), src)} ...`)
     must("git", ["clone", "--quiet", "--branch", BRANCH, REPO_URL, src], "clone")
   } else {
     must("git", ["-C", src, "fetch", "--quiet", "origin", BRANCH], "fetch")
   }
 
   const current = must("git", ["-C", src, "rev-parse", "HEAD"], "rev-parse")
-  if (!current.startsWith(pin) && current !== pin) {
-    console.log(`checking out ${pin.slice(0, 12)} ...`)
+  const moved = !current.startsWith(pin) && current !== pin
+  if (moved) {
+    say(`checking out ${pin.slice(0, 12)} ...`)
     must("git", ["-C", src, "checkout", "--quiet", pin], `checkout ${pin}`)
   } else {
-    console.log(`already at ${pin.slice(0, 12)}`)
+    say(`already at ${pin.slice(0, 12)}`)
   }
 
   // Quartz reads quartz.config.yaml AND ./package.json from its own working
@@ -223,7 +231,7 @@ export function bootstrap(argv = process.argv.slice(2)) {
   // this machine. Gitignored, recreated on every bootstrap.
   for (const [linkName, pluginDir] of PLUGINS) {
     relink(path.join(site, linkName), path.join(HERE, "quartz-plugins", pluginDir))
-    console.log(`${linkName} -> ${path.join(HERE, "quartz-plugins", pluginDir)}`)
+    say(`${linkName} -> ${path.join(HERE, "quartz-plugins", pluginDir)}`)
   }
 
   // Quartz NEVER re-resolves an installed plugin: if .quartz/plugins/<name>
@@ -232,15 +240,35 @@ export function bootstrap(argv = process.argv.slice(2)) {
   // until this directory goes. Clearing it here makes re-running bootstrap the
   // one ritual that means "take the current tooling".
   const cache = path.join(src, ".quartz", "plugins")
-  if (fs.existsSync(cache)) {
+  const cacheCleared = fs.existsSync(cache)
+  if (cacheCleared) {
     fs.rmSync(cache, { recursive: true, force: true })
-    console.log("cleared the plugin cache")
+    say("cleared the plugin cache")
   }
 
-  console.log("installing dependencies (this takes a few minutes on a cold cache) ...")
+  say("installing dependencies (this takes a few minutes on a cold cache) ...")
   const i = run("npm", ["install", "--no-audit", "--no-fund"], { cwd: src, stdio: "ignore" })
   if (i.status !== 0) die("npm install failed")
 
-  console.log("\nready. Next:\n    awt site serve       dev server\n    awt site publish     release build into site/release")
+  say("\nready. Next:\n    awt site serve       dev server\n    awt site publish     release build into site/release")
+  if (values.json) {
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          ok: true,
+          site,
+          src,
+          pin,
+          cloned,
+          checkedOut: moved,
+          plugins: PLUGINS.map(([linkName]) => linkName),
+          cacheCleared,
+          gitignore,
+        },
+        null,
+        1,
+      )}\n`,
+    )
+  }
   return 0
 }
