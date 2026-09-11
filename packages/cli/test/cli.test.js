@@ -529,6 +529,16 @@ test('a schema violation is reported beside the write, and --validate is what fa
   const ahead = awt(['frontmatter', '-w', notes, 'meta/not-written-yet.md', '--schema'])
   assert.equal(ahead.stdout.trim(), join(box.root, 'schemas', 'note.schema.json'))
 
+  // **Typed from the project root, which is how a path gets typed.** The verbs
+  // take notes-relative paths and re-read what the shell shows instead; that
+  // re-reading used to need the note to be in the index, so a note that did not
+  // exist yet kept the repo-root form, matched no glob, and came back unclaimed —
+  // the one case `--schema` is for.
+  const fromRoot = awt(['frontmatter', 'wiki/notes/meta/not-written-yet.md', '--schema'], {cwd: box.dir})
+  assert.equal(fromRoot.status, 0)
+  // realpath, because the working directory is a temp dir behind a symlink on macOS.
+  assert.equal(fromRoot.stdout.trim(), realpathSync(join(box.root, 'schemas', 'note.schema.json')))
+
   // A path outside the globs is unclaimed, and --validate says so rather than
   // calling it valid.
   writeFileSync(join(notes, 'elsewhere.md'), '---\ntitle: Elsewhere\ntype: bogus\n---\n\n# Elsewhere\n')

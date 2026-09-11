@@ -5,7 +5,8 @@
  * The report is one shape for every verb, so a caller can ask what did not
  * happen without knowing which verb it called.
  */
-import {isAbsolute, relative, resolve} from 'node:path'
+import {existsSync} from 'node:fs'
+import {dirname, isAbsolute, relative, resolve} from 'node:path'
 import process from 'node:process'
 
 import {loadWorkspace} from '@agent-wiki-toolbox/core'
@@ -58,12 +59,33 @@ export function fromWorkingDirectory(notesDir, path) {
  * Returns the path unchanged when the index already holds it, which is the
  * ordinary case, and the re-read form when that is what the caller meant. A verb
  * compares the two to say it re-read the path.
+ *
+ * **The index settles it whenever it can, and it cannot when no note is there.**
+ * Every verb but one refuses a path with no note behind it, so which reading the
+ * refusal names was only ever a matter of the message. `frontmatter`'s `schema`
+ * asks about a path rather than about a note — it is the question an agent asks
+ * *before* it writes — and there the reading is the whole answer: the globs are
+ * matched against it, and a path read the wrong way matches nothing and comes
+ * back as "no schema claims this", which is indistinguishable from the truth.
+ *
+ * So when neither reading is indexed, the directory decides. A path typed from
+ * the repo root — `wiki/notes/projects/a/analysis/new.md` — read as
+ * notes-relative would sit under a `wiki/notes/` inside the notes directory,
+ * which is not there; read from the working directory it lands in a folder that
+ * is. Where both exist or neither does, nothing has been learned and the typed
+ * path stands.
  */
 export function resolveNotePath(notesDir, index, path) {
   if (index.get(path)) return path
   const asTyped = fromWorkingDirectory(notesDir, path)
-  if (asTyped && asTyped !== path && (index.get(asTyped) || !namesANote(notesDir, path))) return asTyped
-  return path
+  if (!asTyped || asTyped === path) return path
+  if (index.get(asTyped) || !namesANote(notesDir, path)) return asTyped
+  return holdsThePath(notesDir, asTyped) && !holdsThePath(notesDir, path) ? asTyped : path
+}
+
+/** Is there a directory under the notes to hold a note at this notes-relative path? */
+function holdsThePath(notesDir, path) {
+  return existsSync(dirname(resolve(notesDir, path)))
 }
 
 /**
