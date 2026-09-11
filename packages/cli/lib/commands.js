@@ -3,17 +3,23 @@
  * `splitByHeading` in the library, `split_by_heading` on the MCP surface and
  * `split` here.
  *
- * A command is data: a name, one line of summary, a usage string, an option map for
- * `parseArgs`, and a `run`. `awt --help` is generated from that list, so every
- * command is listed. Two optional fields shape the surface rather than the call:
- * `group` puts a command under a `GROUPS` entry and it is then invoked as
- * `awt <group> <name>`, and `section` is the heading it is listed under.
+ * A command is data: a name, one line of summary, a usage string, how many
+ * arguments it takes, an option map for `parseArgs`, and a `run`. `awt --help` is
+ * generated from that list, so every command is listed. Two optional fields shape
+ * the surface rather than the call: `group` puts a command under a `GROUPS` entry
+ * and it is then invoked as `awt <group> <name>`, and `section` is the heading it
+ * is listed under.
+ *
+ * `positionals` is a count, or `'any'` for the three that are open-ended. It is
+ * declared rather than inferred because an unexpected argument was silently
+ * dropped by four commands — `awt check ../other-wiki` checked this one and said
+ * nothing — and a count a command states is also a count a test can read.
  *
  * The CLI is not a mirror of the packages. `move` here is `moveNote` or
  * `renameNote` depending on its destination, `site index` is a `core` function
  * grouped by what consumes it, and the MCP surface stays flat with its own names.
  */
-import {existsSync, readFileSync} from 'node:fs'
+import {existsSync, readFileSync, statSync} from 'node:fs'
 import {resolve as resolvePath} from 'node:path'
 import process from 'node:process'
 
@@ -44,13 +50,62 @@ import {
  *
  * The third step lets `awt check` run from a repo root and mean the wiki: the
  * nearest `awt.config.mjs` names the home and the notes are a fixed name inside it.
- * A bare directory with no project around it means itself.
+ *
+ * The fourth is the one that can be confidently wrong, and it announces itself.
  */
 async function notesDirFor(values) {
   const explicit = values.workspace ?? process.env.AWT_WORKSPACE
-  if (explicit) return resolvePath(explicit)
+  if (explicit) return namedWorkspace(explicit, values.workspace ? '-w' : '$AWT_WORKSPACE')
   const layout = await resolveLayout()
-  return layout?.notesDir ?? process.cwd()
+  if (layout) return layout.notesDir
+  announceFallback()
+  return process.cwd()
+}
+
+/**
+ * A workspace someone named, or a refusal in the tool's own words.
+ *
+ * Unchecked, a `-w` naming a file or a directory that is not there travelled as
+ * far as `readdir` and came back as node's `ENOTDIR: not a directory, scandir
+ * '...'` through the generic catch in `awt.mjs` — the caller's mistake described
+ * from inside the call it broke, with nothing in it naming the flag that caused
+ * it. `parseErrorMessage` is the precedent and the reason: `-w` is on every
+ * command that works on a wiki, so getting it wrong is a real question about the
+ * tool rather than a typo, and it is worth answering as one.
+ */
+function namedWorkspace(path, source) {
+  const dir = resolvePath(path)
+  const refuse = (problem, sentence) => {
+    const error = new Error(`${source} names ${dir}, which ${problem}. ${sentence}`)
+    error.exitCode = 2
+    throw error
+  }
+  if (!existsSync(dir)) refuse('is not there', 'It names the notes directory to work on.')
+  if (!statSync(dir).isDirectory()) refuse('is a file', 'It names the notes directory, not a note inside it.')
+  return dir
+}
+
+/**
+ * Say that the notes are the current directory because nothing else said so.
+ *
+ * This is the finding the argument-surface audit came from. `awt check` run from
+ * `/tmp`, with no project anywhere above it, reported *197 notes, 835 links, 62
+ * problems* — every one of them a fixture left in half a dozen sessions'
+ * scratchpads, and the report indistinguishable in shape from a real one. An
+ * agent that runs a command from the wrong place gets no signal that it did.
+ *
+ * Once per process, on stderr, so `--json` on stdout stays a clean document, and
+ * suppressible the way `warnLegacy` is.
+ */
+let announcedFallback = false
+function announceFallback() {
+  if (announcedFallback || process.env.AWT_QUIET_WORKSPACE) return
+  announcedFallback = true
+  process.stderr.write(
+    `awt: no awt.config.mjs here or in any parent, so ${process.cwd()} is being read as a notes directory.\n` +
+      '  Whatever markdown is under it is the wiki, and the answer will look exactly like a real one.\n' +
+      '  Pass -w <notes>, or run this from inside the project. AWT_QUIET_WORKSPACE=1 silences this.\n',
+  )
 }
 
 /** The whole layout, for the commands that need the site as well as the notes. */
@@ -219,6 +274,7 @@ export const COMMANDS = [
       'awt fmt [paths...] [--verbose]\n' +
       '       awt fmt --check [paths...]\n' +
       '       awt fmt --stdin',
+    positionals: 'any',
     notes: [
       'With -w, paths are relative to the notes directory. Without it, a path is tried against the',
       'current directory first and the notes directory second; --json reports which as `base`.',
@@ -328,6 +384,7 @@ export const COMMANDS = [
     section: 'Ask',
     summary: 'Everything wrong with the link graph, in one call. Placeholders are reported separately and do not affect the exit code',
     usage: 'awt check [--quiet]',
+    positionals: 0,
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, quiet: {type: 'boolean', short: 'q', default: false}},
     /**
      * **The verdict goes first.** It used to be the last line, under a first line
@@ -362,8 +419,9 @@ export const COMMANDS = [
     section: 'Ask',
     summary: 'Search note bodies, titles, front matter and tags in one pass',
     usage:
-      'awt search <query> [--tag t] [--type t] [--area a] [--topic t]\n' +
+      'awt search <query...> [--tag t] [--type t] [--area a] [--topic t]\n' +
       '             [--fields text,title,tags,properties] [--limit n]',
+    positionals: 'any',
     options: {
       ...WORKSPACE_OPTION,
       ...OUTPUT_OPTIONS,
@@ -409,6 +467,7 @@ export const COMMANDS = [
     section: 'Ask',
     summary: 'Links out of and into a note, optionally several hops out',
     usage: 'awt connections <path> [--depth n] [--direction in|out|both]',
+    positionals: 1,
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, depth: {type: 'string'}, direction: {type: 'string'}},
     async run({values, positionals}) {
       const result = connections(loadWorkspace(await notesDirFor(values)), {
@@ -437,6 +496,7 @@ export const COMMANDS = [
     section: 'Ask',
     summary: 'What a link points at, and what else matched when it is ambiguous',
     usage: 'awt resolve <target> [--from note.md]',
+    positionals: 1,
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, from: {type: 'string'}},
     async run({values, positionals}) {
       const outcome = resolveLink(loadWorkspace(await notesDirFor(values)), {
@@ -461,6 +521,7 @@ export const COMMANDS = [
     section: 'Change',
     summary: 'Move or rename a note, rewriting every link into it',
     usage: 'awt move <from> <to>',
+    positionals: 2,
     notes: [
       'A destination with no folder in it stays in the source\'s own, so <to> is either a new name',
       'or a new path. There was a separate `rename` for the first of those; move.js calls the two',
@@ -483,6 +544,7 @@ export const COMMANDS = [
     section: 'Change',
     summary: 'Delete a note. Links into it are reported, not rewritten',
     usage: 'awt delete <path>',
+    positionals: 1,
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, 'dry-run': {type: 'boolean', default: false}},
     async run({values, positionals}) {
       return runVerb(values, async () =>
@@ -497,6 +559,7 @@ export const COMMANDS = [
     usage:
       'awt split <path> --source delete|stub|keep \\\n' +
       '         --section "Heading=target/path.md" [--section ...]',
+    positionals: 1,
     options: {
       ...WORKSPACE_OPTION,
       ...OUTPUT_OPTIONS,
@@ -524,6 +587,7 @@ export const COMMANDS = [
     section: 'Change',
     summary: 'Merge notes into one, each as a section under its own title, repointing every link into them',
     usage: 'awt merge <source...> --into <path> --source delete|keep [--depth n]',
+    positionals: 'any',
     options: {
       ...WORKSPACE_OPTION,
       ...OUTPUT_OPTIONS,
@@ -549,6 +613,7 @@ export const COMMANDS = [
     section: 'Change',
     summary: 'Rename a front-matter tag everywhere it appears',
     usage: 'awt rename-tag <from> <to>',
+    positionals: 2,
     options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, 'dry-run': {type: 'boolean', default: false}},
     async run({values, positionals}) {
       return runVerb(values, async () =>
@@ -561,6 +626,7 @@ export const COMMANDS = [
     section: 'Change',
     summary: 'Regenerate the notes listing between its markers in the wiki index. Text outside the markers is not touched',
     usage: 'awt listing [--path index.md] [--columns note,about]',
+    positionals: 0,
     notes: ['--columns defaults to note,about; topic and area are the other columns.'],
     options: {
       ...WORKSPACE_OPTION,
@@ -586,12 +652,13 @@ export const COMMANDS = [
     declines: ['wiki'],
     summary: 'Set up (or re-pin) the Quartz clone a site builds from, and link the toolbox plugins into it',
     usage: 'awt site setup [--site path] [--force]',
+    positionals: 0,
     notes: [
       "Runs from anywhere inside the project: the site is <rootDir>/site, with rootDir from the project's",
       'awt.config.mjs (default wiki/). --site names another one, resolved against the cwd.',
     ],
     options: {force: {type: 'boolean', default: false}},
-    async run({values, positionals}) {
+    async run({values}) {
       const {bootstrap} = await import('@agent-wiki-toolbox/publish')
       const layout = values.site ? null : await resolveLayout()
       const site = values.site ?? layout?.siteDir
@@ -602,12 +669,7 @@ export const COMMANDS = [
         )
         return 2
       }
-      return bootstrap([
-        '--site',
-        site,
-        ...(values.force ? ['--force'] : []),
-        ...positionals,
-      ])
+      return bootstrap(['--site', site, ...(values.force ? ['--force'] : [])])
     },
   },
   {
@@ -618,6 +680,7 @@ export const COMMANDS = [
     usage:
       'awt site publish [--out path] [--offline] [--diagrams png|none]\n' +
       '                 [--nginx] [--skip-index]',
+    positionals: 0,
     notes: [
       'Builds without --serve, so cross-wiki links resolve to published URLs, into a staging',
       'directory, then renames it into place. A failed build leaves the standing release untouched.',
@@ -668,6 +731,7 @@ export const COMMANDS = [
     section: 'Publish',
     summary: "Emit the index and run Quartz's dev server over the wiki. Ports come from awt.config.mjs",
     usage: 'awt site serve [--out path] [--port N] [--wsPort N] [--skip-index]',
+    positionals: 0,
     notes: [
       "Emits the link-graph index, then runs Quartz's dev server over the wiki. The awt-links",
       'plugin compares the rendered pages against that index.',
@@ -721,6 +785,7 @@ export const COMMANDS = [
     section: 'Publish',
     summary: 'Write the link-graph index the Quartz plugins read, into the site or to --out',
     usage: 'awt site index [--out path.json]',
+    positionals: 0,
     notes: [
       'With no --out it writes <site>/.awt-index.json, which is where the build looks and what',
       'publish and serve emit before they run. It is grouped here because that file is read by the',
@@ -748,6 +813,7 @@ export const COMMANDS = [
     section: 'Agents',
     summary: 'Run the MCP server over stdio, for an agent to talk to',
     usage: 'awt mcp [--allow-writes] [--name n]',
+    positionals: 0,
     notes: [
       "With no -w the notes are the project's rootDir/notes, rootDir defaulting to wiki/, so an",
       '.mcp.json entry is `awt mcp --allow-writes` with no path. Without --allow-writes the server',
@@ -757,9 +823,13 @@ export const COMMANDS = [
     async run({values}) {
       const {createServer, projectTarget} = await import('@agent-wiki-toolbox/mcp')
       const {StdioServerTransport} = await import('@modelcontextprotocol/sdk/server/stdio.js')
-      const explicit = values.workspace ?? process.env.AWT_WORKSPACE
+      // The same refusal every other command gets: a server started over a path
+      // that is not a directory would otherwise fail on its first tool call,
+      // where the agent reads it as the wiki being broken.
+      const named = values.workspace ?? process.env.AWT_WORKSPACE
+      const explicit = named ? namedWorkspace(named, values.workspace ? '-w' : '$AWT_WORKSPACE') : null
       const server = createServer({
-        ...(explicit ? {notesDir: resolvePath(explicit)} : {resolveTarget: () => projectTarget()}),
+        ...(explicit ? {notesDir: explicit} : {resolveTarget: () => projectTarget()}),
         allowWrites: values['allow-writes'],
         name: values.name,
       })

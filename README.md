@@ -110,8 +110,11 @@ export default {
 
 A bare `awt fmt` inside a project means the notes too, unless the config's `files` says otherwise.
 `-w` and `$AWT_WORKSPACE` still name the notes outright, which is what a scratch directory with no
-project around it needs. A project still laid out as `docs/wiki` beside `site/` keeps working, with
-one line on stderr saying how to move, and `/awt:move-layout` carries the steps.
+project around it needs. With no project above it and nothing named, a command reads the directory
+it was started in as the wiki — a real case, and one that says so on stderr, because the answer it
+gives is otherwise indistinguishable from a real one. `AWT_QUIET_WORKSPACE=1` silences that. A
+project still laid out as `docs/wiki` beside `site/` keeps working, with one line on stderr saying
+how to move, and `/awt:move-layout` carries the steps.
 
 **bun installs it and bun runs it**, pinned with node in `mise.toml`: `bun install`, then
 `bun run test` and `bun run layering`. Both binaries carry a `bun` shebang.

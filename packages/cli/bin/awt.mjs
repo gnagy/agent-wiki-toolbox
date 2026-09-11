@@ -222,10 +222,24 @@ try {
   process.exit(2)
 }
 
+// An argument a command has no use for used to be dropped without a word.
+// `awt check ../other-wiki` checked *this* wiki and reported it as that one's
+// health; `awt listing index.md` ignored the path and wrote wherever --path
+// said. Every command states its count, so the refusal is one rule rather than
+// four patches, and it names what it was given -- the argument is usually a
+// path meant for an option, and seeing it quoted back is what says so.
+const takes = command.positionals
+if (takes !== 'any' && parsed.positionals.length > takes) {
+  const extra = parsed.positionals.slice(takes).map((one) => `"${one}"`).join(', ')
+  const wanted = takes === 0 ? 'takes no arguments' : `takes ${takes === 1 ? 'one argument' : `${takes} arguments`}`
+  process.stderr.write(`awt ${path}: ${wanted}, and does not know what to do with ${extra}.\n\n${usage(command)}`)
+  process.exit(2)
+}
+
 try {
   const code = await command.run(parsed)
   if (code !== null) process.exitCode = code ?? 0
 } catch (error) {
   process.stderr.write(`awt ${path}: ${error.message}\n`)
-  process.exitCode = 1
+  process.exitCode = error.exitCode ?? 1
 }

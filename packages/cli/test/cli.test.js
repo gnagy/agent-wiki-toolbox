@@ -525,3 +525,100 @@ test('fmt resolves a path against the cwd, then against the notes, and says whic
   const explicit = awt(['fmt', '--check', '--json', '-w', join(dir, 'wiki/notes'), 'meta/conventions.md'])
   assert.equal(JSON.parse(explicit.stdout).base, 'workspace')
 })
+
+/**
+ * Phase 1 of the invocation campaign: the three faults that produce confidently
+ * wrong answers rather than inconvenient ones.
+ */
+
+/**
+ * The table test half. A count that is declared is a count a test can read, and
+ * the only thing left to check by hand is that an open-ended command says so
+ * where a reader looks — `<query...>`, not `<query>`, which is what made it look
+ * like `awt search two words` was a mistake rather than the deliberate join.
+ */
+test('every command declares how many arguments it takes, and an open-ended one says so', () => {
+  const openEnded = /<[^>]*\.\.\.>|\[[a-z]+\.\.\.\]/
+  for (const command of COMMANDS) {
+    const path = commandPath(command).join(' ')
+    const takes = command.positionals
+    assert.ok(takes === 'any' || Number.isInteger(takes), `${path}: positionals is ${takes}`)
+    assert.equal(openEnded.test(command.usage), takes === 'any', `${path}: usage vs positionals`)
+  }
+})
+
+/**
+ * The behaviour half, which the table cannot carry: four commands dropped an
+ * argument they had no use for and answered as if it had not been there.
+ * `awt check ../other-wiki` checked *this* wiki and reported its health under the
+ * other one's name, which is the failure mode this campaign is about — a plausible
+ * answer to a question nobody asked.
+ */
+test('a command refuses an argument it has no use for, and quotes it back', () => {
+  for (const command of COMMANDS.filter((one) => one.positionals === 0)) {
+    const path = commandPath(command)
+    const {status, stderr} = awt([...path, 'stray-argument'])
+    assert.equal(status, 2, `awt ${path.join(' ')} stray-argument`)
+    assert.match(stderr, /takes no arguments/)
+    assert.match(stderr, /"stray-argument"/)
+  }
+  // One over its count, not just any count: resolve takes a target and nothing else.
+  const two = awt(['resolve', 'a', 'b'])
+  assert.equal(two.status, 2)
+  assert.match(two.stderr, /takes one argument, and does not know what to do with "b"/)
+})
+
+/**
+ * The finding the whole audit came from. `awt check` from a directory with no
+ * project above it walks that directory — documented behaviour, and a real case
+ * for a bare pile of notes — but the report is indistinguishable in shape from a
+ * real one. From /tmp it once reported 62 problems, all of them fixtures in other
+ * sessions' scratchpads, with nothing marking any of it as suspect.
+ */
+test('the workspace fallback says it is the fallback, on stderr, once, suppressibly', (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'awt-fallback-')))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  writeFileSync(join(dir, 'note.md'), '# Note\n\nNothing wrong here.\n')
+
+  const {status, stdout, stderr} = awt(['check', '--json'], {cwd: dir})
+  assert.equal(status, 0, stderr)
+  assert.match(stderr, /is being read as a notes directory/)
+  assert.match(stderr, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  // stdout stays a document: the warning must not reach a --json caller's parse.
+  assert.equal(JSON.parse(stdout).notes, 1)
+
+  const quiet = awt(['check', '--json'], {cwd: dir, env: {...process.env, AWT_QUIET_WORKSPACE: '1'}})
+  assert.equal(quiet.stderr, '')
+
+  // Named outright, there is nothing to warn about.
+  const named = awt(['check', '--json', '-w', dir])
+  assert.equal(named.stderr, '')
+})
+
+/**
+ * A -w naming a file, or a directory that is not there, used to travel as far as
+ * `readdir` and come back as node's `ENOTDIR: not a directory, scandir '...'` —
+ * the caller's mistake described from inside the call it broke. -w is on every
+ * command that works on a wiki, so it is worth answering in the tool's words.
+ */
+test('-w names a directory, and says so rather than handing back node ENOTDIR', (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'awt-badw-')))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+  const file = join(dir, 'note.md')
+  writeFileSync(file, '# Note\n')
+
+  const missing = awt(['check', '-w', join(dir, 'nowhere')])
+  assert.equal(missing.status, 2, missing.stderr)
+  assert.match(missing.stderr, /-w names .*nowhere, which is not there/)
+  assert.doesNotMatch(missing.stderr, /ENOENT|ENOTDIR|scandir/)
+
+  const aFile = awt(['check', '-w', file])
+  assert.equal(aFile.status, 2, aFile.stderr)
+  assert.match(aFile.stderr, /which is a file\. It names the notes directory, not a note inside it\./)
+  assert.doesNotMatch(aFile.stderr, /ENOENT|ENOTDIR|scandir/)
+
+  // $AWT_WORKSPACE is the other way in, and naming the right one is the point.
+  const viaEnv = awt(['check'], {env: {...process.env, AWT_WORKSPACE: file}})
+  assert.equal(viaEnv.status, 2, viaEnv.stderr)
+  assert.match(viaEnv.stderr, /\$AWT_WORKSPACE names/)
+})
