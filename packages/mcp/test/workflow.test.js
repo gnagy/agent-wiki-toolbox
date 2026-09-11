@@ -188,6 +188,12 @@ test('frontmatter reads on a read-only server and refuses to write there', async
   const read = json(await client.callTool({name: 'frontmatter', arguments: {path: 'design/shape.md'}}))
   assert.equal(read.frontmatter.title, 'Shape')
 
+  // `validate` writes nothing either, so a read-only mount answers it.
+  const valid = json(
+    await client.callTool({name: 'frontmatter', arguments: {path: 'design/shape.md', operation: 'validate'}}),
+  )
+  assert.deepEqual(valid.violations, [])
+
   const refused = json(
     await client.callTool({
       name: 'frontmatter',

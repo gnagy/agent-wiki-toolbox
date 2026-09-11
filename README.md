@@ -74,6 +74,7 @@ awt move a.md design/a.md        # …rewriting every link into it
 awt move a.md b.md               # no folder in the destination means rename
 awt frontmatter a.md             # the whole block, as the note holds it
 awt frontmatter a.md --set status=stable    # …one key, checked against the schema
+awt frontmatter a.md --validate  # does this note satisfy its schema? (writes nothing)
 awt mcp --allow-writes           # the MCP server, over stdio
 
 awt site setup                   # clone or re-pin the renderer a site builds from
@@ -92,9 +93,12 @@ carrying the renderer's.
 **Front matter is its own command, and the markdown body is not reachable from it.** They are two
 documents that happen to share a file: different parsers, different addresses — a key against a node
 path — and unrelated hazards. `awt frontmatter` reads the block or one key, sets, renames, drops or
-appends to one, and **refuses a write the schema for that path rejects**, which is the same check
-`awt fmt --dry-run` reports after the fact. Replacing the whole block reserialises it and loses an
-author's comments and quoting, so it needs `--derived` and takes its object from stdin.
+appends to one, and checks every write against the schema for that path — the same check
+`awt fmt --dry-run` runs, asked before the bytes land. **It reports and does not refuse**: a single
+write is not the unit a schema applies to, and a migration passes through states no schema accepts
+on its way to one it does. `--validate` asks the question on its own, and the Stop hook asks it of
+everything a session wrote. Replacing the whole block reserialises it and loses an author's comments
+and quoting, so it needs `--derived` and takes its object from stdin.
 
 **Every command finds the project from anywhere inside it**, by walking up to `awt.config.mjs` at
 the project root. That file names the wiki's home once, and every other directory is a fixed name

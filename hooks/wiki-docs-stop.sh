@@ -12,6 +12,15 @@
 # list; placeholders, orphans and dead ends do not -- the distinction check
 # already draws, and the one a session must not be held hostage to.
 #
+# The schema half asks the same file list one more question. It used to run only
+# in the opaque-write branch, so an ordinary session that edited front matter had
+# nothing checking its schemas before it ended -- and `awt frontmatter` reports a
+# violation rather than refusing the write precisely because a single write is not
+# the unit a schema applies to. This is where that lands instead, and it covers
+# every route in: a verb, an Edit, a Write. One `fmt --dry-run` over the list
+# rather than one call per file, and it is the same plugin either way, so the two
+# cannot disagree.
+#
 # Fails open by design: anything wrong here lets the session end. Bash 3.2, which
 # is what macOS ships, so no mapfile and no associative arrays.
 set -u
@@ -37,7 +46,12 @@ fi
 
 cd "$root" 2>/dev/null || exit 0
 
-strip_ansi() { sed -e 's/\[[0-9;]*m//g'; }
+# The escape byte as well as the bracket sequence after it. Stripping only the
+# second leaves a bare ESC at both ends of every filename the formatter prints,
+# so a line that reads as `meta/a.md` does not end in `.md` and nothing matching
+# on it works. The old pattern is kept beside it rather than replaced, since it
+# is what every existing report was read through.
+strip_ansi() { sed -e $'s/\033\[[0-9;]*m//g' -e 's/\[[0-9;]*m//g'; }
 
 report=""
 add() { report="$report$1"$'\n'; }
@@ -45,8 +59,11 @@ add() { report="$report$1"$'\n'; }
 # 1. Format exactly what the session wrote, and nothing else. Idempotent, so the
 #    second stop after a block re-runs it for nothing rather than for harm.
 formatted=0
+# Declared out here because step 3 asks the same list its own question, and an
+# array that only exists inside the branch is an unbound variable under `set -u`
+# on every session that wrote nothing.
+live=()
 if [[ -s "$state.files" ]]; then
-  live=()
   while IFS= read -r f; do
     [[ -n "$f" && -f "$f" ]] && live+=("$f")
   done < <(sort -u "$state.files" 2>/dev/null)
@@ -67,7 +84,26 @@ if [[ -f "$state.opaque" ]] && ! "$awt" fmt --dry-run >/dev/null 2>&1; then
   add ""
 fi
 
-# 3. The graph. Problems only; placeholders and orphans are reported by check
+# 3. The schemas, over the files this session wrote. `fmt` in step 1 has already
+#    formatted them, so the only thing left for --dry-run to say about them is
+#    what the front-matter schemas say -- and the filter keeps it to exactly
+#    that, so an unformattable file is not reported here under the wrong heading.
+#    A project that maps no schemas gets no output and no step.
+if (( ${#live[@]} )); then
+  schema=$("$awt" fmt --dry-run "${live[@]}" 2>&1 | strip_ansi |
+           awk '/^[^[:space:]].*\.(md|markdown)$/ {file=$0; next}
+                /frontmatter-schema/ {print "  " file " " $0}')
+  if [[ -n "$schema" ]]; then
+    add "Front matter this session wrote does not satisfy its schema:"
+    add ""
+    add "$schema"
+    add ""
+    add "Fix the fields, or say why the schema is wrong. \`awt frontmatter <path> --validate\` re-asks."
+    add ""
+  fi
+fi
+
+# 4. The graph. Problems only; placeholders and orphans are reported by check
 #    separately and are not failures.
 problems=$("$awt" check --json 2>/dev/null |
            jq -r '(.problems // [])[] | "  \(.path):\(.line) [\(.rule)] \(.message)"' 2>/dev/null)

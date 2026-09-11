@@ -33,7 +33,7 @@ with counts, and is the call that tells servers apart.
 | `connections`    | Links out of and into a note, optionally several hops                                                            |
 | `resolve`        | What a link points at, and what else matched when it is ambiguous                                                |
 | `check`          | Everything wrong with the graph, in one call                                                                     |
-| `frontmatter`    | What a note's front matter holds: the whole block, or one key. Its write half needs `--allow-writes`             |
+| `frontmatter`    | What a note's front matter holds, and whether it satisfies its schema. Its write half needs `--allow-writes`     |
 
 `check` returns `problems`, and separately `placeholders`, `orphans`, `deadends` and
 `unreferenced`. It exits non-zero on problems only. A placeholder is a `[[link]]` to a note that
@@ -69,8 +69,9 @@ that breaks the graph:
 | `fmt`                              | Any other formatter, see the hazard below                     |
 
 Prose edits are made with ordinary file tools; the index is recomputed on the next call. A note
-written that way is formatted when the session ends, and `awt check` runs then too, holding the
-session open with the problem list if the graph broke. Only the paths a file tool wrote are
+written that way is formatted when the session ends; `awt check` runs then too, and so do the
+front-matter schemas over the files the session wrote, holding the session open with the list if the
+graph broke or a note stopped satisfying its schema. Only the paths a file tool wrote are
 formatted. A note a shell command wrote is named in that report and left alone, because nothing
 knows which files a shell command touched — run `awt fmt <path>` on it yourself.
 
@@ -100,18 +101,28 @@ Three axes: the operation, the scope it acts at, and the key.
 | `replace`          | `block`   | Replace the block wholesale                  | `--replace-block`        |
 | `delete`           | `content` | Drop a key                                   | `--unset KEY`            |
 | `append`/`prepend` | `content` | Add to a sequence-valued key                 | `--append KEY=VALUE`     |
+| `validate`         | `block`   | Whether the note satisfies its schema        | `--validate`             |
 
-- **Every write is checked against the schema for that path and refused if it violates it** — the
-  same schemas `awt fmt --dry-run` reports after the fact, turned into a refusal before the bytes
-  land. Failures are coded: `FRONTMATTER_KEY_NOT_FOUND`, `FRONTMATTER_KEY_COLLISION`,
-  `FRONTMATTER_NOT_A_SEQUENCE`, `FRONTMATTER_SCHEMA_VIOLATION`, `FRONTMATTER_ABSENT`.
+- **Every write is checked against the schema for that path, and the check reports rather than
+  refuses.** The violation comes back in `violations` under the code `FRONTMATTER_SCHEMA_VIOLATION`,
+  and the write lands. A single write is not the unit a schema applies to: renaming a field across a
+  wiki passes through a state where the old key is gone and the new one is not declared, and a
+  refusing verb would refuse the edit that was on its way to making things valid. Ask `validate` when
+  the migration is done; the Stop hook asks it of everything a session wrote.
+- The failures that *are* refusals are about ambiguity, absence or type:
+  `FRONTMATTER_KEY_NOT_FOUND`, `FRONTMATTER_KEY_COLLISION`, `FRONTMATTER_NOT_A_SEQUENCE`,
+  `FRONTMATTER_ABSENT`.
 - **Every scope but `block` keeps the author's YAML**: comments, quoting, and `tags: [a, b]` written
   flat. `block` reserialises from data and loses all three, so it is for front matter the toolbox
   derived rather than a person wrote, and it says so — `derived: true`, or `--derived` with the
   object on stdin. It is also the only scope that creates a block a note does not have.
 - A key with no block to edit is `FRONTMATTER_ABSENT`, not an invented block.
+- **`append`/`prepend` are lenient about absence and strict about type.** A key that is not there is
+  created holding the one item, and the report says it created rather than appended. A key holding a
+  scalar is `FRONTMATTER_NOT_A_SEQUENCE` — a different failure, and collapsing the two would turn a
+  mistyped key name into a field quietly created beside the one that was meant.
 - The CLI takes one operation flag per call and refuses two. `--unset` rather than `--delete`,
-  because `awt delete` deletes a note.
+  because `awt delete` deletes a note. `--validate` exits non-zero on an invalid note.
 
 **The two surfaces are spelled differently, and no longer name quite the same set.** MCP tool names
 are flat and keep their qualifiers — `split_by_heading`, `merge_files`, `build_listing`. The CLI
@@ -148,8 +159,9 @@ tags: [<tag>, <tag>]
 ```
 
 A project that fixes vocabularies can hold them as JSON schemas in `wiki/schemas/`, mapped to
-globs in `awt.config.mjs`. `awt fmt --dry-run` reports what violates them; `frontmatter` refuses to
-write it in the first place.
+globs in `awt.config.mjs`. Three things ask them, and none of them refuses a write:
+`awt fmt --dry-run` over any set of files, `frontmatter --validate` about one note, and the Stop hook
+about everything a session wrote.
 
 ## Open Knowledge Format, optional
 

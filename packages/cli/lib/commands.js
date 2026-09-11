@@ -340,8 +340,14 @@ function scalar(text) {
  * of the one command do not print in two shapes.
  */
 function frontmatterLines(report) {
-  if (!('frontmatter' in report)) return reportLines(report)
-  if (report.frontmatter === null) return reportLines(report)
+  // `--validate` is a question, and its answer is the violations rather than a
+  // list of what changed. A clean note says so in one line, because silence here
+  // reads as "it did not run".
+  if (report.violations && !('frontmatter' in report) && report.changed?.length === 0) {
+    if (report.violations.length === 0) return 'valid'
+    return ['invalid', ...report.violations.map((one) => `  ${one}`)].join('\n')
+  }
+  if (!('frontmatter' in report) || report.frontmatter === null) return reportLines(report)
   const value = report.frontmatter
   const text = typeof value === 'string' ? value : stringifyYaml(value).replace(/\n$/, '')
   return report.notes?.length ? [text, ...report.notes.map((note) => `  note: ${note}`)].join('\n') : text
@@ -778,6 +784,7 @@ export const COMMANDS = [
     summary: "Read or write a note's front matter: the whole block, or one key",
     usage:
       'awt frontmatter <path>\n' +
+      '       awt frontmatter <path> --validate\n' +
       '       awt frontmatter <path> --get KEY | --set KEY=VALUE | --unset KEY\n' +
       '       awt frontmatter <path> --rename OLD=NEW | --append KEY=VALUE | --prepend KEY=VALUE\n' +
       '       awt frontmatter <path> --replace-block --derived < block.yaml',
@@ -785,12 +792,16 @@ export const COMMANDS = [
     notes: [
       'With no operation flag it prints the whole block. Exactly one operation per call.',
       'A value is read as YAML, so --set depth=2 is a number and --set tags=[a, b] is a list.',
-      '--append and --prepend take a sequence-valued key: tags, sources.',
+      '--append and --prepend take a sequence-valued key: tags, sources. A key that is not there is',
+      'created holding the one item; a key holding a scalar is refused, because that is a typo.',
       "--unset drops a key. It is not spelled --delete because `awt delete` deletes a note, and one",
       'word meaning two things a command apart is how a flag gets typed at the wrong thing.',
       '--rename moves a key and leaves its value where it is.',
       '',
-      'Every write is checked against the schema for that path and refused if it violates it.',
+      'Every write is checked against the schema for that path, and a violation is reported beside the',
+      'write rather than refusing it: one write is not the unit a schema applies to, and a migration',
+      'passes through states no schema accepts on its way to one it does. --validate asks the same',
+      'question on its own and exits non-zero when the note does not satisfy its schema.',
       '--replace-block reserialises the whole block, losing comments, quoting and flow sequences, so',
       'it is for front matter the toolbox owns and --derived is how you say so. It reads the object',
       'from stdin rather than argv, which is where markdown and YAML belong.',
@@ -800,6 +811,7 @@ export const COMMANDS = [
     options: {
       ...WORKSPACE_OPTION,
       ...OUTPUT_OPTIONS,
+      validate: {type: 'boolean', default: false},
       get: {type: 'string'},
       set: {type: 'string'},
       unset: {type: 'string'},
@@ -818,7 +830,7 @@ export const COMMANDS = [
     async run({values, positionals}) {
       // Two operations in one call is a typo with two plausible readings, and
       // picking either silently is the failure this whole tool exists to remove.
-      const asked = ['get', 'set', 'unset', 'rename', 'append', 'prepend', 'replace-block'].filter(
+      const asked = ['validate', 'get', 'set', 'unset', 'rename', 'append', 'prepend', 'replace-block'].filter(
         (flag) => values[flag] !== undefined && values[flag] !== false,
       )
       if (asked.length > 1) {
@@ -830,7 +842,8 @@ export const COMMANDS = [
       const call = {path: positionals[0], dryRun: values['dry-run']}
       const [flag] = asked
 
-      if (flag === 'get') Object.assign(call, {operation: 'read', scope: 'content', key: values.get})
+      if (flag === 'validate') Object.assign(call, {operation: 'validate', scope: 'block'})
+      else if (flag === 'get') Object.assign(call, {operation: 'read', scope: 'content', key: values.get})
       else if (flag === 'unset') Object.assign(call, {operation: 'delete', scope: 'content', key: values.unset})
       else if (flag === 'set') Object.assign(call, {operation: 'replace', scope: 'content', ...pair(values.set, 'set')})
       else if (flag === 'append') Object.assign(call, {operation: 'append', scope: 'content', ...pair(values.append, 'append')})

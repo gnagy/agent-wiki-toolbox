@@ -1,12 +1,13 @@
 /**
  * The front-matter verb, against a real project each time — config, schema and
  * notes — because the schema check is half of what it does and a fixture with no
- * schema tests the half that cannot refuse anything.
+ * schema tests the half that has nothing to say.
  *
  * Two properties run through these: **an author's YAML survives an edit**, which
- * is what separates the content scopes from block scope, and **a write that the
- * schema refuses does not land**, which is what makes the check a refusal rather
- * than a report.
+ * is what separates the content scopes from block scope, and **the schema check
+ * reports rather than refuses**, which is what keeps the verb usable in the middle
+ * of a migration, where every intermediate state is invalid on the way to a valid
+ * one.
  */
 import assert from 'node:assert/strict'
 import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
@@ -174,23 +175,50 @@ test('renaming a key onto one that exists is a collision, not a silent loss', as
   assert.match(box.read('meta/a.md'), /title: "A note"/)
 })
 
-test('append and prepend act on a sequence, and refuse anything else', async (t) => {
+test('append and prepend act on a sequence', async (t) => {
   const box = project(NOTES)
   t.after(() => box.cleanup())
 
   await frontmatter(box.notesDir, {path: 'meta/a.md', operation: 'append', key: 'tags', value: 'gamma'})
   await frontmatter(box.notesDir, {path: 'meta/a.md', operation: 'prepend', key: 'tags', value: 'aa'})
   assert.match(box.read('meta/a.md'), /tags: \[aa, alpha, beta, gamma\]/)
+})
 
-  const notASequence = await refusal(() =>
+/**
+ * Lenient about absence, strict about type. The two used to be one refusal, and
+ * collapsing them is what would turn a mistyped key into a field created quietly
+ * beside the one that was meant — so the creation is reported in words.
+ */
+test('appending to a key that is not there creates it, and says it created it', async (t) => {
+  const box = project(NOTES)
+  t.after(() => box.cleanup())
+
+  const report = await frontmatter(box.notesDir, {
+    path: 'loose/b.md',
+    operation: 'append',
+    key: 'tags',
+    value: 'alpha',
+  })
+  assert.deepEqual(report.changed, ['loose/b.md'])
+  assert.match(report.notes.join(' '), /created it holding this one item rather than appending/)
+  assert.match(box.read('loose/b.md'), /tags:\n\s+- alpha/)
+
+  // And the second one appends to what the first created.
+  await frontmatter(box.notesDir, {path: 'loose/b.md', operation: 'append', key: 'tags', value: 'beta'})
+  const second = await frontmatter(box.notesDir, {path: 'loose/b.md', key: 'tags'})
+  assert.deepEqual(second.frontmatter, ['alpha', 'beta'])
+})
+
+test('appending to a key holding a scalar is still a refusal', async (t) => {
+  const box = project(NOTES)
+  t.after(() => box.cleanup())
+  const before = box.read('meta/a.md')
+
+  const report = await refusal(() =>
     frontmatter(box.notesDir, {path: 'meta/a.md', operation: 'append', key: 'title', value: 'x'}),
   )
-  assert.equal(notASequence.code, 'FRONTMATTER_NOT_A_SEQUENCE')
-
-  const missing = await refusal(() =>
-    frontmatter(box.notesDir, {path: 'meta/a.md', operation: 'append', key: 'sources', value: 'x'}),
-  )
-  assert.equal(missing.code, 'FRONTMATTER_KEY_NOT_FOUND')
+  assert.equal(report.code, 'FRONTMATTER_NOT_A_SEQUENCE')
+  assert.equal(box.read('meta/a.md'), before)
 })
 
 test('deleting a key that is not there is a refusal, so a typo is not reported as done', async (t) => {
@@ -206,24 +234,91 @@ test('deleting a key that is not there is a refusal, so a typo is not reported a
   assert.doesNotMatch(box.read('meta/a.md'), /status/)
 })
 
-test('a write the schema refuses does not land', async (t) => {
+/**
+ * The check reports and the write lands. A refusal here would be the verb
+ * declining to make somebody else's rule true, and it would refuse the middle of
+ * every migration: renaming a field across a wiki passes through a state
+ * `additionalProperties: false` rejects, and that state is on its way to a valid
+ * one.
+ */
+test('a write the schema does not accept still lands, with the violation reported', async (t) => {
   const box = project(NOTES)
   t.after(() => box.cleanup())
-  const before = box.read('meta/a.md')
 
-  const enumeration = await refusal(() =>
-    frontmatter(box.notesDir, {path: 'meta/a.md', operation: 'replace', key: 'type', value: 'bogus'}),
-  )
-  assert.equal(enumeration.code, 'FRONTMATTER_SCHEMA_VIOLATION')
-  assert.equal(box.read('meta/a.md'), before)
+  const report = await frontmatter(box.notesDir, {
+    path: 'meta/a.md',
+    operation: 'replace',
+    key: 'type',
+    value: 'bogus',
+  })
+  assert.deepEqual(report.changed, ['meta/a.md'])
+  assert.equal(report.code, 'FRONTMATTER_SCHEMA_VIOLATION')
+  assert.equal(report.violations.length, 1)
+  assert.match(report.violations[0], /allowed values/)
+  assert.match(report.notes.join(' '), /does not accept the result/)
+  assert.match(box.read('meta/a.md'), /type: bogus/)
 
-  // A key the schema does not know is refused by the same check rather than by a
+  // A key the schema does not know is reported by the same check rather than by a
   // rule of this verb's own — `additionalProperties: false` is the schema's word.
-  const invented = await refusal(() =>
-    frontmatter(box.notesDir, {path: 'meta/a.md', operation: 'replace', key: 'invented', value: 'x'}),
-  )
+  const invented = await frontmatter(box.notesDir, {
+    path: 'meta/a.md',
+    operation: 'replace',
+    key: 'invented',
+    value: 'x',
+  })
   assert.equal(invented.code, 'FRONTMATTER_SCHEMA_VIOLATION')
-  assert.equal(box.read('meta/a.md'), before)
+  assert.match(box.read('meta/a.md'), /invented: x/)
+})
+
+test('a write the schema accepts carries no violations and no code', async (t) => {
+  const box = project(NOTES)
+  t.after(() => box.cleanup())
+
+  const report = await frontmatter(box.notesDir, {
+    path: 'meta/a.md',
+    operation: 'replace',
+    key: 'status',
+    value: 'stable',
+  })
+  assert.equal(report.ok, true)
+  assert.equal(report.code, undefined)
+  assert.equal(report.violations, undefined)
+})
+
+test('validate answers whether a note is valid, and writes nothing', async (t) => {
+  const box = project({
+    ...NOTES,
+    'meta/wrong.md': '---\ntitle: Wrong\ntype: nonsense\n---\n\n# Wrong\n',
+  })
+  t.after(() => box.cleanup())
+  const before = box.read('meta/wrong.md')
+
+  const clean = await frontmatter(box.notesDir, {path: 'meta/a.md', operation: 'validate'})
+  assert.equal(clean.ok, true)
+  assert.deepEqual(clean.violations, [])
+  assert.deepEqual(clean.changed, [])
+
+  const wrong = await frontmatter(box.notesDir, {path: 'meta/wrong.md', operation: 'validate'})
+  assert.equal(wrong.ok, false)
+  assert.equal(wrong.violations.length, 1)
+  assert.deepEqual(wrong.changed, [])
+  assert.equal(box.read('meta/wrong.md'), before)
+
+  // A path no schema claims is valid because nothing says otherwise, which is not
+  // the same as unchecked and is the honest answer either way.
+  const loose = await frontmatter(box.notesDir, {path: 'loose/b.md', operation: 'validate'})
+  assert.equal(loose.ok, true)
+  assert.deepEqual(loose.violations, [])
+})
+
+test('validate is a question about the note, not about one key', async (t) => {
+  const box = project(NOTES)
+  t.after(() => box.cleanup())
+
+  const report = await refusal(() =>
+    frontmatter(box.notesDir, {path: 'meta/a.md', operation: 'validate', key: 'title'}),
+  )
+  assert.match(report.notes.join(' '), /does not apply at content scope/)
 })
 
 test('a path no schema claims is written without one', async (t) => {
@@ -283,21 +378,24 @@ test('block scope writes the block a note does not have, which is what a scaffol
   assert.match(box.read('meta/bare.md'), /^---\ntitle: Bare\ntype: note\n---\n/)
 })
 
-test('the schema refuses a derived block too', async (t) => {
+test('a derived block is checked by the same rule, and reported the same way', async (t) => {
   const box = project(NOTES)
   t.after(() => box.cleanup())
 
-  const report = await refusal(() =>
-    frontmatter(box.notesDir, {
-      path: 'meta/bare.md',
-      operation: 'replace',
-      scope: 'block',
-      value: {title: 'Bare'},
-      derived: true,
-    }),
-  )
+  const report = await frontmatter(box.notesDir, {
+    path: 'meta/bare.md',
+    operation: 'replace',
+    scope: 'block',
+    value: {title: 'Bare'},
+    derived: true,
+  })
   assert.equal(report.code, 'FRONTMATTER_SCHEMA_VIOLATION')
-  assert.doesNotMatch(box.read('meta/bare.md'), /---/)
+  assert.match(box.read('meta/bare.md'), /title: Bare/)
+
+  // And `validate` agrees with the write that just reported it, because both ask
+  // the formatter's plugin rather than two validators of their own.
+  const asked = await frontmatter(box.notesDir, {path: 'meta/bare.md', operation: 'validate'})
+  assert.deepEqual(asked.violations, report.violations)
 })
 
 test('a dry run reports the change and writes nothing', async (t) => {

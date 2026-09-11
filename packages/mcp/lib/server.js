@@ -225,25 +225,31 @@ export function createServer({
    * command — the operation axis says which.
    *
    * Like `fmt`, it has a read half that a read-only mount serves: asking what a
-   * note's front matter holds is an ordinary read. A write operation on such a
-   * server is told so rather than quietly given the read.
+   * note's front matter holds — or whether it satisfies its schema — is an
+   * ordinary read. A write operation on such a server is told so rather than
+   * quietly given the read.
    */
   const FRONTMATTER_DESCRIPTION =
-    "Read or write one note's front matter: the whole block, or one key. operation is read, replace, " +
-    'delete, append or prepend; scope is block, content (a key) or marker (a key\'s name). ' +
-    'replace+content sets a key, replace+marker renames one leaving the value, append/prepend add to a ' +
-    'sequence-valued key like tags. Every write is checked against the schema for that path and refused ' +
-    'if it violates it. Replacing the block wholesale reserialises it, losing comments and quoting, so it ' +
-    'needs derived: true and is only for front matter the toolbox owns. The markdown body is not reachable ' +
-    'from here.' +
-    (allowWrites ? '' : ' This server is read-only: only operation: "read" is available.')
+    "Read, validate or write one note's front matter: the whole block, or one key. operation is read, " +
+    'validate, replace, delete, append or prepend; scope is block, content (a key) or marker (a key\'s ' +
+    'name). replace+content sets a key, replace+marker renames one leaving the value, append/prepend add ' +
+    'to a sequence-valued key like tags and create it if it is not there. validate answers whether the ' +
+    'note satisfies the schema for its path, writing nothing. Every write is checked against that schema ' +
+    'too and any violation comes back in violations — the write still lands, because one write is not the ' +
+    'unit a schema applies to and a migration passes through invalid states on its way to a valid one. ' +
+    'Replacing the block wholesale reserialises it, losing comments and quoting, so it needs derived: true ' +
+    'and is only for front matter the toolbox owns. The markdown body is not reachable from here.' +
+    (allowWrites ? '' : ' This server is read-only: only operation: "read" and "validate" are available.')
 
   server.tool(
     'frontmatter',
     FRONTMATTER_DESCRIPTION,
     {
       path: z.string().describe('workspace-relative path, e.g. design/foo.md'),
-      operation: z.enum(['read', 'replace', 'delete', 'append', 'prepend']).optional().describe('default read'),
+      operation: z
+        .enum(['read', 'validate', 'replace', 'delete', 'append', 'prepend'])
+        .optional()
+        .describe('default read'),
       scope: z.enum(['block', 'content', 'marker']).optional().describe('default content when a key is named, else block'),
       key: z.string().optional().describe('the front-matter field'),
       // Whatever YAML holds: a string, a number, a list item, or the whole object
@@ -260,11 +266,12 @@ export function createServer({
       const w = await wiki()
       if (!w) return noWiki()
       const operation = args?.operation ?? 'read'
-      if (!allowWrites && operation !== 'read') {
+      if (!allowWrites && operation !== 'read' && operation !== 'validate') {
         return reply({
           error:
-            `this server was started read-only, so frontmatter can only read. Use operation: "read" to see ` +
-            'what this note holds, or start the server with --allow-writes to change it.',
+            'this server was started read-only, so frontmatter can only read. Use operation: "read" to see ' +
+            'what this note holds or "validate" to ask whether it satisfies its schema, or start the server ' +
+            'with --allow-writes to change it.',
         })
       }
       try {

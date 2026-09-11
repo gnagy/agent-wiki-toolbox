@@ -445,6 +445,11 @@ test('frontmatter reads a block and a key, and writes one key at a time', (t) =>
   assert.equal(missing.status, 1)
   assert.match(missing.stdout, /FRONTMATTER_KEY_NOT_FOUND/)
 
+  // Appending to a key that is not there creates it, and says which it did.
+  const created = awt(['frontmatter', '-w', box.root, 'a/one.md', '--append', 'sources=repo:x'])
+  assert.equal(created.status, 0)
+  assert.match(created.stdout, /created it holding this one item/)
+
   const both = awt(['frontmatter', '-w', box.root, 'a/one.md', '--get', 'status', '--set', 'status=draft'])
   assert.equal(both.status, 2)
   assert.match(both.stderr, /one operation per call/)
@@ -478,6 +483,42 @@ test('replacing the block takes its object from stdin, and says derived out loud
   const source = readFileSync(join(box.root, 'a/one.md'), 'utf8')
   assert.match(source, /title: Renamed/)
   assert.doesNotMatch(source, /# a comment/)
+})
+
+/**
+ * The schema check reports and the write lands, so a migration can pass through
+ * the state its schema rejects. `--validate` is how the end of one is checked,
+ * and it is the half that exits non-zero.
+ */
+test('a schema violation is reported beside the write, and --validate is what fails on it', (t) => {
+  // A whole project, because the globs are anchored to the config and read from
+  // the notes directory — a fixture that skips the layout tests nothing.
+  const box = wiki({'notes/meta/one.md': '---\ntitle: One\ntype: note\n---\n\n# One\n'})
+  t.after(() => box.cleanup())
+  const notes = join(box.root, 'notes')
+  writeFileSync(
+    join(box.dir, 'awt.config.mjs'),
+    "export default {rootDir: './wiki', schemas: {'./wiki/schemas/note.schema.json': ['meta/**/*.md']}}\n",
+  )
+  mkdirSync(join(box.root, 'schemas'), {recursive: true})
+  writeFileSync(
+    join(box.root, 'schemas', 'note.schema.json'),
+    JSON.stringify({type: 'object', properties: {type: {enum: ['note', 'adr']}}}),
+  )
+
+  const clean = awt(['frontmatter', '-w', notes, 'meta/one.md', '--validate'])
+  assert.equal(clean.status, 0)
+  assert.match(clean.stdout, /^valid$/m)
+
+  const written = awt(['frontmatter', '-w', notes, 'meta/one.md', '--set', 'type=bogus'])
+  assert.equal(written.status, 0, 'the write lands')
+  assert.match(written.stdout, /FRONTMATTER_SCHEMA_VIOLATION/)
+  assert.match(readFileSync(join(notes, 'meta/one.md'), 'utf8'), /type: bogus/)
+
+  const invalid = awt(['frontmatter', '-w', notes, 'meta/one.md', '--validate'])
+  assert.equal(invalid.status, 1)
+  assert.match(invalid.stdout, /^invalid$/m)
+  assert.match(invalid.stdout, /allowed values/)
 })
 
 test('index writes the artifact a Quartz build reads', (t) => {

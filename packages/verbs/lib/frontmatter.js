@@ -23,8 +23,9 @@
  *     replace marker    rename a key, leaving the value where it is
  *     replace block     replace the block wholesale — derived front matter only
  *     delete  content   drop a key
- *     append  content   add to a sequence-valued key
+ *     append  content   add to a sequence-valued key, creating it if absent
  *     prepend content   the same, at the front
+ *     validate block    what the schema for this path says, writing nothing
  *
  * **Block scope is the destructive one and says so.** Every other operation goes
  * through `editFrontmatter`, which mutates the author's YAML in place and keeps
@@ -35,10 +36,26 @@
  * it. Without the flag the operation is refused, so reaching for the wrong scope
  * cannot reformat somebody's note.
  *
- * **Every write is checked against the schema for that path before it lands**,
- * which turns `wiki/schemas/` from an after-the-fact report by `awt fmt --dry-run`
- * into a refusal. It is the same plugin over the same globs — see
- * `frontmatterViolations` — so the verb and the formatter cannot disagree.
+ * **Every write is checked against the schema for that path, and the check
+ * reports rather than refuses.** It is the same plugin over the same globs — see
+ * `frontmatterViolations` — so the verb and the formatter cannot disagree, and it
+ * runs before the bytes land instead of after. What it does not do is stop the
+ * write.
+ *
+ * Every refusal this toolbox makes is about **ambiguity** — which note a stem
+ * meant — or about **destruction** — a target that already exists. A schema
+ * violation is neither: the caller was unambiguous, the verb knows exactly what to
+ * write, and nothing is lost. And a single write is not the unit a schema applies
+ * to. Renaming a field across a wiki passes through a state where the old key is
+ * gone, the new one is not declared, and `additionalProperties: false` rejects the
+ * note — so a refusing verb refuses the edit that was on its way to making things
+ * valid. A backfill of a newly-required field has the same shape. A migration is a
+ * path through states and one write can only see one of them.
+ *
+ * So the violation comes back in `violations`, at the moment it is created, and
+ * the caller decides. Nothing becomes silent: `validate` answers the same question
+ * on demand, and `wiki-docs-stop.sh` asks it of everything a session wrote before
+ * the session ends — which covers the routes in that are not this verb.
  *
  * Failures are coded rather than inferred, because a caller that has to match on
  * prose is a caller that breaks when the prose improves.
@@ -55,16 +72,23 @@ export const FRONTMATTER_CODES = {
   KEY_NOT_FOUND: 'FRONTMATTER_KEY_NOT_FOUND',
   KEY_COLLISION: 'FRONTMATTER_KEY_COLLISION',
   NOT_A_SEQUENCE: 'FRONTMATTER_NOT_A_SEQUENCE',
+  // Reported, never thrown: a violation is an answer the caller acts on, not the
+  // verb declining to act. It is kept in the register because `validate` and the
+  // write path both name it, and a caller matches on the name either way.
   SCHEMA_VIOLATION: 'FRONTMATTER_SCHEMA_VIOLATION',
   ABSENT: 'FRONTMATTER_ABSENT',
 }
 
-const OPERATIONS = new Set(['read', 'replace', 'delete', 'append', 'prepend'])
+const OPERATIONS = new Set(['read', 'validate', 'replace', 'delete', 'append', 'prepend'])
 const SCOPES = new Set(['block', 'content', 'marker'])
 
 /** The pairs the table above allows, and nothing else. */
 const ALLOWED = new Set([
   'read/block',
+  // Validation is asked of the note, because a note is what a schema is handed.
+  // There is no per-key form: JSON Schema's answer to "is this valid" is about the
+  // object, and a key-shaped one would be this verb inventing a second semantics.
+  'validate/block',
   'read/content',
   'replace/content',
   'replace/marker',
@@ -87,8 +111,12 @@ const fail = (code, message) => refuse(VERB, message, {code})
  * `key` names the field, `value` is what to write (for `replace/marker` it is the
  * key's new name), and `derived` is the acknowledgement block scope requires.
  *
- * Returns the verb report every other verb returns, plus `frontmatter` on a read:
- * the whole block for block scope, the one value for content scope.
+ * Returns the verb report every other verb returns, plus `frontmatter` on a read —
+ * the whole block for block scope, the one value for content scope — and
+ * `violations` wherever the schema had something to say: on a `validate`, always,
+ * and on a write, only when the result does not satisfy the schema. A write
+ * carrying violations still landed; `ok` says whether the verb did what it was
+ * asked, and on `validate` it is the answer to the question.
  */
 export async function frontmatter(
   notesDir,
@@ -120,8 +148,18 @@ export async function frontmatter(
 
   if (operation === 'read') return read(context, tree, {path: notePath, scope: at, key, notes})
 
-  // A write is staged, checked against the schema, and only then committed.
-  const staged = apply(tree, {operation, scope: at, key, value, derived})
+  if (operation === 'validate') {
+    // The note as it stands, not as it would stand: this writes nothing and
+    // serialises only to hand the checker bytes.
+    const violations = await schemaCheck(notesDir, notePath, serialize(tree))
+    const report = finish(VERB, context, {notes})
+    // `ok` answers the question that was asked. For a write it is "did the verb do
+    // it"; for a question it is the answer, which is what gives the CLI an exit
+    // code worth branching on and `awt check` its precedent.
+    return {...report, ok: report.ok && violations.length === 0, violations}
+  }
+
+  const staged = apply(tree, {operation, scope: at, key, value, derived, notes})
   if (!staged) {
     // Nothing to do is not a failure and not a write: the note already says what
     // the caller asked for. Reported so a caller can tell it from a change.
@@ -130,16 +168,19 @@ export async function frontmatter(
   }
 
   const source = serialize(tree)
+  // Checked before the write and reported beside it. The write lands either way —
+  // see the note at the top of this file for why a schema is not a thing one write
+  // can be refused for.
   const violations = await schemaCheck(notesDir, notePath, source)
   if (violations.length > 0) {
-    throw fail(
-      FRONTMATTER_CODES.SCHEMA_VIOLATION,
-      `the schema for ${notePath} refuses this: ${violations.join('; ')}`,
+    notes.push(
+      `written, and the schema for ${notePath} does not accept the result: ${violations.join('; ')}`,
     )
   }
 
   context.edit.update(notePath, source)
-  return finish(VERB, context, {notes})
+  const report = finish(VERB, context, {notes})
+  return violations.length > 0 ? {...report, violations, code: FRONTMATTER_CODES.SCHEMA_VIOLATION} : report
 }
 
 /** The read half. It writes nothing, so it does not go through the edit batch. */
@@ -170,7 +211,7 @@ function read(context, tree, {path, scope, key, notes}) {
  * coded refusal is thrown through it and reaches the caller as a failure. A
  * condition that is really a refusal must never be reported as the first.
  */
-function apply(tree, {operation, scope, key, value, derived}) {
+function apply(tree, {operation, scope, key, value, derived, notes}) {
   if (scope === 'block') {
     // `setFrontmatter` reserialises, so this is the one operation that can lose an
     // author's comments and quoting. The flag is the caller saying the block is
@@ -235,7 +276,19 @@ function apply(tree, {operation, scope, key, value, derived}) {
     // append / prepend. Not string concatenation and not a special case: `tags`
     // and `sources` are sequences, and `sequenceItems` exists already because
     // `renameTag` needed it.
-    if (!has) throw fail(FRONTMATTER_CODES.KEY_NOT_FOUND, `no ${key} to add to`)
+    //
+    // **Lenient about absence, strict about type.** A key that is not there is
+    // created as a one-item sequence, because adding the first tag to a note that
+    // has none is the same intent as adding the second — and the report says
+    // `created` rather than `appended`, so a mistyped key name is visible instead
+    // of inferred from silence. A key holding a scalar is a different failure
+    // entirely, and collapsing the two would turn that typo into a field quietly
+    // created beside the one that was meant.
+    if (!has) {
+      document.set(key, [value])
+      notes?.push(`${key} was not there; created it holding this one item rather than appending to it`)
+      return
+    }
     const items = sequenceItems(document, key)
     if (!items) {
       throw fail(FRONTMATTER_CODES.NOT_A_SEQUENCE, `${key} is not a sequence, so there is nothing to add to`)
