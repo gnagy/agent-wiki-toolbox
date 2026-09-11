@@ -20,7 +20,7 @@
  * grouped by what consumes it, and the MCP surface stays flat with its own names.
  */
 import {existsSync, readFileSync, statSync} from 'node:fs'
-import {resolve as resolvePath} from 'node:path'
+import {dirname, resolve as resolvePath} from 'node:path'
 import process from 'node:process'
 
 import {check, loadWorkspace, writeIndexArtifact} from '@agent-wiki-toolbox/core'
@@ -251,8 +251,15 @@ function emit(values, value, human) {
  */
 function verdict({files, problems}, checking) {
   const counted = `${files} file${files === 1 ? '' : 's'}`
-  if (!checking) return `${counted} formatted`
-  return problems ? `${counted} checked, ${problems} with problems` : `${counted} checked, all clean`
+  // **Format mode used to drop `problems` on the floor**, so `awt fmt a.md
+  // nowhere.md` answered "2 files formatted" with one of them not there — and
+  // this line is deliberately above the report, so `| head -1` saw exactly the
+  // sentence that was false. `--json` had `ok: false` and `problems: 1` all
+  // along, which is the worst way round: the script could see it and the person
+  // could not. The word is `processed` rather than `formatted` because a file
+  // with a problem is one this did not format.
+  if (problems) return `${counted} ${checking ? 'checked' : 'processed'}, ${problems} with problems`
+  return checking ? `${counted} checked, all clean` : `${counted} formatted`
 }
 
 /** A verb's report, rendered for a person. The structured form is `--json`. */
@@ -366,6 +373,28 @@ export const COMMANDS = [
         if (layout && positionals.every((entry) => existsSync(resolvePath(layout.notesDir, entry)))) {
           cwd = layout.notesDir
           base = 'notes'
+        }
+      }
+
+      // A path that is not there is a typo, and it used to travel all the way to
+      // remark and come back as `No such file or folder` wrapping node's
+      // `ENOENT ... stat '<absolute path>'` — a syscall and a resolved path,
+      // neither of which is what the person got wrong. Refused here instead, and
+      // the whole call is refused rather than the rest formatted around it.
+      //
+      // **Only literal paths.** A glob and a directory are both legal inputs that
+      // expand to files, and `existsSync` says no to a glob — so checking every
+      // positional would refuse `awt fmt 'notes/*.md'`, which works today.
+      if (!values.stdin) {
+        const missing = positionals.filter(
+          (entry) => !/[*?[\]{}]/.test(entry) && !existsSync(resolvePath(cwd, entry)),
+        )
+        if (missing.length > 0) {
+          const error = new Error(
+            `no file at ${missing.join(', ')}. Paths are relative to ${base === 'notes' ? 'the notes directory' : 'the current directory'}.`,
+          )
+          error.exitCode = 2
+          throw error
         }
       }
 
@@ -882,6 +911,14 @@ export const COMMANDS = [
       const root = values.wiki ? resolvePath(values.wiki) : (layout?.notesDir ?? process.cwd())
       const workspace = loadWorkspace(root)
       const out = resolvePath(values.out)
+      // mkdir's own ENOENT names the parent and not the flag that chose it, and
+      // an --out whose directory is not there is a typo rather than a request to
+      // build a tree.
+      if (!existsSync(dirname(out))) {
+        const error = new Error(`--out names ${out}, and ${dirname(out)} is not there.`)
+        error.exitCode = 2
+        throw error
+      }
       writeIndexArtifact(workspace, out)
       const summary = indexSummary(workspace, out)
       emit(values, {ok: true, ...summary}, (value) =>

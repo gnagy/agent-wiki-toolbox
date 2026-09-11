@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
-import {mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
@@ -526,10 +526,14 @@ test('fmt resolves a path against the cwd, then against the notes, and says whic
   assert.equal(viaCwd.status, 0, viaCwd.stderr)
   assert.equal(JSON.parse(viaCwd.stdout).base, 'cwd')
 
-  // A path that exists against neither is reported, and the base stays the cwd.
+  // A path that exists against neither is refused before anything runs. It used
+  // to reach remark and come back as node's ENOENT, under a verdict line saying
+  // the file had been formatted.
   const missing = awt(['fmt', '--dry-run', '--json', 'nowhere.md'], {cwd: dir})
-  assert.notEqual(missing.status, 0)
-  assert.equal(JSON.parse(missing.stdout).base, 'cwd')
+  assert.equal(missing.status, 2)
+  assert.match(missing.stderr, /no file at nowhere\.md/)
+  assert.doesNotMatch(missing.stderr, /ENOENT|stat '/)
+  assert.equal(missing.stdout, '', 'a refusal is not a --json document')
 
   // -w names the base outright.
   const explicit = awt(['fmt', '--dry-run', '--json', '-w', join(dir, 'wiki/notes'), 'meta/conventions.md'])
@@ -844,4 +848,95 @@ test('every command exits 2 on an option it does not take', () => {
     const {status} = awt([...path, '--definitely-not-a-flag'])
     assert.equal(status, 2, `awt ${path.join(' ')} --definitely-not-a-flag`)
   }
+})
+
+/**
+ * §6, swept rather than fixed where the audit happened to look. Two places still
+ * let a syscall error through, and the `fmt` one carried a worse fault on top.
+ *
+ * **`awt fmt a.md nowhere.md` answered "2 files formatted".** The format-mode
+ * verdict dropped `problems` entirely, and that line is deliberately printed
+ * above the report so `| head -1` catches it — so the one sentence a truncating
+ * reader sees was the false one. `--json` had `ok: false` and `problems: 1` the
+ * whole time, which is the same wrong-way-round that the search footer was.
+ */
+test('fmt refuses a path that is not there, and never says it formatted it', (t) => {
+  const box = wiki({'good.md': '# Good\n\nfine.\n', 'messy.md': '# Messy\n\n* a bullet\n'})
+  t.after(() => box.cleanup())
+  const w = ['-w', box.root]
+
+  const one = awt(['fmt', 'nowhere.md', ...w])
+  assert.equal(one.status, 2)
+  assert.match(one.stderr, /no file at nowhere\.md/)
+  assert.doesNotMatch(one.stderr, /ENOENT|No such file or folder|stat '/)
+  assert.doesNotMatch(one.stdout, /formatted/, 'it said it formatted a file that is not there')
+
+  // One missing among real ones refuses the batch, and formats none of it.
+  const before = readFileSync(join(box.root, 'messy.md'), 'utf8')
+  const mixed = awt(['fmt', 'messy.md', 'nowhere.md', ...w])
+  assert.equal(mixed.status, 2)
+  assert.match(mixed.stderr, /no file at nowhere\.md/)
+  assert.equal(readFileSync(join(box.root, 'messy.md'), 'utf8'), before, 'a refused batch formatted one')
+})
+
+/**
+ * The check is on literal paths only. A glob and a directory are legal inputs
+ * that expand to files, and `existsSync` says no to a glob — so a naive check
+ * would refuse an invocation that works today. This is the test that says so.
+ */
+test('fmt still takes a glob and a directory, which do not exist as paths', (t) => {
+  const box = wiki({'sub/one.md': '# One\n\n* bullet\n', 'sub/two.md': '# Two\n\nfine.\n'})
+  t.after(() => box.cleanup())
+  const w = ['-w', box.root]
+
+  for (const path of ['sub/*.md', 'sub']) {
+    const {status, stdout, stderr} = awt(['fmt', '--dry-run', path, ...w])
+    assert.notEqual(status, 2, `awt fmt ${path} was refused: ${stderr}`)
+    assert.match(stdout, /2 files checked/, `awt fmt ${path}`)
+  }
+})
+
+/**
+ * `site index --out` into a directory that is not there reported mkdir's own
+ * ENOENT, which names the parent and not the flag that chose it.
+ */
+test('site index refuses an --out whose directory is not there', (t) => {
+  const box = wiki({'a.md': '# A\n'})
+  t.after(() => box.cleanup())
+
+  const {status, stderr} = awt(['site', 'index', '--wiki', box.root, '--out', join(box.dir, 'nope/x.json')])
+  assert.equal(status, 2)
+  assert.match(stderr, /--out names .*nope\/x\.json, and .*nope is not there/)
+  assert.doesNotMatch(stderr, /ENOENT|mkdir/)
+})
+
+/**
+ * The verdict line in format mode, which used to drop `problems` on the floor.
+ *
+ * **Format mode is purely mechanical** — `buildProcessor` adds the lint plugins
+ * and the schemas only for `check`, which is deliberate — so the only problem a
+ * formatting run can have is one it could not read or write. That is rare, and it
+ * is exactly when a line saying every file was formatted misleads most: the line
+ * is printed above the report on purpose, so `| head -1` is what a truncating
+ * reader sees, and `awt fmt a.md nowhere.md` used to answer "2 files formatted".
+ */
+test('format mode says how many had problems, and does not call them formatted', (t) => {
+  // chmod does not stop root, and the assertion is about a write that fails.
+  if (process.getuid?.() === 0) return t.skip('run as root: a read-only file is still writable')
+
+  const box = wiki({'good.md': '# Good\n\n- fine\n', 'locked.md': '# Locked\n\n* a bullet\n'})
+  t.after(() => {
+    chmodSync(join(box.root, 'locked.md'), 0o644)
+    box.cleanup()
+  })
+  chmodSync(join(box.root, 'locked.md'), 0o444)
+
+  const {stdout} = awt(['fmt', '-w', box.root])
+  const first = stdout.split('\n')[0]
+  assert.match(first, /2 files processed, 1 with problems/, `the verdict line was "${first}"`)
+  assert.doesNotMatch(first, /formatted/, 'a run that could not write called itself formatted')
+
+  // A clean run still reads as one, and still leads with the count.
+  chmodSync(join(box.root, 'locked.md'), 0o644)
+  assert.match(awt(['fmt', '-w', box.root]).stdout.split('\n')[0], /2 files formatted/)
 })
