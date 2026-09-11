@@ -25,7 +25,8 @@
  *     delete  content   drop a key
  *     append  content   add to a sequence-valued key, creating it if absent
  *     prepend content   the same, at the front
- *     validate block    what the schema for this path says, writing nothing
+ *     validate block    whether the note satisfies its schema, writing nothing
+ *     schema   block    which schema claims this path, and what it says
  *
  * **Block scope is the destructive one and says so.** Every other operation goes
  * through `editFrontmatter`, which mutates the author's YAML in place and keeps
@@ -61,7 +62,13 @@
  * prose is a caller that breaks when the prose improves.
  */
 import {editFrontmatter, getFrontmatter, sequenceItems, setFrontmatter} from '@agent-wiki-toolbox/syntax'
-import {frontmatterViolations, layoutFrom, loadProjectConfig} from '@agent-wiki-toolbox/format'
+import {
+  frontmatterViolations,
+  layoutFrom,
+  loadProjectConfig,
+  readSchema,
+  resolveSchemaFor,
+} from '@agent-wiki-toolbox/format'
 
 import {createContext, finish, parseNote, refuse, resolveNotePath, serialize} from './context.js'
 
@@ -79,7 +86,7 @@ export const FRONTMATTER_CODES = {
   ABSENT: 'FRONTMATTER_ABSENT',
 }
 
-const OPERATIONS = new Set(['read', 'validate', 'replace', 'delete', 'append', 'prepend'])
+const OPERATIONS = new Set(['read', 'validate', 'schema', 'replace', 'delete', 'append', 'prepend'])
 const SCOPES = new Set(['block', 'content', 'marker'])
 
 /** The pairs the table above allows, and nothing else. */
@@ -89,6 +96,9 @@ const ALLOWED = new Set([
   // There is no per-key form: JSON Schema's answer to "is this valid" is about the
   // object, and a key-shaped one would be this verb inventing a second semantics.
   'validate/block',
+  // And `schema` is asked of the *path*, which is why it is the one operation here
+  // that does not need the note to exist.
+  'schema/block',
   'read/content',
   'replace/content',
   'replace/marker',
@@ -139,6 +149,14 @@ export async function frontmatter(
   const notes = []
   if (notePath !== path) notes.push(`read ${path} as ${notePath}`)
 
+  // **`schema` is a question about the path, not about the note**, so it is
+  // answered for a path nothing has written yet — which is the case it exists for:
+  // an agent about to write a note asks what the schema requires before it writes,
+  // rather than copying a neighbour and inheriting whatever that got wrong.
+  if (operation === 'schema') {
+    return whichSchema(notesDir, context, {path: notePath, notes})
+  }
+
   // The same refusal `deleteNote` and `mergeFiles` make about a note that is not
   // there: a verb that reports `ok` for a path nobody has is a verb whose verdict
   // line cannot be read.
@@ -151,12 +169,22 @@ export async function frontmatter(
   if (operation === 'validate') {
     // The note as it stands, not as it would stand: this writes nothing and
     // serialises only to hand the checker bytes.
-    const violations = await schemaCheck(notesDir, notePath, serialize(tree))
+    const source = serialize(tree)
+    const violations = await schemaCheck(notesDir, notePath, source)
+    // **Which schema, as well as whether it passed.** No violations means two
+    // unrelated things — the note satisfies its schema, or no schema claims the
+    // path at all — and answering both with `valid` is how a note outside the
+    // vocabulary goes unnoticed forever: `awt fmt --dry-run` counts it as a file
+    // that checked out fine and the Stop pass says nothing either. The resolver
+    // separates them, so a caller has three answers rather than two.
+    const schema = await schemaFor(notesDir, notePath, source)
     const report = finish(VERB, context, {notes})
     // `ok` answers the question that was asked. For a write it is "did the verb do
     // it"; for a question it is the answer, which is what gives the CLI an exit
-    // code worth branching on and `awt check` its precedent.
-    return {...report, ok: report.ok && violations.length === 0, violations}
+    // code worth branching on and `awt check` its precedent. An unclaimed path is
+    // not a failure — nothing is wrong with it — so `ok` stays true and `schema`
+    // is what says it was never checked.
+    return {...report, ok: report.ok && violations.length === 0, schema, violations}
   }
 
   const staged = apply(tree, {operation, scope: at, key, value, derived, notes})
@@ -181,6 +209,32 @@ export async function frontmatter(
   context.edit.update(notePath, source)
   const report = finish(VERB, context, {notes})
   return violations.length > 0 ? {...report, violations, code: FRONTMATTER_CODES.SCHEMA_VIOLATION} : report
+}
+
+/**
+ * Which schema claims this path, and what it says.
+ *
+ * The schema itself, not a summary of it. A reduction to fields, enums and types
+ * would be partial by nature — JSON Schema expresses more than any summary can
+ * carry — and it would be a second opinion about what a schema means, which is the
+ * fault the whole front-matter half is built to avoid. **Matching a path to a
+ * schema is the only part a caller cannot do**, because it needs the config and
+ * the matching rule; reading JSON Schema, a caller is already better at than a
+ * summary would be.
+ *
+ * **An empty answer means no schema claims the path, and that is all it means.**
+ * It does not suggest where the note should have gone. Reporting the declared
+ * globs so a caller could see it aimed wrong would be placement enforcement
+ * wearing a schema question's clothes.
+ */
+async function whichSchema(notesDir, context, {path, notes}) {
+  // The note's own bytes when there are any, because a local `$schema:` beats the
+  // globs — and nothing when there are not, which is correct for a path that does
+  // not exist yet.
+  const source = context.edit.exists(path) ? context.edit.current(path) : undefined
+  const schema = await schemaFor(notesDir, path, source)
+  if (!schema) notes.push(`no schema claims ${path}`)
+  return {...finish(VERB, context, {notes}), schema, schemaContent: schema ? readSchema(schema) : null}
 }
 
 /** The read half. It writes nothing, so it does not go through the edit batch. */
@@ -296,6 +350,23 @@ function apply(tree, {operation, scope, key, value, derived, notes}) {
     const node = document.createNode(value)
     if (operation === 'append') items.items.push(node)
     else items.items.unshift(node)
+  })
+}
+
+/**
+ * Which schema would be applied to this path, absolute, or null. Same config
+ * lookup as the check, so the two cannot disagree about which file is in play.
+ */
+async function schemaFor(notesDir, path, source) {
+  const {config, filepath} = await loadProjectConfig(notesDir)
+  if (!config.schemas || !filepath) return null
+  const layout = layoutFrom(config, filepath)
+  return resolveSchemaFor(path, {
+    config,
+    configPath: filepath,
+    globBase: layout && !layout.legacy ? layout.notesDir : undefined,
+    cwd: notesDir,
+    source,
   })
 }
 

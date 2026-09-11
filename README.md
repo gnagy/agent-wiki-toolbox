@@ -75,6 +75,7 @@ awt move a.md b.md               # no folder in the destination means rename
 awt frontmatter a.md             # the whole block, as the note holds it
 awt frontmatter a.md --set status=stable    # …one key, checked against the schema
 awt frontmatter a.md --validate  # does this note satisfy its schema? (writes nothing)
+awt frontmatter a.md --schema    # which schema claims this path — ask before writing a note
 awt mcp --allow-writes           # the MCP server, over stdio
 
 awt site setup                   # clone or re-pin the renderer a site builds from

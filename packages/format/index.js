@@ -12,7 +12,7 @@ export {
   remarkCheckFormatting,
 } from './lib/processor.js'
 export {collectStream, runFormat} from './lib/engine.js'
-export {frontmatterViolations} from './lib/schema.js'
+export {frontmatterViolations, readSchema, resolveSchemaFor} from './lib/schema.js'
 export {
   AMBIGUOUS_CONFIG,
   CONFIG_NAMES,

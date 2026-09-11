@@ -92,16 +92,17 @@ that is a half-landing and never a wrong edit.
 
 Three axes: the operation, the scope it acts at, and the key.
 
-| Operation          | Scope     | Effect                                       | CLI                      |
-|--------------------|-----------|----------------------------------------------|--------------------------|
-| `read`             | `block`   | The whole block as data                      | `awt frontmatter <path>` |
-| `read`             | `content` | One key's value                              | `--get KEY`              |
-| `replace`          | `content` | Set a key's value, adding it if it is absent | `--set KEY=VALUE`        |
-| `replace`          | `marker`  | Rename a key, leaving the value              | `--rename OLD=NEW`       |
-| `replace`          | `block`   | Replace the block wholesale                  | `--replace-block`        |
-| `delete`           | `content` | Drop a key                                   | `--unset KEY`            |
-| `append`/`prepend` | `content` | Add to a sequence-valued key                 | `--append KEY=VALUE`     |
-| `validate`         | `block`   | Whether the note satisfies its schema        | `--validate`             |
+| Operation          | Scope     | Effect                                          | CLI                      |
+|--------------------|-----------|-------------------------------------------------|--------------------------|
+| `read`             | `block`   | The whole block as data                         | `awt frontmatter <path>` |
+| `read`             | `content` | One key's value                                 | `--get KEY`              |
+| `replace`          | `content` | Set a key's value, adding it if it is absent    | `--set KEY=VALUE`        |
+| `replace`          | `marker`  | Rename a key, leaving the value                 | `--rename OLD=NEW`       |
+| `replace`          | `block`   | Replace the block wholesale                     | `--replace-block`        |
+| `delete`           | `content` | Drop a key                                      | `--unset KEY`            |
+| `append`/`prepend` | `content` | Add to a sequence-valued key                    | `--append KEY=VALUE`     |
+| `validate`         | `block`   | Whether the note satisfies its schema           | `--validate`             |
+| `schema`           | `block`   | Which schema claims this path, and what it says | `--schema`               |
 
 - **Every write is checked against the schema for that path, and the check reports rather than
   refuses.** The violation comes back in `violations` under the code `FRONTMATTER_SCHEMA_VIOLATION`,
@@ -121,8 +122,26 @@ Three axes: the operation, the scope it acts at, and the key.
   created holding the one item, and the report says it created rather than appended. A key holding a
   scalar is `FRONTMATTER_NOT_A_SEQUENCE` — a different failure, and collapsing the two would turn a
   mistyped key name into a field quietly created beside the one that was meant.
+- **`validate` has three answers, not two.** The note satisfies its schema, it does not, or no
+  schema claims the path — and the third is not a pass. A note written one folder below where the
+  globs reach is invisible to `awt fmt --dry-run` and to the Stop hook as well, so `unchecked` is
+  the only thing that ever says so.
 - The CLI takes one operation flag per call and refuses two. `--unset` rather than `--delete`,
-  because `awt delete` deletes a note. `--validate` exits non-zero on an invalid note.
+  because `awt delete` deletes a note. `--validate` exits non-zero on an invalid note; `--schema`
+  prints the path alone, and `--json` carries the schema itself so a caller needs no second read.
+
+#### Ask the schema before writing a note's front matter
+
+**Ask `schema` for the path, then write the fields it requires.** The path is known before the write
+— a write tool cannot be called without one — and the schema is the part that is not.
+
+The habit this replaces is opening a **sibling note** to see what its front matter looks like and
+copying the shape. That inherits whatever the sibling got wrong, and it spreads: the next note is
+copied from this one. `schema` answers from the schema itself, for a path that need not exist yet.
+
+An empty answer means no schema claims the path, and **that is all it means**. It is not a hint that
+the note belongs somewhere else; nothing here checks placement, and a note in the wrong folder that
+satisfies its schema is not something any of this catches.
 
 **The two surfaces are spelled differently, and no longer name quite the same set.** MCP tool names
 are flat and keep their qualifiers — `split_by_heading`, `merge_files`, `build_listing`. The CLI

@@ -311,6 +311,78 @@ test('validate answers whether a note is valid, and writes nothing', async (t) =
   assert.deepEqual(loose.violations, [])
 })
 
+/**
+ * `schema` is the question an agent asks *before* it writes, which is why it is
+ * the one operation here that does not need the note to exist. The habit it
+ * replaces is reading a sibling note to find out what the fields should be, which
+ * inherits whatever that sibling got wrong.
+ */
+test('schema names which schema claims a path, and returns it', async (t) => {
+  const box = project(NOTES)
+  t.after(() => box.cleanup())
+
+  const claimed = await frontmatter(box.notesDir, {path: 'meta/a.md', operation: 'schema'})
+  assert.equal(claimed.ok, true)
+  assert.match(claimed.schema, /note\.schema\.json$/)
+  // The schema itself, not a summary of it: a caller reads JSON Schema better
+  // than any reduction of it would.
+  assert.deepEqual(claimed.schemaContent.required, ['title', 'type'])
+  assert.deepEqual(claimed.changed, [])
+})
+
+test('schema answers for a path nothing has written yet', async (t) => {
+  const box = project(NOTES)
+  t.after(() => box.cleanup())
+
+  const report = await frontmatter(box.notesDir, {path: 'meta/not-yet.md', operation: 'schema'})
+  assert.equal(report.ok, true)
+  assert.match(report.schema, /note\.schema\.json$/)
+})
+
+test('an unclaimed path gets an empty answer, and that is all it means', async (t) => {
+  const box = project(NOTES)
+  t.after(() => box.cleanup())
+
+  const report = await frontmatter(box.notesDir, {path: 'loose/b.md', operation: 'schema'})
+  assert.equal(report.ok, true)
+  assert.equal(report.schema, null)
+  assert.equal(report.schemaContent, null)
+  assert.match(report.notes.join(' '), /no schema claims loose\/b\.md/)
+  // It does not say where the note should have gone. Suggesting a home from the
+  // declared globs would be placement enforcement wearing a schema question's
+  // clothes, which is rung 3 and is out.
+  assert.doesNotMatch(report.notes.join(' '), /meta/)
+})
+
+/**
+ * The failure this closes: two byte-identical notes, one inside the globs and one
+ * a level below them, both answering `valid` — so a note outside the vocabulary
+ * was invisible to `--validate`, to `awt fmt --dry-run` and to the Stop pass at
+ * once.
+ */
+test('validate does not call a note valid when nothing checked it', async (t) => {
+  const box = project({
+    ...NOTES,
+    'meta/wrong.md': '---\ntitle: Wrong\ntype: nonsense\n---\n\n# Wrong\n',
+    // Byte-identical to the one above, and outside the glob.
+    'loose/wrong.md': '---\ntitle: Wrong\ntype: nonsense\n---\n\n# Wrong\n',
+  })
+  t.after(() => box.cleanup())
+
+  const checked = await frontmatter(box.notesDir, {path: 'meta/wrong.md', operation: 'validate'})
+  assert.equal(checked.ok, false)
+  assert.match(checked.schema, /note\.schema\.json$/)
+
+  const unchecked = await frontmatter(box.notesDir, {path: 'loose/wrong.md', operation: 'validate'})
+  assert.deepEqual(unchecked.violations, [], 'nothing had anything to say')
+  assert.equal(unchecked.schema, null, 'and that is because nothing claimed it')
+
+  // A note that is claimed and clean is the third answer, distinct from both.
+  const valid = await frontmatter(box.notesDir, {path: 'meta/a.md', operation: 'validate'})
+  assert.deepEqual(valid.violations, [])
+  assert.match(valid.schema, /note\.schema\.json$/)
+})
+
 test('validate is a question about the note, not about one key', async (t) => {
   const box = project(NOTES)
   t.after(() => box.cleanup())

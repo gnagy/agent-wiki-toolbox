@@ -519,6 +519,24 @@ test('a schema violation is reported beside the write, and --validate is what fa
   assert.equal(invalid.status, 1)
   assert.match(invalid.stdout, /^invalid$/m)
   assert.match(invalid.stdout, /allowed values/)
+
+  // --schema prints the path and nothing else, so it composes into a shell.
+  const named = awt(['frontmatter', '-w', notes, 'meta/one.md', '--schema'])
+  assert.equal(named.status, 0)
+  assert.equal(named.stdout.trim(), join(box.root, 'schemas', 'note.schema.json'))
+
+  // And it answers for a note that does not exist yet, which is the case it is for.
+  const ahead = awt(['frontmatter', '-w', notes, 'meta/not-written-yet.md', '--schema'])
+  assert.equal(ahead.stdout.trim(), join(box.root, 'schemas', 'note.schema.json'))
+
+  // A path outside the globs is unclaimed, and --validate says so rather than
+  // calling it valid.
+  writeFileSync(join(notes, 'elsewhere.md'), '---\ntitle: Elsewhere\ntype: bogus\n---\n\n# Elsewhere\n')
+  assert.match(awt(['frontmatter', '-w', notes, 'elsewhere.md', '--schema']).stdout, /no schema claims/)
+  const unchecked = awt(['frontmatter', '-w', notes, 'elsewhere.md', '--validate'])
+  assert.equal(unchecked.status, 0)
+  assert.match(unchecked.stdout, /unchecked/)
+  assert.doesNotMatch(unchecked.stdout, /^valid$/m)
 })
 
 test('index writes the artifact a Quartz build reads', (t) => {

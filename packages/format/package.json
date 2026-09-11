@@ -9,13 +9,15 @@
   },
   "dependencies": {
     "@agent-wiki-toolbox/syntax": "*",
+    "minimatch": "^9.0.3",
     "remark-lint-frontmatter-schema": "^3.15.4",
     "remark-parse": "^11.0.0",
     "remark-stringify": "^11.0.0",
     "remark-validate-links": "^13.1.0",
     "unified": "^11.0.5",
     "unified-engine": "^11.2.2",
-    "vfile": "^6.0.3"
+    "vfile": "^6.0.3",
+    "yaml": "^2.9.0"
   },
   "license": "MIT"
 }

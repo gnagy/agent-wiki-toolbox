@@ -340,10 +340,17 @@ function scalar(text) {
  * of the one command do not print in two shapes.
  */
 function frontmatterLines(report) {
+  // `--schema` prints the path and nothing else, so it composes: `cat "$(awt
+  // frontmatter x.md --schema)"`. The schema itself is on `--json`, where a
+  // program can read it without a second call.
+  if ('schemaContent' in report) return report.schema ?? 'no schema claims this path'
+
   // `--validate` is a question, and its answer is the violations rather than a
-  // list of what changed. A clean note says so in one line, because silence here
-  // reads as "it did not run".
+  // list of what changed. It has three answers, not two: a note nothing checked is
+  // not a note that passed, and saying `valid` about it is how a note outside the
+  // vocabulary stays invisible.
   if (report.violations && !('frontmatter' in report) && report.changed?.length === 0) {
+    if (!report.schema) return 'unchecked: no schema claims this path'
     if (report.violations.length === 0) return 'valid'
     return ['invalid', ...report.violations.map((one) => `  ${one}`)].join('\n')
   }
@@ -784,7 +791,7 @@ export const COMMANDS = [
     summary: "Read or write a note's front matter: the whole block, or one key",
     usage:
       'awt frontmatter <path>\n' +
-      '       awt frontmatter <path> --validate\n' +
+      '       awt frontmatter <path> --validate | --schema\n' +
       '       awt frontmatter <path> --get KEY | --set KEY=VALUE | --unset KEY\n' +
       '       awt frontmatter <path> --rename OLD=NEW | --append KEY=VALUE | --prepend KEY=VALUE\n' +
       '       awt frontmatter <path> --replace-block --derived < block.yaml',
@@ -802,6 +809,10 @@ export const COMMANDS = [
       'write rather than refusing it: one write is not the unit a schema applies to, and a migration',
       'passes through states no schema accepts on its way to one it does. --validate asks the same',
       'question on its own and exits non-zero when the note does not satisfy its schema.',
+      '',
+      '--schema names which schema claims a path and prints it. Ask it before writing a new note,',
+      'rather than reading a neighbour and inheriting whatever that one got wrong. The path need not',
+      'exist yet. No answer means no schema claims the path, and that is all it means.',
       '--replace-block reserialises the whole block, losing comments, quoting and flow sequences, so',
       'it is for front matter the toolbox owns and --derived is how you say so. It reads the object',
       'from stdin rather than argv, which is where markdown and YAML belong.',
@@ -812,6 +823,7 @@ export const COMMANDS = [
       ...WORKSPACE_OPTION,
       ...OUTPUT_OPTIONS,
       validate: {type: 'boolean', default: false},
+      schema: {type: 'boolean', default: false},
       get: {type: 'string'},
       set: {type: 'string'},
       unset: {type: 'string'},
@@ -830,7 +842,8 @@ export const COMMANDS = [
     async run({values, positionals}) {
       // Two operations in one call is a typo with two plausible readings, and
       // picking either silently is the failure this whole tool exists to remove.
-      const asked = ['validate', 'get', 'set', 'unset', 'rename', 'append', 'prepend', 'replace-block'].filter(
+      const operations = ['validate', 'schema', 'get', 'set', 'unset', 'rename', 'append', 'prepend', 'replace-block']
+      const asked = operations.filter(
         (flag) => values[flag] !== undefined && values[flag] !== false,
       )
       if (asked.length > 1) {
@@ -843,6 +856,7 @@ export const COMMANDS = [
       const [flag] = asked
 
       if (flag === 'validate') Object.assign(call, {operation: 'validate', scope: 'block'})
+      else if (flag === 'schema') Object.assign(call, {operation: 'schema', scope: 'block'})
       else if (flag === 'get') Object.assign(call, {operation: 'read', scope: 'content', key: values.get})
       else if (flag === 'unset') Object.assign(call, {operation: 'delete', scope: 'content', key: values.unset})
       else if (flag === 'set') Object.assign(call, {operation: 'replace', scope: 'content', ...pair(values.set, 'set')})
