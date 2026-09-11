@@ -940,3 +940,49 @@ test('format mode says how many had problems, and does not call them formatted',
   chmodSync(join(box.root, 'locked.md'), 0o644)
   assert.match(awt(['fmt', '-w', box.root]).stdout.split('\n')[0], /2 files formatted/)
 })
+
+/**
+ * `--json` on the site commands, which had none: they are the commands with the
+ * most to report, and `index` reported what it wrote as prose while taking the
+ * group's paths like every command around it.
+ *
+ * The thing worth asserting is not the fields but that **stdout is one document**.
+ * These commands narrate — a release build says what it is doing for minutes
+ * before it says what it did — so `--json` moves the commentary to stderr rather
+ * than turning it off. A second line above the document is the one thing a --json
+ * caller cannot be handed.
+ */
+test('site index reports as data, and says nothing else on stdout', (t) => {
+  const box = wiki({'a.md': '# A\n\nlinks to [[b]].\n', 'b.md': '# B\n\nand [[nowhere]].\n'})
+  t.after(() => box.cleanup())
+  const out = join(box.dir, 'graph.json')
+
+  const {status, stdout} = awt(['site', 'index', '--wiki', box.root, '--out', out, '--json'])
+  assert.equal(status, 0)
+  const report = JSON.parse(stdout)
+  assert.equal(report.ok, true)
+  assert.equal(report.notes, 2)
+  assert.equal(report.placeholders, 1)
+  assert.equal(report.out, out)
+
+  // The same run without --json still answers a person.
+  const human = awt(['site', 'index', '--wiki', box.root, '--out', out])
+  assert.match(human.stdout, /2 notes, .* 1 placeholders/)
+})
+
+/**
+ * `site setup` clones Quartz and runs npm install, so the full run is not a test.
+ * What is testable, and what would actually break, is that the flag reaches
+ * `bootstrap`'s own parser: it is a separate `parseArgs` in the publish package,
+ * and an option the CLI accepts and it does not fails there, under a command name
+ * that has nothing to do with the mistake.
+ */
+test('site setup passes --json through to its own parser', (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'awt-setup-')))
+  t.after(() => rmSync(dir, {recursive: true, force: true}))
+
+  const {status, stderr} = awt(['site', 'setup', '--json', '--site', dir])
+  assert.equal(status, 2)
+  assert.match(stderr, /a site directory needs its Quartz config/)
+  assert.doesNotMatch(stderr, /Unknown option/)
+})
