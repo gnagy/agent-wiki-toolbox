@@ -18,12 +18,13 @@ export function renameTag(notesDir, {from, to, workspace, dryRun} = {}) {
   if (from === to) throw refuse(verb, `"${from}" and "${to}" are the same tag`)
 
   const carriers = index.tags.get(from) ?? []
-  if (carriers.length === 0) {
-    // Re-run, or a typo. Both are worth saying out loud rather than reporting
-    // a silent success.
-    notes.push(`no note carries the tag "${from}"`)
-    return finish(verb, context, {notes})
-  }
+  // A re-run or a typo, and the verb cannot tell them apart — so it refuses, the
+  // way `deleteNote` and `mergeFiles` do about a note that is not there. It used
+  // to say this in a note and still report `ok` and exit 0, which is the reading
+  // a person takes from the verdict line and the only thing a script can see.
+  // Nothing is lost by refusing: renaming a tag no note carries is not work that
+  // was done, and `awt search --tag` is what says which tags exist.
+  if (carriers.length === 0) throw refuse(verb, `no note carries the tag "${from}"`)
 
   for (const path of carriers) {
     const tree = parseNote(context, path)

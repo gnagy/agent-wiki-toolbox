@@ -45,12 +45,30 @@ export function mergeFiles(notesDir, {sources, into, depth = 2, source, workspac
 
   const present = sourcePaths.filter((path) => index.get(path))
   const missing = sourcePaths.filter((path) => !index.get(path))
-  // A path this wiki has never held is a refusal. Calling it already merged
-  // reports success for a note the caller can still see on disk.
-  const strangers = missing.filter((path) => !namesANote(notesDir, path))
-  if (strangers.length > 0) throw refuse(verb, `not a note in ${notesDir}: ${strangers.join(', ')}`)
-  if (missing.length > 0) notes.push(`already merged, and skipped: ${missing.join(', ')}`)
-  if (present.length === 0) return finish(verb, context, {notes})
+  // A source that is not a note is a refusal, and the whole call is refused
+  // rather than the rest merged around it.
+  //
+  // This used to say `already merged, and skipped`, report `ok` and exit 0 — for
+  // a path the wiki may never have held. The guard meant to catch that was
+  // `namesANote`, which only tests that a path is *inside* the notes directory,
+  // so it never fired for an in-wiki one and a mistyped source came back as
+  // success about a merge that never happened. The same guard, the same way, was
+  // why `deleteNote` called a note that never existed already deleted.
+  //
+  // Idempotency was the argument and it does not survive here either: a verb
+  // cannot tell a re-run from a typo, and a typo is the likelier input. Refusing
+  // the batch rather than merging around the gap keeps the failure cheap —
+  // nothing is written, the message names what is missing, and the fixed call
+  // does the whole job in one go.
+  if (missing.length > 0) {
+    const strangers = missing.filter((path) => !namesANote(notesDir, path))
+    throw refuse(
+      verb,
+      strangers.length > 0
+        ? `not a note in ${notesDir}: ${strangers.join(', ')}`
+        : `no note at ${missing.join(', ')}`,
+    )
+  }
 
   const targetTree = parseNote(context, intoPath)
   const anchorOf = createAnchorSlugger()

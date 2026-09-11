@@ -125,29 +125,43 @@ async function layoutFor(command, values) {
  *
  * A short flag is earned by frequency across the whole tool, not by one command's
  * convenience — `-w` is on every command that works on a wiki and qualifies twice
- * over. `-c` and `-q` are on one command each and do not, but they are kept:
- * removing them breaks muscle memory to enforce a rule nobody is hurt by, and the
- * rule they offend is about *adding* the next one. Declaring them is what makes
- * that distinction enforceable instead of a sentence in a note.
+ * over. `-q` is on one command and does not, but it is kept: removing it breaks
+ * muscle memory to enforce a rule nobody is hurt by, and the rule it offends is
+ * about *adding* the next one. Declaring the set is what makes that distinction
+ * enforceable instead of a sentence in a note.
+ *
+ * `-c` went with `--check`, which it shortened. It was not removed on the short
+ * flag's own account.
  *
  * A letter means the same thing everywhere, which is the other half of the test.
  */
-export const SHORT_FLAGS = {w: 'workspace', c: 'check', q: 'quiet'}
+export const SHORT_FLAGS = {w: 'workspace', q: 'quiet'}
 
 /**
- * **Flags allowed to share a name with a command, and why.**
+ * **Flags allowed to share a name with a command, and why. Currently none.**
  *
- * The rule is that they do not: `awt check` and `awt fmt --check` are unrelated
- * operations, and a reader who knows one learns the wrong thing about the other.
- * `fmt --dry-run` is the spelling now, which is what the rest of the tool calls
- * this, and the hooks and the skill in this repo say so. `--check` is kept because
- * a hook **already installed** on a machine runs `awt fmt --check`, and an
- * installed copy cannot be migrated by editing this repo — it only changes on the
- * next `scripts/install`. The exception is finite rather than permanent, and this
- * is the register that says when it can go: when no installed hook types it.
+ * The rule is that they do not: `awt check` and `awt fmt --check` were unrelated
+ * operations, and a reader who knew one learned the wrong thing about the other.
+ * `--check` lived here for one release, while a `Stop` hook installed before the
+ * rename still typed it; the install of 2026-09-11 replaced that hook and the flag
+ * went. An empty register is the honest state, and it is kept rather than deleted
+ * because it is where the next exception gets argued instead of smuggled.
  */
-export const NAME_COLLISIONS = {
-  'fmt --check': 'a Stop hook installed before this release types it; --dry-run is the spelling',
+export const NAME_COLLISIONS = {}
+
+/**
+ * **Flags this campaign renamed, and what they are now.**
+ *
+ * Not deprecation — neither spelling still works — but an answer for the one
+ * person or hook that types the old one. `parseErrorMessage` is the precedent:
+ * node's text for an unknown option ends in advice about `--` that is right for
+ * someone with a file called `--check` and wrong for everyone else. Entries come
+ * out when nothing types them, the way `--check` itself came out of the register
+ * above.
+ */
+export const RENAMED_FLAGS = {
+  'fmt --check': '--dry-run',
+  'site serve --wsPort': '--ws-port',
 }
 
 const WORKSPACE_OPTION = {workspace: {type: 'string', short: 'w'}}
@@ -319,12 +333,10 @@ export const COMMANDS = [
     summary: "Format markdown in IntelliJ's style, inside a wiki or on a lone file",
     usage:
       'awt fmt [paths...] [--verbose]\n' +
-      '       awt fmt --dry-run|--check [paths...]\n' +
+      '       awt fmt --dry-run [paths...]\n' +
       '       awt fmt --stdin',
     positionals: 'any',
     notes: [
-      '--dry-run is the spelling. --check is the same flag, kept because a Stop hook installed',
-      'before this release types it; it goes when none does.',
       'With -w, paths are relative to the notes directory. Without it, a path is tried against the',
       'current directory first and the notes directory second; --json reports which as `base`.',
       'With no path, no -w and no `files` in the config, the whole wiki is formatted.',
@@ -332,11 +344,7 @@ export const COMMANDS = [
     options: {
       ...WORKSPACE_OPTION,
       ...OUTPUT_OPTIONS,
-      // --check is --dry-run under the name the installed Stop hook types. Two
-      // booleans rather than an alias, because parseArgs has no aliases and the
-      // register above is where the exception is argued.
       'dry-run': {type: 'boolean', default: false},
-      check: {type: 'boolean', short: 'c', default: false},
       stdin: {type: 'boolean', default: false},
       verbose: {type: 'boolean', default: false},
     },
@@ -347,7 +355,7 @@ export const COMMANDS = [
      * directory; the config comes from the files named rather than from the cwd.
      */
     async run({values, positionals}) {
-      const checking = values['dry-run'] || values.check
+      const checking = values['dry-run']
       let cwd = process.cwd()
       let base = 'cwd'
       if (values.workspace) {

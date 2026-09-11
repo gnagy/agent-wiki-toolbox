@@ -16,7 +16,16 @@
 import {parseArgs} from 'node:util'
 import process from 'node:process'
 
-import {COMMANDS, COMMON_OPTIONS, GROUPS, SECTIONS, commandPath, optionsFor, version} from '../lib/commands.js'
+import {
+  COMMANDS,
+  COMMON_OPTIONS,
+  GROUPS,
+  RENAMED_FLAGS,
+  SECTIONS,
+  commandPath,
+  optionsFor,
+  version,
+} from '../lib/commands.js'
 
 const flat = new Map(COMMANDS.filter((command) => !command.group).map((command) => [command.name, command]))
 const groups = new Map(GROUPS.map((group) => [group.name, group]))
@@ -154,14 +163,24 @@ function usage(command) {
  * `-w` meaning the workspace is guaranteed to be shown — following it looks for a
  * file by that name. `-w` is on every command that works on a wiki, so being
  * refused it is a real question about this command, and this answers that instead.
+ *
+ * A flag this campaign renamed gets the same treatment, for the same reason: the
+ * hands and the hooks that learned the old spelling are real, and neither is
+ * helped by advice about quoting. It is not deprecation — the old flag does not
+ * work — and `RENAMED_FLAGS` empties as nothing types them.
+ *
  * Every other option keeps Node's wording, which is right for a typo.
  */
 function parseErrorMessage(error, command) {
   const [, flag] = /Unknown option '([^']+)'/.exec(error.message) ?? []
+  const path = commandPath(command).join(' ')
+
+  const now = RENAMED_FLAGS[`${path} ${flag}`]
+  if (now) return `${flag} is now ${now}.`
+
   if (flag !== '-w' && flag !== '--workspace') return error.message
 
   const declared = Object.keys(optionsFor(command)).map((option) => `--${option}`)
-  const path = commandPath(command).join(' ')
   if (declared.includes('--wiki')) {
     return `${path} takes --wiki and --site, not -w/--workspace.`
   }

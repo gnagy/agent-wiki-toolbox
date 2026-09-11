@@ -18,6 +18,7 @@ import {
   COMMON_OPTIONS,
   GROUPS,
   NAME_COLLISIONS,
+  RENAMED_FLAGS,
   SECTIONS,
   SHORT_FLAGS,
   commandPath,
@@ -242,7 +243,7 @@ test('check --quiet prints the problems and nothing else', (t) => {
 })
 
 /**
- * `awt fmt --check` on this wiki was 76 lines of "no issues found" — the one output
+ * `awt fmt --dry-run` on this wiki was 76 lines of "no issues found" — the one output
  * on the binary long enough to need a `| head`, which is where an exit code dies.
  * Every comparable formatter reports the exceptions and summarises the rest.
  */
@@ -250,12 +251,12 @@ test('fmt reports what is wrong and counts the rest', (t) => {
   const box = wiki({'a.md': '# A\n\n- fine\n', 'b.md': '# B\n\n- also fine\n'})
   t.after(() => box.cleanup())
 
-  const clean = awt(['fmt', '-w', box.root, '--check'])
+  const clean = awt(['fmt', '-w', box.root, '--dry-run'])
   assert.equal(clean.status, 0)
   assert.equal(clean.stdout, '2 files checked, all clean\n')
 
   writeFileSync(join(box.root, 'b.md'), '# B\n\n* not fine\n')
-  const dirty = awt(['fmt', '-w', box.root, '--check'])
+  const dirty = awt(['fmt', '-w', box.root, '--dry-run'])
   assert.equal(dirty.status, 1)
   // The verdict is the first line, not the last — the end is what a pipe drops.
   assert.equal(dirty.stdout.split('\n')[0], '2 files checked, 1 with problems')
@@ -269,10 +270,10 @@ test('fmt --verbose brings back the file-by-file listing', (t) => {
   const box = wiki({'a.md': '# A\n\n- fine\n', 'b.md': '# B\n\n- also fine\n'})
   t.after(() => box.cleanup())
 
-  const quiet = awt(['fmt', '-w', box.root, '--check'])
+  const quiet = awt(['fmt', '-w', box.root, '--dry-run'])
   assert.doesNotMatch(quiet.stdout + quiet.stderr, /a\.md/)
 
-  const loud = awt(['fmt', '-w', box.root, '--check', '--verbose'])
+  const loud = awt(['fmt', '-w', box.root, '--dry-run', '--verbose'])
   assert.match(loud.stderr, /a\.md/)
   assert.match(loud.stderr, /b\.md/)
   assert.match(loud.stdout, /2 files checked, all clean/)
@@ -320,7 +321,7 @@ test('fmt formats a standalone file with no wiki anywhere near it', (t) => {
   writeFileSync(file, '# Rules\n\n* one\n* two\n')
 
   assert.equal(awt(['fmt', file]).status, 0)
-  assert.equal(awt(['fmt', '--check', file]).status, 0)
+  assert.equal(awt(['fmt', '--dry-run', file]).status, 0)
 })
 
 /**
@@ -332,7 +333,7 @@ test('fmt takes -w, and its paths are then the wiki\'s own', (t) => {
   const box = wiki({'meta/conventions.md': '# Conventions\n\n* one\n* two\n'})
   t.after(() => box.cleanup())
 
-  assert.equal(awt(['fmt', '-w', box.root, '--check', 'meta/conventions.md']).status, 1)
+  assert.equal(awt(['fmt', '-w', box.root, '--dry-run', 'meta/conventions.md']).status, 1)
   assert.equal(awt(['fmt', '-w', box.root, 'meta/conventions.md']).status, 0)
   assert.equal(readFileSync(join(box.root, 'meta/conventions.md'), 'utf8'), '# Conventions\n\n- one\n- two\n')
 
@@ -481,7 +482,7 @@ test('the old docs/wiki + site layout still resolves, and says so once', (t) => 
 })
 
 /**
- * `awt fmt --check` with nothing named, inside a project, means the wiki — as a
+ * `awt fmt --dry-run` with nothing named, inside a project, means the wiki — as a
  * bare `awt check` does — rather than every markdown file under the cwd. The
  * README beside the config is not a note and must not be reported.
  */
@@ -493,12 +494,12 @@ test('with no path, fmt inside a project means the notes', (t) => {
   mkdirSync(join(dir, 'wiki/notes'), {recursive: true})
   writeFileSync(join(dir, 'wiki/notes/index.md'), '# W\n\n- fine\n')
 
-  const {status, stdout} = awt(['fmt', '--check'], {cwd: dir})
+  const {status, stdout} = awt(['fmt', '--dry-run'], {cwd: dir})
   assert.equal(status, 0, stdout)
   assert.match(stdout, /^1 file checked, all clean/)
 
   // A path still names what to format, project or not.
-  assert.equal(awt(['fmt', '--check', 'README.md'], {cwd: dir}).status, 1)
+  assert.equal(awt(['fmt', '--dry-run', 'README.md'], {cwd: dir}).status, 1)
 })
 
 /**
@@ -514,24 +515,24 @@ test('fmt resolves a path against the cwd, then against the notes, and says whic
   writeFileSync(join(dir, 'wiki/notes/meta/conventions.md'), '# C\n\n* unformatted\n')
   writeFileSync(join(dir, 'README.md'), '# R\n\n- fine\n')
 
-  const viaNotes = awt(['fmt', '--check', '--json', 'meta/conventions.md'], {cwd: dir})
+  const viaNotes = awt(['fmt', '--dry-run', '--json', 'meta/conventions.md'], {cwd: dir})
   assert.equal(viaNotes.status, 1, viaNotes.stderr)
   const notesReport = JSON.parse(viaNotes.stdout)
   assert.equal(notesReport.base, 'notes')
   assert.equal(notesReport.files, 1)
   assert.equal(notesReport.ok, false)
 
-  const viaCwd = awt(['fmt', '--check', '--json', 'README.md'], {cwd: dir})
+  const viaCwd = awt(['fmt', '--dry-run', '--json', 'README.md'], {cwd: dir})
   assert.equal(viaCwd.status, 0, viaCwd.stderr)
   assert.equal(JSON.parse(viaCwd.stdout).base, 'cwd')
 
   // A path that exists against neither is reported, and the base stays the cwd.
-  const missing = awt(['fmt', '--check', '--json', 'nowhere.md'], {cwd: dir})
+  const missing = awt(['fmt', '--dry-run', '--json', 'nowhere.md'], {cwd: dir})
   assert.notEqual(missing.status, 0)
   assert.equal(JSON.parse(missing.stdout).base, 'cwd')
 
   // -w names the base outright.
-  const explicit = awt(['fmt', '--check', '--json', '-w', join(dir, 'wiki/notes'), 'meta/conventions.md'])
+  const explicit = awt(['fmt', '--dry-run', '--json', '-w', join(dir, 'wiki/notes'), 'meta/conventions.md'])
   assert.equal(JSON.parse(explicit.stdout).base, 'workspace')
 })
 
@@ -660,8 +661,8 @@ test('every option is kebab-case', () => {
  * says it writes. The biconditional is the point: a one-way rule lets the marker
  * rot, and the marker is what the next command is checked against.
  *
- * `fmt` is the seventh writer and had only `--check`, which is the same flag under
- * a name the installed Stop hook types. It has both now.
+ * `fmt` is the seventh writer and had only `--check`, which was the same flag under
+ * a name that collided with the `check` command. It is `--dry-run` now.
  */
 test('a command that writes takes --dry-run, and nothing else claims to', () => {
   for (const command of COMMANDS) {
@@ -691,10 +692,10 @@ test('every command that answers a question takes --json, and a server does not'
 })
 
 /**
- * A flag and a command do not share a name. `awt check` and `awt fmt --check` are
- * unrelated operations, and a reader who knows one learns the wrong thing about
- * the other. The register is where an exception is argued rather than smuggled,
- * and it carries the reason -- an installed hook cannot be migrated from here.
+ * A flag and a command do not share a name. `awt check` and `awt fmt --check` were
+ * unrelated operations, and a reader who knew one learned the wrong thing about
+ * the other. The register is empty now, and kept: it is where the next exception
+ * gets argued rather than smuggled, and it carries the reason.
  */
 test('no flag shares a name with a command, except where the register says why', () => {
   const commands = new Set(COMMANDS.map((one) => one.name))
@@ -737,21 +738,43 @@ test('every short flag is declared, and a letter means one thing', () => {
 })
 
 /**
- * The flag the Stop hook types keeps working, and means what --dry-run means.
- * This is a behaviour test rather than a table one because what is at stake is
- * that an installed hook does not start failing on a release of this repo.
+ * `--check` is gone, and the person who types it is told what to type instead.
+ *
+ * Not deprecation -- it does not work -- but node's text for an unknown option
+ * ends in advice about `--` that is right for someone with a file called
+ * `--check` and wrong for everyone else. RENAMED_FLAGS is read for exactly the
+ * hands and hooks that learned the old spelling during this campaign.
  */
-test('fmt --check is fmt --dry-run, and both leave the file alone', (t) => {
+test('a flag this campaign renamed is answered by name, not by node', () => {
+  for (const [key, now] of Object.entries(RENAMED_FLAGS)) {
+    const args = key.split(' ')
+    const flag = args.at(-1)
+    const {status, stderr} = awt(args)
+    assert.equal(status, 2, key)
+    // The sentence itself, not `now` appearing somewhere in the usage block below.
+    assert.ok(stderr.includes(`${flag} is now ${now}.`), `${key}: stderr was\n${stderr}`)
+    assert.doesNotMatch(stderr, /place it at the end/, `${key} fell through to node's advice`)
+  }
+  // And the register does not outlive what it answers for: a flag that is back
+  // would make this a lie.
+  for (const key of Object.keys(RENAMED_FLAGS)) {
+    const args = key.split(' ')
+    assert.doesNotMatch(awt([...args.slice(0, -1), '--help']).stdout, new RegExp(`\\${args.at(-1)}\\b`), key)
+  }
+})
+
+/**
+ * And the flag it became does what it did: reports, writes nothing.
+ */
+test('fmt --dry-run reports without writing', (t) => {
   const box = wiki({'messy.md': '# Messy\n\n* a bullet\n'})
   t.after(() => box.cleanup())
   const before = readFileSync(join(box.root, 'messy.md'), 'utf8')
 
-  for (const flag of ['--check', '--dry-run']) {
-    const {status, stdout} = awt(['fmt', flag, '-w', box.root])
-    assert.equal(status, 1, `fmt ${flag}`)
-    assert.match(stdout, /1 file checked, 1 with problems/)
-    assert.equal(readFileSync(join(box.root, 'messy.md'), 'utf8'), before, `fmt ${flag} wrote`)
-  }
+  const {status, stdout} = awt(['fmt', '--dry-run', '-w', box.root])
+  assert.equal(status, 1)
+  assert.match(stdout, /1 file checked, 1 with problems/)
+  assert.equal(readFileSync(join(box.root, 'messy.md'), 'utf8'), before, 'fmt --dry-run wrote')
 
   const formatted = awt(['fmt', '-w', box.root])
   assert.equal(formatted.status, 0, formatted.stderr)
@@ -759,47 +782,66 @@ test('fmt --check is fmt --dry-run, and both leave the file alone', (t) => {
 })
 
 /**
- * `--json` on the site commands, which had none: they are the commands with the
- * most to report, and `index` reported what it wrote as prose while taking the
- * group's paths like every command around it.
+ * §5 of the argument shape, as a test per command rather than as a table in a
+ * note: **0 means it ran and found nothing to report, 1 means it ran and did not
+ * succeed or found what it looks for, 2 means the invocation was wrong and
+ * nothing ran.**
  *
- * The thing worth asserting is not the fields but that **stdout is one document**.
- * These commands narrate — a release build says what it is doing for minutes
- * before it says what it did — so `--json` moves the commentary to stderr rather
- * than turning it off. A second line above the document is the one thing a --json
- * caller cannot be handed.
+ * The half that breaks is `a command that cannot do its job must not exit 0`, and
+ * it breaks the same way every time: a verb that cannot tell a re-run from a typo
+ * calls the typo a re-run and reports success. `delete` did it about a note that
+ * never existed; `merge` did it about sources it had never held, under the words
+ * *already merged*; `rename-tag` did it about a tag no note carries. All three
+ * came from the same guard, `namesANote`, which only tests that a path is inside
+ * the notes directory. This is the assertion that keeps the fourth one from
+ * shipping.
  */
-test('site index reports as data, and says nothing else on stdout', (t) => {
-  const box = wiki({'a.md': '# A\n\nlinks to [[b]].\n', 'b.md': '# B\n\nand [[nowhere]].\n'})
+test('a command that cannot do its job does not exit 0', (t) => {
+  const box = wiki({
+    // An ambiguous link, not a placeholder: `[[nowhere]]` is reported separately
+    // and deliberately does not affect check's exit code, so a fixture built on
+    // one asserts nothing here.
+    'a.md': '---\ntags: [real]\n---\n\n# A\n\nLinks to [[b]] and to [[dup]].\n',
+    'b.md': '# B\n',
+    'x/dup.md': '# Dup\n',
+    'y/dup.md': '# Dup\n',
+    'messy.md': '# Messy\n\n* a bullet\n',
+  })
   t.after(() => box.cleanup())
-  const out = join(box.dir, 'graph.json')
+  const w = ['-w', box.root]
 
-  const {status, stdout} = awt(['site', 'index', '--wiki', box.root, '--out', out, '--json'])
-  assert.equal(status, 0)
-  const report = JSON.parse(stdout)
-  assert.equal(report.ok, true)
-  assert.equal(report.notes, 2)
-  assert.equal(report.placeholders, 1)
-  assert.equal(report.out, out)
+  const cannot = [
+    ['check', ['check', ...w], 'a wiki with an ambiguous link'],
+    ['search', ['search', 'zzzznomatch', ...w], 'no match'],
+    ['resolve', ['resolve', 'nowhere', ...w], 'a target that resolves to nothing'],
+    ['connections', ['connections', 'missing.md', ...w], 'a note that is not there'],
+    ['delete', ['delete', 'missing.md', ...w], 'a note that is not there'],
+    ['move', ['move', 'missing.md', 'x.md', ...w], 'a source that is not there'],
+    ['rename-tag', ['rename-tag', 'nosuchtag', 'other', ...w], 'a tag no note carries'],
+    ['merge', ['merge', 'missing.md', '--into', 'a.md', '--source', 'keep', ...w], 'a source that is not there'],
+    ['split', ['split', 'a.md', '--source', 'keep', '--section', 'Nosuch=out.md', ...w], 'a heading that is not there'],
+    ['listing', ['listing', ...w], 'a wiki with no listing file'],
+    ['fmt', ['fmt', '--dry-run', ...w], 'a note that is not formatted'],
+  ]
 
-  // The same run without --json still answers a person.
-  const human = awt(['site', 'index', '--wiki', box.root, '--out', out])
-  assert.match(human.stdout, /2 notes, .* 1 placeholders/)
+  for (const [name, args, what] of cannot) {
+    const {status, stdout, stderr} = awt(args)
+    assert.equal(status, 1, `awt ${name} on ${what}: exit ${status}\n${stdout}${stderr}`)
+    // And it does not call the failure a success in the text either, which is
+    // what a person reads and what every one of these got wrong first.
+    assert.doesNotMatch(stdout, /^\w+: ok$/m, `awt ${name} on ${what} reported ok`)
+  }
 })
 
 /**
- * `site setup` clones Quartz and runs npm install, so the full run is not a test.
- * What is testable, and what would actually break, is that the flag reaches
- * `bootstrap`'s own parser: it is a separate `parseArgs` in the publish package,
- * and an option the CLI accepts and it does not fails there, under a command name
- * that has nothing to do with the mistake.
+ * The other end of the same rule. An option a command does not take is a wrong
+ * invocation, and nothing runs — including for the two servers, which are refused
+ * by the dispatcher before they bind anything.
  */
-test('site setup passes --json through to its own parser', (t) => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'awt-setup-')))
-  t.after(() => rmSync(dir, {recursive: true, force: true}))
-
-  const {status, stderr} = awt(['site', 'setup', '--json', '--site', dir])
-  assert.equal(status, 2)
-  assert.match(stderr, /a site directory needs its Quartz config/)
-  assert.doesNotMatch(stderr, /Unknown option/)
+test('every command exits 2 on an option it does not take', () => {
+  for (const command of COMMANDS) {
+    const path = commandPath(command)
+    const {status} = awt([...path, '--definitely-not-a-flag'])
+    assert.equal(status, 2, `awt ${path.join(' ')} --definitely-not-a-flag`)
+  }
 })

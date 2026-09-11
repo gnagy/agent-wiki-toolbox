@@ -1,5 +1,5 @@
 ---
-description: The link graph and the formatting in one answer — run `awt check` and `awt fmt --check` together and report once, keeping the distinction between a problem and a placeholder that the tool already draws.
+description: The link graph and the formatting in one answer — run `awt check` and `awt fmt --dry-run` together and report once, keeping the distinction between a problem and a placeholder that the tool already draws.
 ---
 
 # Check this wiki
@@ -9,7 +9,7 @@ answer.
 
 ```shell
 awt check
-awt fmt --check
+awt fmt --dry-run
 ```
 
 **Confirm it is pointed at the right wiki before reading anything into the numbers.** The `--json`
@@ -20,7 +20,7 @@ fixtures produces dozens of ambiguous links, and every one of them is noise. If 
 this project's wiki, say so and stop rather than reporting the result.
 
 **Neither exit code is the answer by itself.** `awt check` exits non-zero for problems and for
-nothing else it reports; `awt fmt --check` exits non-zero for a file that is unformatted *or* whose
+nothing else it reports; `awt fmt --dry-run` exits non-zero for a file that is unformatted *or* whose
 front matter the schemas reject. Run both, then answer once.
 
 ## What the answer has to keep apart
@@ -33,7 +33,7 @@ report. The skill's *Reading* section says what each category is.
 | `problems`                            | These are the failures. Name each one and fix it with the verbs before finishing      |
 | `placeholders`, `orphans`, `deadends` | Give the counts. Name individual ones only if asked, or if a count moved unexpectedly |
 | `unreferenced`, `crossWikiLinks`      | Counts, same rule                                                                     |
-| `awt fmt --check`                     | Name the files. A schema rejection is a different thing from unformatted; say which   |
+| `awt fmt --dry-run`                   | Name the files. A schema rejection is a different thing from unformatted; say which   |
 
 **Do not promote a placeholder to a failure.** Every working wiki has a backlog of links to notes
 nobody has written, and reporting them as breakage teaches the reader to ignore the whole report.

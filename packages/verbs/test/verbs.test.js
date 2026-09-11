@@ -476,13 +476,33 @@ test('mergeFiles appends each source as a section and repoints its links', (t) =
   assert.match(box.read('analysis/ref.md'), /\[\[target#alpha]] and \[\[target#beta]]/)
   assert.equal(box.exists('design/a.md'), false)
 
-  const second = mergeFiles(box.root, {
-    sources: ['design/a.md', 'design/b.md'],
-    into: 'design/target.md',
-    source: 'delete',
-  })
-  assert.match(second.notes.join(' '), /already merged/)
-  assert.equal(box.read('design/target.md'), target, 'a second run changes nothing')
+  // A second run refuses, as a second delete does. It used to say `already
+  // merged`, report ok and exit 0 -- about sources it could not tell apart from
+  // a typo, and for paths the wiki may never have held at all.
+  assert.throws(
+    () =>
+      mergeFiles(box.root, {
+        sources: ['design/a.md', 'design/b.md'],
+        into: 'design/target.md',
+        source: 'delete',
+      }),
+    /no note at/,
+  )
+  assert.equal(box.read('design/target.md'), target, 'a refused run changes nothing')
+
+  // And one missing source refuses the batch rather than merging around the gap:
+  // nothing is half-written, and the fixed call does the whole job in one go.
+  box.write('design/c.md', `${front('Gamma')}Gamma body.\n`)
+  assert.throws(
+    () =>
+      mergeFiles(box.root, {
+        sources: ['design/c.md', 'design/a.md'],
+        into: 'design/target.md',
+        source: 'keep',
+      }),
+    /no note at design\/a\.md/,
+  )
+  assert.equal(box.read('design/target.md'), target, 'a refused batch merges none of it')
 })
 
 test('mergeFiles takes the paths as the shell shows them, and refuses one outside the wiki', (t) => {
@@ -579,8 +599,10 @@ test('renameTag rewrites front matter and merges a collision', (t) => {
   assert.match(box.read('b.md'), /tags: \[new]/, 'a note carrying both ends up with one')
   assert.match(box.read('d.md'), /tags:\n {2}- new\n {2}- keep/)
 
-  const second = renameTag(box.root, {from: 'old', to: 'new'})
-  assert.match(second.notes.join(' '), /no note carries/)
+  // A second run refuses. A re-run and a typo are the same input to this verb,
+  // and it used to report `ok` and exit 0 for both -- so `awt rename-tag draaft
+  // draft` came back as success about a rename that did not happen.
+  assert.throws(() => renameTag(box.root, {from: 'old', to: 'new'}), /no note carries the tag "old"/)
 })
 
 test('renameTag keeps a comment in the front matter it edits', (t) => {

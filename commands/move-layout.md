@@ -58,7 +58,7 @@ it is idempotent.
   glob still spelling out `wiki/notes/` matches nothing and says nothing, because the layout anchors
   globs to the notes directory. **This is the one edit that fails silently if skipped.**
 
-Then `awt fmt --check` from the project root and confirm the schemas fire: introduce a deliberate bad
+Then `awt fmt --dry-run` from the project root and confirm the schemas fire: introduce a deliberate bad
 `status` in one note, see it reported, revert it.
 
 ## 4. Shrink what named the path
@@ -92,7 +92,7 @@ if it is yours.
 
 ```shell
 awt check                         # notesDir is wiki/notes, and no legacy line
-awt fmt --check                   # formatting and the schemas
+awt fmt --dry-run                   # formatting and the schemas
 git status                        # nothing untracked that used to be ignored
 ```
 
