@@ -126,7 +126,7 @@ if [[ "$dry" != "true" ]]; then
   awt="$plugin/bin/awt"
   [[ -x "$awt" ]] || awt=$(command -v awt 2>/dev/null || true)
 
-  if [[ -n "$awt" && -x "$awt" ]] && listing=$(cd "$root" && "$awt" build-listing --json 2>/dev/null); then
+  if [[ -n "$awt" && -x "$awt" ]] && listing=$(cd "$root" && "$awt" listing --json 2>/dev/null); then
     written=$(jq -r '(.changed // [])[]' <<<"$listing" 2>/dev/null)
     if [[ -n "$written" ]]; then
       add "The index listing was regenerated, so its rows match the wiki again:"
