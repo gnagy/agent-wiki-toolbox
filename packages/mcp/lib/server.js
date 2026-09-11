@@ -1,5 +1,5 @@
 /**
- * The agent-facing surface: thirteen tools. Each answers something that cannot be
+ * The agent-facing surface: fourteen tools. Each answers something that cannot be
  * answered by opening a file; reading a note and writing prose into it are left
  * to the agent's own file tools.
  *
@@ -13,6 +13,7 @@ import {check, loadWorkspace} from '@agent-wiki-toolbox/core'
 import {
   buildListing,
   deleteNote,
+  frontmatter,
   mergeFiles,
   moveNote,
   renameNote,
@@ -216,6 +217,63 @@ export function createServer({
       (args, w) => buildListing(w.notesDir, args),
     ],
   ]
+
+  /**
+   * Front matter is its own domain, so it is its own tool rather than a `metadata`
+   * argument on the write verbs: nothing addresses across the two, and the two
+   * hazards are unrelated. One tool carries read and write because they are one
+   * command — the operation axis says which.
+   *
+   * Like `fmt`, it has a read half that a read-only mount serves: asking what a
+   * note's front matter holds is an ordinary read. A write operation on such a
+   * server is told so rather than quietly given the read.
+   */
+  const FRONTMATTER_DESCRIPTION =
+    "Read or write one note's front matter: the whole block, or one key. operation is read, replace, " +
+    'delete, append or prepend; scope is block, content (a key) or marker (a key\'s name). ' +
+    'replace+content sets a key, replace+marker renames one leaving the value, append/prepend add to a ' +
+    'sequence-valued key like tags. Every write is checked against the schema for that path and refused ' +
+    'if it violates it. Replacing the block wholesale reserialises it, losing comments and quoting, so it ' +
+    'needs derived: true and is only for front matter the toolbox owns. The markdown body is not reachable ' +
+    'from here.' +
+    (allowWrites ? '' : ' This server is read-only: only operation: "read" is available.')
+
+  server.tool(
+    'frontmatter',
+    FRONTMATTER_DESCRIPTION,
+    {
+      path: z.string().describe('workspace-relative path, e.g. design/foo.md'),
+      operation: z.enum(['read', 'replace', 'delete', 'append', 'prepend']).optional().describe('default read'),
+      scope: z.enum(['block', 'content', 'marker']).optional().describe('default content when a key is named, else block'),
+      key: z.string().optional().describe('the front-matter field'),
+      // Whatever YAML holds: a string, a number, a list item, or the whole object
+      // at block scope. A narrower schema here would be this tool inventing a
+      // front-matter vocabulary, which is the schema's job and not a tool's.
+      value: z.any().optional().describe("the value to write; for scope marker, the key's new name"),
+      derived: z
+        .boolean()
+        .optional()
+        .describe('required for scope block: this front matter is the toolbox\'s to write, not an author\'s'),
+      dryRun: DRY_RUN,
+    },
+    async (args) => {
+      const w = await wiki()
+      if (!w) return noWiki()
+      const operation = args?.operation ?? 'read'
+      if (!allowWrites && operation !== 'read') {
+        return reply({
+          error:
+            `this server was started read-only, so frontmatter can only read. Use operation: "read" to see ` +
+            'what this note holds, or start the server with --allow-writes to change it.',
+        })
+      }
+      try {
+        return reply(await frontmatter(w.notesDir, args))
+      } catch (error) {
+        return reply(error.report ?? {ok: false, error: error.message})
+      }
+    },
+  )
 
   /**
    * `fmt` is the one write with a read half, so it is registered here rather than

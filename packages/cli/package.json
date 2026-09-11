@@ -12,7 +12,8 @@
     "@agent-wiki-toolbox/format": "*",
     "@agent-wiki-toolbox/mcp": "*",
     "@agent-wiki-toolbox/publish": "*",
-    "@agent-wiki-toolbox/verbs": "*"
+    "@agent-wiki-toolbox/verbs": "*",
+    "yaml": "^2.9.0"
   },
   "license": "MIT",
   "bin": {

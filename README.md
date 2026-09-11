@@ -72,6 +72,8 @@ awt check                        # everything wrong with the link graph, in one 
 awt search 'unique basenames'    # note bodies, titles, front matter and tags
 awt move a.md design/a.md        # …rewriting every link into it
 awt move a.md b.md               # no folder in the destination means rename
+awt frontmatter a.md             # the whole block, as the note holds it
+awt frontmatter a.md --set status=stable    # …one key, checked against the schema
 awt mcp --allow-writes           # the MCP server, over stdio
 
 awt site setup                   # clone or re-pin the renderer a site builds from
@@ -86,6 +88,13 @@ flag family (`--wiki`, `--site`) that nothing else has, which is the test: **a g
 the definition of what the group is**, so grouping the graph reads under their `-w` and `--json` —
 the tool's defaults — would have defined nothing. `awt site setup` also stops a command name
 carrying the renderer's.
+
+**Front matter is its own command, and the markdown body is not reachable from it.** They are two
+documents that happen to share a file: different parsers, different addresses — a key against a node
+path — and unrelated hazards. `awt frontmatter` reads the block or one key, sets, renames, drops or
+appends to one, and **refuses a write the schema for that path rejects**, which is the same check
+`awt fmt --dry-run` reports after the fact. Replacing the whole block reserialises it and loses an
+author's comments and quoting, so it needs `--derived` and takes its object from stdin.
 
 **Every command finds the project from anywhere inside it**, by walking up to `awt.config.mjs` at
 the project root. That file names the wiki's home once, and every other directory is a fixed name

@@ -17,6 +17,7 @@
         "@agent-wiki-toolbox/mcp": "*",
         "@agent-wiki-toolbox/publish": "*",
         "@agent-wiki-toolbox/verbs": "*",
+        "yaml": "^2.9.0",
       },
     },
     "packages/core": {
@@ -38,6 +39,7 @@
         "remark-validate-links": "^13.1.0",
         "unified": "^11.0.5",
         "unified-engine": "^11.2.2",
+        "vfile": "^6.0.3",
       },
     },
     "packages/mcp": {

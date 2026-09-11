@@ -418,6 +418,68 @@ test('a verb reports, exits non-zero when incomplete, and honours --dry-run', (t
   assert.match(refused.stdout, /no note at a\/nowhere\.md/)
 })
 
+/**
+ * The front-matter command's two halves on the surface a person types at: a read
+ * prints the value, a write prints the report every other verb prints, and one
+ * operation per call is enforced rather than resolved by argument order.
+ */
+test('frontmatter reads a block and a key, and writes one key at a time', (t) => {
+  const box = wiki({'a/one.md': '---\ntitle: "One"\nstatus: draft\ntags: [alpha, beta]\n---\n\n# One\n'})
+  t.after(() => box.cleanup())
+
+  assert.match(awt(['frontmatter', '-w', box.root, 'a/one.md']).stdout, /status: draft/)
+  assert.equal(awt(['frontmatter', '-w', box.root, 'a/one.md', '--get', 'status']).stdout.trim(), 'draft')
+
+  const written = awt(['frontmatter', '-w', box.root, 'a/one.md', '--set', 'status=stable'])
+  assert.equal(written.status, 0)
+  assert.match(written.stdout, /changed: a\/one\.md/)
+
+  awt(['frontmatter', '-w', box.root, 'a/one.md', '--append', 'tags=gamma'])
+  const source = readFileSync(join(box.root, 'a/one.md'), 'utf8')
+  // The author's quoting and flow sequence are still there: a key edit is not
+  // permission to reformat the block around it.
+  assert.match(source, /title: "One"/)
+  assert.match(source, /tags: \[alpha, beta, gamma\]/)
+
+  const missing = awt(['frontmatter', '-w', box.root, 'a/one.md', '--unset', 'nope'])
+  assert.equal(missing.status, 1)
+  assert.match(missing.stdout, /FRONTMATTER_KEY_NOT_FOUND/)
+
+  const both = awt(['frontmatter', '-w', box.root, 'a/one.md', '--get', 'status', '--set', 'status=draft'])
+  assert.equal(both.status, 2)
+  assert.match(both.stderr, /one operation per call/)
+})
+
+test('frontmatter reads a value as YAML, so a list is a list and a number is a number', (t) => {
+  const box = wiki({'a/one.md': '---\ntitle: One\n---\n\n# One\n'})
+  t.after(() => box.cleanup())
+
+  awt(['frontmatter', '-w', box.root, 'a/one.md', '--set', 'tags=[alpha, beta]'])
+  awt(['frontmatter', '-w', box.root, 'a/one.md', '--set', 'depth=2'])
+
+  const report = JSON.parse(awt(['frontmatter', '-w', box.root, 'a/one.md', '--json']).stdout)
+  assert.deepEqual(report.frontmatter.tags, ['alpha', 'beta'])
+  assert.equal(report.frontmatter.depth, 2)
+})
+
+test('replacing the block takes its object from stdin, and says derived out loud', (t) => {
+  const box = wiki({'a/one.md': '---\n# a comment\ntitle: One\n---\n\n# One\n'})
+  t.after(() => box.cleanup())
+
+  const refused = awt(['frontmatter', '-w', box.root, 'a/one.md', '--replace-block'], {input: 'title: One\n'})
+  assert.equal(refused.status, 1)
+  assert.match(refused.stdout, /derived/)
+  assert.match(readFileSync(join(box.root, 'a/one.md'), 'utf8'), /# a comment/)
+
+  const done = awt(['frontmatter', '-w', box.root, 'a/one.md', '--replace-block', '--derived'], {
+    input: 'title: Renamed\ntype: note\n',
+  })
+  assert.equal(done.status, 0)
+  const source = readFileSync(join(box.root, 'a/one.md'), 'utf8')
+  assert.match(source, /title: Renamed/)
+  assert.doesNotMatch(source, /# a comment/)
+})
+
 test('index writes the artifact a Quartz build reads', (t) => {
   const box = wiki({'a/one.md': '# One\n\nSee [[two]].\n', 'a/two.md': '# Two\n'})
   t.after(() => box.cleanup())

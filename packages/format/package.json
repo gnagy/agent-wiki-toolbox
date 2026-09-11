@@ -14,7 +14,8 @@
     "remark-stringify": "^11.0.0",
     "remark-validate-links": "^13.1.0",
     "unified": "^11.0.5",
-    "unified-engine": "^11.2.2"
+    "unified-engine": "^11.2.2",
+    "vfile": "^6.0.3"
   },
   "license": "MIT"
 }

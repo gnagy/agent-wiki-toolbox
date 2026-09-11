@@ -23,6 +23,8 @@ import {existsSync, readFileSync, statSync} from 'node:fs'
 import {dirname, resolve as resolvePath} from 'node:path'
 import process from 'node:process'
 
+import {parse as parseYaml, stringify as stringifyYaml} from 'yaml'
+
 import {check, loadWorkspace, writeIndexArtifact} from '@agent-wiki-toolbox/core'
 import {
   AMBIGUOUS_CONFIG,
@@ -37,6 +39,7 @@ import {connections, resolve as resolveLink, search} from '@agent-wiki-toolbox/m
 import {
   buildListing,
   deleteNote,
+  frontmatter,
   mergeFiles,
   moveNote,
   renameNote,
@@ -276,21 +279,72 @@ function reportLines(report) {
     lines.push(`  UNRESOLVED ${entry.from}:${entry.line} [[${entry.target}]]: ${entry.reason}`)
   }
   for (const note of report.notes ?? []) lines.push(`  note: ${note}`)
+  // The code, where the verb gave one. A person scanning a refusal wants the
+  // sentence; a person who then has to ask about it wants the name to ask under,
+  // and `--json` is not the only place it should exist.
+  if (report.code) lines.push(`  code: ${report.code}`)
   if (!report.ok) lines.push('  the verb can be re-run once the reason above is dealt with')
   return lines.join('\n')
 }
 
 /** A verb that refuses reports in the same shape as one that finished partially. */
 async function runVerb(values, action) {
+  // `human` is the one command whose report is not only a list of what changed:
+  // `frontmatter` answers with a value. Every other verb leaves it unset and gets
+  // the shape they all share.
+  const human = values.human ?? reportLines
   try {
     const report = await action()
-    emit(values, report, reportLines)
+    emit(values, report, human)
     return report.ok ? 0 : 1
   } catch (error) {
     if (!error.report) throw error
     emit(values, error.report, reportLines)
     return 1
   }
+}
+
+/**
+ * A `key=value` pair as typed, with the value read as YAML.
+ *
+ * `status=stable` is a string, `depth=2` a number, `tags=[a, b]` a list — the same
+ * reading the note itself would get, which is the one a person typing into a
+ * front-matter command expects. Anything YAML cannot parse is taken as the literal
+ * string, so a value with a stray colon in it lands as what was typed rather than
+ * as a refusal about YAML syntax.
+ */
+function pair(entry, flag) {
+  const at = entry.indexOf('=')
+  if (at < 1) {
+    const error = new Error(`--${flag} takes key=value, and "${entry}" has no "=".`)
+    error.exitCode = 2
+    throw error
+  }
+  return {key: entry.slice(0, at), value: scalar(entry.slice(at + 1))}
+}
+
+function scalar(text) {
+  try {
+    const value = parseYaml(text)
+    return value === null && text.trim() !== 'null' && text.trim() !== '~' && text.trim() !== '' ? text : value
+  } catch {
+    return text
+  }
+}
+
+/**
+ * A front-matter read, for a person: the value as YAML, which is what the note
+ * itself says. `--json` hands back the whole report, `frontmatter` and all.
+ *
+ * A write is rendered by `reportLines` like every other verb's, so the two halves
+ * of the one command do not print in two shapes.
+ */
+function frontmatterLines(report) {
+  if (!('frontmatter' in report)) return reportLines(report)
+  if (report.frontmatter === null) return reportLines(report)
+  const value = report.frontmatter
+  const text = typeof value === 'string' ? value : stringifyYaml(value).replace(/\n$/, '')
+  return report.notes?.length ? [text, ...report.notes.map((note) => `  note: ${note}`)].join('\n') : text
 }
 
 /**
@@ -714,6 +768,93 @@ export const COMMANDS = [
     async run({values, positionals}) {
       return runVerb(values, async () =>
         renameTag(await notesDirFor(values), {from: positionals[0], to: positionals[1], dryRun: values['dry-run']}),
+      )
+    },
+  },
+  {
+    name: 'frontmatter',
+    writes: true,
+    section: 'Change',
+    summary: "Read or write a note's front matter: the whole block, or one key",
+    usage:
+      'awt frontmatter <path>\n' +
+      '       awt frontmatter <path> --get KEY | --set KEY=VALUE | --unset KEY\n' +
+      '       awt frontmatter <path> --rename OLD=NEW | --append KEY=VALUE | --prepend KEY=VALUE\n' +
+      '       awt frontmatter <path> --replace-block --derived < block.yaml',
+    positionals: 1,
+    notes: [
+      'With no operation flag it prints the whole block. Exactly one operation per call.',
+      'A value is read as YAML, so --set depth=2 is a number and --set tags=[a, b] is a list.',
+      '--append and --prepend take a sequence-valued key: tags, sources.',
+      "--unset drops a key. It is not spelled --delete because `awt delete` deletes a note, and one",
+      'word meaning two things a command apart is how a flag gets typed at the wrong thing.',
+      '--rename moves a key and leaves its value where it is.',
+      '',
+      'Every write is checked against the schema for that path and refused if it violates it.',
+      '--replace-block reserialises the whole block, losing comments, quoting and flow sequences, so',
+      'it is for front matter the toolbox owns and --derived is how you say so. It reads the object',
+      'from stdin rather than argv, which is where markdown and YAML belong.',
+      '',
+      'The markdown body is a separate domain and is not reachable from this command.',
+    ],
+    options: {
+      ...WORKSPACE_OPTION,
+      ...OUTPUT_OPTIONS,
+      get: {type: 'string'},
+      set: {type: 'string'},
+      unset: {type: 'string'},
+      rename: {type: 'string'},
+      append: {type: 'string'},
+      prepend: {type: 'string'},
+      'replace-block': {type: 'boolean', default: false},
+      derived: {type: 'boolean', default: false},
+      'dry-run': {type: 'boolean', default: false},
+    },
+    /**
+     * One flag per operation, rather than `--operation replace --scope content`.
+     * The axes are the library's and the MCP surface's, where a caller is a
+     * program; a person types the pair, and `--set status=stable` is the pair.
+     */
+    async run({values, positionals}) {
+      // Two operations in one call is a typo with two plausible readings, and
+      // picking either silently is the failure this whole tool exists to remove.
+      const asked = ['get', 'set', 'unset', 'rename', 'append', 'prepend', 'replace-block'].filter(
+        (flag) => values[flag] !== undefined && values[flag] !== false,
+      )
+      if (asked.length > 1) {
+        const error = new Error(`one operation per call, and this asks for ${asked.map((flag) => `--${flag}`).join(' and ')}.`)
+        error.exitCode = 2
+        throw error
+      }
+
+      const call = {path: positionals[0], dryRun: values['dry-run']}
+      const [flag] = asked
+
+      if (flag === 'get') Object.assign(call, {operation: 'read', scope: 'content', key: values.get})
+      else if (flag === 'unset') Object.assign(call, {operation: 'delete', scope: 'content', key: values.unset})
+      else if (flag === 'set') Object.assign(call, {operation: 'replace', scope: 'content', ...pair(values.set, 'set')})
+      else if (flag === 'append') Object.assign(call, {operation: 'append', scope: 'content', ...pair(values.append, 'append')})
+      else if (flag === 'prepend') Object.assign(call, {operation: 'prepend', scope: 'content', ...pair(values.prepend, 'prepend')})
+      else if (flag === 'rename') {
+        const {key, value} = pair(values.rename, 'rename')
+        Object.assign(call, {operation: 'replace', scope: 'marker', key, value: String(value)})
+      } else if (flag === 'replace-block') {
+        const chunks = []
+        for await (const chunk of process.stdin) chunks.push(chunk)
+        const text = Buffer.concat(chunks).toString('utf8')
+        let block
+        try {
+          block = parseYaml(text)
+        } catch (error) {
+          const refusal = new Error(`stdin is not YAML: ${error.message}`)
+          refusal.exitCode = 2
+          throw refusal
+        }
+        Object.assign(call, {operation: 'replace', scope: 'block', value: block, derived: values.derived})
+      } else Object.assign(call, {operation: 'read', scope: 'block'})
+
+      return runVerb({...values, human: frontmatterLines}, async () =>
+        frontmatter(await notesDirFor(values), call),
       )
     },
   },

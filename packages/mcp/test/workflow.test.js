@@ -94,7 +94,7 @@ test('the wiki-docs lookup workflow runs end to end', async (t) => {
   assert.equal(health.healthy, true)
 })
 
-test('the surface is thirteen tools with --allow-writes, and every write is one of them', async (t) => {
+test('the surface is fourteen tools with --allow-writes, and every write is one of them', async (t) => {
   const box = wiki()
   t.after(() => box.cleanup())
   const client = await connect(box.root, ['--allow-writes'])
@@ -109,6 +109,7 @@ test('the surface is thirteen tools with --allow-writes, and every write is one 
       'connections',
       'delete',
       'fmt',
+      'frontmatter',
       'merge_files',
       'move',
       'rename',
@@ -131,7 +132,7 @@ test('a read-only server lists only the tools that can succeed', async (t) => {
   const {tools} = await client.listTools()
   assert.deepEqual(
     tools.map((tool) => tool.name).sort(),
-    ['check', 'connections', 'fmt', 'resolve', 'search', 'workspace_info'],
+    ['check', 'connections', 'fmt', 'frontmatter', 'resolve', 'search', 'workspace_info'],
   )
 
   // A write is not there to call.
@@ -171,6 +172,51 @@ test('a verb that refuses reports in the same shape as one that finished', async
   )
   assert.equal(report.ok, false)
   assert.match(report.notes.join(' '), /no heading "Nope"/)
+})
+
+/**
+ * Front matter has a read half and a write half in one tool, like `fmt` — so the
+ * read is served by a mount that may not be written to, and the write is told it
+ * is not, rather than quietly being handed the read.
+ */
+test('frontmatter reads on a read-only server and refuses to write there', async (t) => {
+  const box = wiki()
+  t.after(() => box.cleanup())
+  const client = await connect(box.root)
+  t.after(() => client.close())
+
+  const read = json(await client.callTool({name: 'frontmatter', arguments: {path: 'design/shape.md'}}))
+  assert.equal(read.frontmatter.title, 'Shape')
+
+  const refused = json(
+    await client.callTool({
+      name: 'frontmatter',
+      arguments: {path: 'design/shape.md', operation: 'replace', key: 'title', value: 'Form'},
+    }),
+  )
+  assert.match(refused.error, /read-only/)
+  assert.match(readFileSync(join(box.root, 'design/shape.md'), 'utf8'), /title: Shape/)
+})
+
+test('frontmatter writes one key over the surface, and leaves the body alone', async (t) => {
+  const box = wiki()
+  t.after(() => box.cleanup())
+  const client = await connect(box.root, ['--allow-writes'])
+  t.after(() => client.close())
+
+  const report = json(
+    await client.callTool({
+      name: 'frontmatter',
+      arguments: {path: 'design/shape.md', operation: 'append', key: 'tags', value: 'mdast'},
+    }),
+  )
+  assert.deepEqual(report.changed, ['design/shape.md'])
+
+  const source = readFileSync(join(box.root, 'design/shape.md'), 'utf8')
+  assert.match(source, /tags: \[linking, mdast\]/)
+  // The other domain is untouched, wikilinks and all — which is the split doing
+  // its job rather than a happy accident.
+  assert.match(source, /See \[\[conventions#naming\]\] and \[\[missing-note\]\]\./)
 })
 
 /**

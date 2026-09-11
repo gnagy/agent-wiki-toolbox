@@ -1,6 +1,6 @@
 ---
 name: wiki-docs
-description: Work with a wikilinked markdown wiki through the agent-wiki-toolbox, the `awt` CLI and its MCP tools - search and check the link graph, format notes, and rename, move, split or merge notes with their links rewritten. Read it before restructuring or bulk-editing wiki notes with any tool, formatting a wiki, mounting another project's wiki, or setting one up.
+description: Work with a wikilinked markdown wiki through the agent-wiki-toolbox, the `awt` CLI and its MCP tools - search and check the link graph, format notes, read and write front matter, and rename, move, split or merge notes with their links rewritten. Read it before restructuring or bulk-editing wiki notes with any tool, formatting a wiki, mounting another project's wiki, or setting one up.
 ---
 
 # Wiki Docs
@@ -33,6 +33,7 @@ with counts, and is the call that tells servers apart.
 | `connections`    | Links out of and into a note, optionally several hops                                                            |
 | `resolve`        | What a link points at, and what else matched when it is ambiguous                                                |
 | `check`          | Everything wrong with the graph, in one call                                                                     |
+| `frontmatter`    | What a note's front matter holds: the whole block, or one key. Its write half needs `--allow-writes`             |
 
 `check` returns `problems`, and separately `placeholders`, `orphans`, `deadends` and
 `unreferenced`. It exits non-zero on problems only. A placeholder is a `[[link]]` to a note that
@@ -64,6 +65,7 @@ that breaks the graph:
 | `split_by_heading` · `merge_files` | Re-emitting whole documents                                   |
 | `rename_tag`                       | `sed`, which cannot tell front matter from prose              |
 | `build_listing`                    | Hand-maintaining the notes table between markers in the index |
+| `frontmatter`                      | `sed` over a YAML block, which loses comments and quoting     |
 | `fmt`                              | Any other formatter, see the hazard below                     |
 
 Prose edits are made with ordinary file tools; the index is recomputed on the next call. A note
@@ -78,6 +80,38 @@ knows which files a shell command touched — run `awt fmt <path>` on it yoursel
 - `split_by_heading` takes a heading-to-path plan and a source fate of `delete`, `stub` or
   `keep`. A target that already exists is skipped and reported; the other sections proceed.
 - Every write accepts `dryRun`.
+
+### Front matter is a separate domain
+
+`frontmatter` is one command, read and write, over the YAML block alone — **the markdown body is not
+reachable from it, and no verb reaches across the two**. They are two documents sharing a file: a key
+against a node path, and hazards with nothing in common. So "rewrite this section and mark it
+`stable`" is two calls, and the second can fail after the first landed; the two do not interfere, so
+that is a half-landing and never a wrong edit.
+
+Three axes: the operation, the scope it acts at, and the key.
+
+| Operation          | Scope     | Effect                                       | CLI                      |
+|--------------------|-----------|----------------------------------------------|--------------------------|
+| `read`             | `block`   | The whole block as data                      | `awt frontmatter <path>` |
+| `read`             | `content` | One key's value                              | `--get KEY`              |
+| `replace`          | `content` | Set a key's value, adding it if it is absent | `--set KEY=VALUE`        |
+| `replace`          | `marker`  | Rename a key, leaving the value              | `--rename OLD=NEW`       |
+| `replace`          | `block`   | Replace the block wholesale                  | `--replace-block`        |
+| `delete`           | `content` | Drop a key                                   | `--unset KEY`            |
+| `append`/`prepend` | `content` | Add to a sequence-valued key                 | `--append KEY=VALUE`     |
+
+- **Every write is checked against the schema for that path and refused if it violates it** — the
+  same schemas `awt fmt --dry-run` reports after the fact, turned into a refusal before the bytes
+  land. Failures are coded: `FRONTMATTER_KEY_NOT_FOUND`, `FRONTMATTER_KEY_COLLISION`,
+  `FRONTMATTER_NOT_A_SEQUENCE`, `FRONTMATTER_SCHEMA_VIOLATION`, `FRONTMATTER_ABSENT`.
+- **Every scope but `block` keeps the author's YAML**: comments, quoting, and `tags: [a, b]` written
+  flat. `block` reserialises from data and loses all three, so it is for front matter the toolbox
+  derived rather than a person wrote, and it says so — `derived: true`, or `--derived` with the
+  object on stdin. It is also the only scope that creates a block a note does not have.
+- A key with no block to edit is `FRONTMATTER_ABSENT`, not an invented block.
+- The CLI takes one operation flag per call and refuses two. `--unset` rather than `--delete`,
+  because `awt delete` deletes a note.
 
 **The two surfaces are spelled differently, and no longer name quite the same set.** MCP tool names
 are flat and keep their qualifiers — `split_by_heading`, `merge_files`, `build_listing`. The CLI
@@ -114,7 +148,8 @@ tags: [<tag>, <tag>]
 ```
 
 A project that fixes vocabularies can hold them as JSON schemas in `wiki/schemas/`, mapped to
-globs in `awt.config.mjs` and checked by `awt fmt --dry-run`.
+globs in `awt.config.mjs`. `awt fmt --dry-run` reports what violates them; `frontmatter` refuses to
+write it in the first place.
 
 ## Open Knowledge Format, optional
 
