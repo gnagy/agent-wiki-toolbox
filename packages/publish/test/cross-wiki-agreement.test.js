@@ -102,7 +102,6 @@ test('an anchor the target wiki does not publish warns, and never fails', async 
 
   const plugin = crossWikiLinks({
     registry: {vsf: {buildIndex: join(target, 'contentIndex.json'), dev: 'http://localhost:8081'}},
-    indexBase: dir,
   })
   const [transform] = plugin.markdownPlugins({argv: {serve: true}})
 

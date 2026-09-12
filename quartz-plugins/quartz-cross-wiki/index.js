@@ -145,15 +145,26 @@ function walkLinks(node, visit) {
   }
 }
 
+/**
+ * Where quartz.config.yaml actually lives — found by following the symlink
+ * Quartz's working directory always holds one of, rather than assuming how
+ * many directories separate that cwd from the site root. `site/quartz.config.yaml`
+ * is the site root by definition, so this needs no configured depth and cannot
+ * drift when the depth does — which it did once, when Quartz moved from
+ * `site/.quartz-src` to `site/node_modules/quartz`.
+ */
+function siteRoot(cwd = process.cwd()) {
+  try {
+    return path.dirname(fs.realpathSync(path.join(cwd, "quartz.config.yaml")))
+  } catch {
+    return cwd
+  }
+}
+
 export default function crossWikiLinks(userOpts) {
   const opts = {
     self: null,
     registry: {},
-    // Index paths in the registry are resolved against this, itself resolved
-    // against Quartz's working directory (`site/.quartz-src`). The default puts
-    // the base at `site/`, where quartz.config.yaml lives — so a registry entry
-    // reads the same way as the config file it sits in.
-    indexBase: "..",
     warnOnUnknownPrefix: true,
     warnOnMissingIndex: true,
     warnOnMissingPath: true,
@@ -165,7 +176,7 @@ export default function crossWikiLinks(userOpts) {
     name: "CrossWikiLinks",
     markdownPlugins(ctx) {
       const serving = Boolean(ctx?.argv?.serve)
-      const base = path.resolve(process.cwd(), opts.indexBase)
+      const base = siteRoot()
 
       // Per-build caches. `null` means "already tried and failed" — the warning
       // for a missing index is emitted once, not once per reference.

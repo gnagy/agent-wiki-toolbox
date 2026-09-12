@@ -33,8 +33,23 @@ import path from 'path'
 
 const DEFAULTS = {
   index: './.awt-index.json',
-  indexBase: '..',
   failOnDisagreement: true,
+}
+
+/**
+ * Where quartz.config.yaml actually lives — found by following the symlink
+ * Quartz's working directory always holds one of, rather than assuming how
+ * many directories separate that cwd from the site root. `site/quartz.config.yaml`
+ * is the site root by definition, so this needs no configured depth and cannot
+ * drift when the depth does — which it did once, when Quartz moved from
+ * `site/.quartz-src` to `site/node_modules/quartz`.
+ */
+function siteRoot(cwd = process.cwd()) {
+  try {
+    return path.dirname(fs.realpathSync(path.join(cwd, 'quartz.config.yaml')))
+  } catch {
+    return cwd
+  }
 }
 
 function classesOf(node) {
@@ -94,7 +109,7 @@ export const AwtLinks = (userOptions) => {
     async emit(ctx, content) {
       const file = path.isAbsolute(options.index)
         ? options.index
-        : path.resolve(process.cwd(), options.indexBase, options.index)
+        : path.resolve(siteRoot(), options.index)
 
       // One switch decides whether this build is allowed to fail on what the
       // plugin finds, and a check that did not run is one of those things.
