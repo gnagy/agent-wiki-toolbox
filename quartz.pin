@@ -1,0 +1,6 @@
+# The Quartz commit every wiki this toolbox builds is pinned to, on the v5
+# branch (there is no usable release — see bootstrap.js). One pin for every
+# project, tested together as part of releasing this toolbox rather than
+# bumped independently per project: wiki-publishing-decisions.md decision 20
+# in the AiSandbox workspace wiki.
+075afd3f712da0088a07f5284a7b3aba37dd61b6

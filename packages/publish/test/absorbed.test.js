@@ -168,9 +168,9 @@ test('failOnDisagreement: false downgrades every one of those to a warning', asy
 
 /**
  * bootstrap will not edit a `.gitignore` the project owns and tracks, so the only
- * thing standing between an adopting project and a committed 250 MB Quartz clone
- * is that it is told. A project on the old tooling's file ignores none of the
- * plugin symlinks or the index.
+ * thing standing between an adopting project and a committed hundreds-of-MB
+ * node_modules is that it is told. A project on the old tooling's file ignores
+ * neither that nor the index.
  */
 test('an existing .gitignore is reported against rather than rewritten', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'awt-publish-'))
@@ -181,7 +181,7 @@ test('an existing .gitignore is reported against rather than rewritten', (t) => 
 
   writeFileSync(file, '# from the old tooling\n.quartz-src/\npublic/\nrelease/\n')
   const missing = gitignoreGaps(file)
-  assert.ok(missing.includes('awt-links'))
+  assert.ok(missing.includes('node_modules/'))
   assert.ok(missing.includes('.awt-index.json'))
   assert.ok(!missing.includes('public/'), 'what it already has is not reported')
 

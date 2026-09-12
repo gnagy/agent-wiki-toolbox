@@ -29,7 +29,7 @@ import path from "node:path"
 /**
  * The nearest ancestor of `from` (including `from` itself) holding
  * `<siteName>/quartz.config.yaml`, or null. Standing inside `site/` or
- * `site/.quartz-src/` finds the project, because the search starts at the
+ * `site/node_modules/` finds the project, because the search starts at the
  * directory and walks up rather than looking down.
  */
 export function findProjectRoot(siteName = "site", from = process.cwd()) {

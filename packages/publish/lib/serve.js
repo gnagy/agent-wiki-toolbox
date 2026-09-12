@@ -49,6 +49,7 @@ import { spawn, spawnSync } from "node:child_process"
 import { parseArgs } from "node:util"
 
 import { requireProjectRoot } from "./project-root.js"
+import { ensureQuartz, quartzDir } from "./bootstrap.js"
 
 /**
  * The port a wiki is served on when the project has not said. High enough to clear
@@ -120,10 +121,11 @@ export function serve(argv = process.argv.slice(2)) {
 
   if (!fs.existsSync(wiki)) die(`no wiki at ${show(wiki)}`)
 
-  const quartz = path.join(site, ".quartz-src")
-  if (!fs.existsSync(quartz)) {
-    die(`${show(quartz)} missing; the Quartz clone is not set up. Run \`awt site setup\` first.`)
-  }
+  // The safe part only: installs missing/stale dependencies and rewires the
+  // derived symlinks, but refuses (via `die`) rather than bootstrapping a
+  // project that has never had `awt site setup` run for it at all.
+  ensureQuartz(site, die)
+  const quartz = quartzDir(site)
 
   // The release is served by a static host, not built into. Overwriting it with a
   // dev build would leave every cross-wiki link pointing at localhost.

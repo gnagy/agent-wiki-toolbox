@@ -109,7 +109,7 @@ inside it:
 awt.config.mjs      # the marker; rootDir names the home, and defaults to ./wiki
 wiki/
   notes/            # the wiki root — what -w means when you do not pass it
-  site/             # quartz.config.yaml, quartz.pin, and the build's leavings
+  site/             # quartz.config.yaml, package.json + bun.lock, and the build's leavings
   schemas/          # front-matter schemas
   inbox/            # the interop inbox
 ```
@@ -142,6 +142,8 @@ process, which is what keeps this source plain node-compatible ESM rather than a
 Install it with `scripts/install`, the only step that exposes a change. It copies this working copy
 to `~/.claude/skills/awt`, where Claude Code adopts it as the **`awt` plugin** — and points
 `~/.local/bin/awt` at the same tree, so a shell, a site build and a session all run one copy.
+`SETUP.md` has the full sequence, including moving a machine off the pre-plugin `bin/install` +
+`skills add` setup.
 
 What the plugin is, beyond the binary:
 

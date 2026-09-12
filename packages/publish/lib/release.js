@@ -63,6 +63,7 @@ import { narrateTo, say, sayPart } from "./narrate.js"
 import { requireProjectRoot } from "./project-root.js"
 import { loadFromQuartz } from "./quartz-deps.js"
 import { prerenderDiagrams } from "./diagrams-pass.js"
+import { quartzDir } from "./bootstrap.js"
 
 /** The toolbox root: packages/publish/lib -> packages/publish -> packages -> root. */
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
@@ -92,7 +93,11 @@ const BROWSER_ONLY_PLUGINS = [
   "og-image",
 ]
 
-const CANONICAL_CONFIG = "../quartz.config.yaml"
+// One level deeper than it used to be: Quartz lives at site/node_modules/quartz
+// now, not site/.quartz-src, so its config symlink needs two ".." to reach
+// site/ instead of one. bootstrap.js's wireSymlinks() creates the canonical
+// form; this is what an offline build repoints and later checks against.
+const CANONICAL_CONFIG = "../../quartz.config.yaml"
 
 function run(cmd, args, opts = {}) {
   return spawnSync(cmd, args, { encoding: "utf8", env: CLEAN_ENV, ...opts })
@@ -208,7 +213,7 @@ function withConfig(quartz, configName, fn) {
   const link = path.join(quartz, "quartz.config.yaml")
   if (!configName) return fn()
   fs.rmSync(link, { force: true })
-  fs.symlinkSync(`../${configName}`, link)
+  fs.symlinkSync(`../../${configName}`, link)
   try {
     return fn()
   } finally {
@@ -669,9 +674,13 @@ export async function publish(argv = process.argv.slice(2)) {
     )
   }
 
-  const quartz = path.join(site, ".quartz-src")
+  // Deliberately not `ensureQuartz`: a release build stays a refusal on stale
+  // or missing dependencies rather than an automatic fix, the way `serve`
+  // now is. Publishing is the one place this should stay a decision someone
+  // makes by running `awt site setup`, not a side effect of building.
+  const quartz = quartzDir(site)
   if (!fs.existsSync(quartz)) {
-    die(`${quartz} missing; the Quartz clone is not set up. Run \`awt site setup\` first.`)
+    die(`${quartz} missing; the Quartz install is not set up. Run \`awt site setup\` first.`)
   }
   assertCanonicalConfig(quartz)
 

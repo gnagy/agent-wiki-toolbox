@@ -1,27 +1,46 @@
 /**
- * Set up (or re-pin) the Quartz clone a wiki site builds from.
+ * Ensure, or explicitly set up, the Quartz install a wiki site builds from.
  *
- * Quartz is never vendored into a project: the site directory holds config, and
- * the renderer is cloned beside it at a PINNED COMMIT. Quartz publishes no
- * usable release — its newest GitHub release is from 2023 and its lone v5 tag is
- * hundreds of commits behind the branch and does not build — so a project pins a
- * commit SHA on `v5` and re-runs the link graph check on every bump.
+ * Quartz is never vendored: `site/package.json` names it as a pinned git
+ * dependency (`github:jackyzha0/quartz#<sha>`), and `bun install` fetches it
+ * into `site/node_modules/quartz` — shared with every other project on the
+ * machine pinned to the same commit, through bun's own content-addressed
+ * install cache. Quartz publishes no usable release — its newest GitHub
+ * release is from 2023 and its lone v5 tag is hundreds of commits behind the
+ * branch and does not build — so a commit SHA on `v5` is the only pinnable
+ * artifact, same as before this changed.
  *
- * The pin is one line in `<site>/quartz.pin`, tracked in the project repo. It
- * lives there rather than in this script because each project bumps on its own
- * schedule.
+ * Two different things live here:
+ *
+ *   ensureQuartz()   the safe part — no decision left to make. Called by
+ *                     `serve` and `publish` so neither ever runs against
+ *                     missing or half-installed dependencies. Refuses only
+ *                     when `site/package.json` doesn't exist: writing that
+ *                     file the first time is a project decision, not a
+ *                     materialization of one already made.
+ *
+ *   bootstrap()      the deliberate part — `awt site setup`. Writes
+ *                     `site/package.json` (first time, or to accept a newer
+ *                     pin the toolbox now ships, or under --force), the
+ *                     `.gitignore`, then calls ensureQuartz for the rest.
+ *
+ * The pin itself lives at this repo's own root (`quartz.pin`, beside
+ * `mise.toml`), not per project — every wiki this machine builds shares it,
+ * tested together as part of releasing this toolbox rather than bumped
+ * independently per project. See
+ * wiki/notes/projects/agent-wiki-toolbox/design/wiki-publishing-decisions.md
+ * decision 20, and .../analysis/quartz-install-sharing.md for the evidence,
+ * in the AiSandbox workspace wiki this was designed in.
  *
  * Usage, from anywhere inside a project (the site is `<rootDir>/site`, found
- * through awt.config.mjs by `awt`; the legacy `site/` beside `docs/wiki` still resolves):
- *     awt site setup                  # clone or re-pin, then install
+ * through awt.config.mjs by `awt`; the legacy `site/` beside `docs/wiki` still
+ * resolves):
+ *     awt site setup                  # bootstrap, or accept a new pin
  *     awt site setup --site path      # explicit path, resolved against cwd
- *     awt site setup --force          # discard and re-clone
+ *     awt site setup --force          # discard node_modules and reinstall
  *
- * With no --site it walks up for the legacy `site/quartz.config.yaml` marker —
- * `awt site setup` always passes --site, resolved from the project config.
- *
- * Idempotent: safe to re-run, and re-running is how a Quartz bump or a newly
- * installed version of these tools is applied. Needs `git`, `node` and `npm`.
+ * Needs `bun` on PATH — by the time any of this runs, `awt` itself already
+ * has, since the plugin's own binary requires it.
  */
 
 import fs from "node:fs"
@@ -42,41 +61,23 @@ const PLUGINS = [
   ["awt-folder-notes", "quartz-folder-notes"],
 ]
 
-const REPO_URL = "https://github.com/jackyzha0/quartz.git"
-const BRANCH = "v5"
+const REPO = "jackyzha0/quartz"
 
-// npm exports npm_config_* into child environments and npm_config_local_prefix
-// breaks a nested npx, so every child here runs with them stripped.
-const CLEAN_ENV = Object.fromEntries(
-  Object.entries(process.env).filter(([k]) => !k.toUpperCase().startsWith("NPM_")),
-)
+// Found reactively, against one real build, by running `bun pm untrusted`
+// after the fact rather than enumerated from a clean install. Treat this as
+// incomplete until someone verifies it from scratch — see
+// quartz-install-sharing.md, "what's not yet closed".
+const TRUSTED_DEPS = ["@parcel/watcher", "sharp", "esbuild"]
 
-function run(cmd, args, opts = {}) {
-  return spawnSync(cmd, args, { encoding: "utf8", env: CLEAN_ENV, ...opts })
-}
-
-function must(cmd, args, what, opts = {}) {
-  const r = run(cmd, args, opts)
-  if (r.status !== 0) {
-    console.error(`${what} failed:\n${((r.stdout ?? "") + (r.stderr ?? "")).trimEnd()}`)
-    process.exit(1)
-  }
-  return (r.stdout ?? "").trim()
-}
-
-function die(msg) {
-  console.error(msg)
+function die(message) {
+  console.error(message)
   process.exit(2)
 }
 
-function readPin(site) {
-  const pinFile = path.join(site, "quartz.pin")
+function readToolboxPin() {
+  const pinFile = path.join(HERE, "quartz.pin")
   if (!fs.existsSync(pinFile)) {
-    die(
-      `no ${pinFile}. Create it with the Quartz commit to pin, e.g.\n` +
-        `    echo 075afd3f712da0088a07f5284a7b3aba37dd61b6 > ${pinFile}\n` +
-        "Pick a commit on the v5 branch; there is no usable release to pin instead.",
-    )
+    die(`no ${pinFile}. The toolbox itself is missing its Quartz pin — an install defect, not a project one.`)
   }
   for (const raw of fs.readFileSync(pinFile, "utf8").split("\n")) {
     const line = raw.split("#")[0].trim()
@@ -85,15 +86,36 @@ function readPin(site) {
   die(`${pinFile} is empty`)
 }
 
-// What bootstrap adds to a site directory is machine-local and large — a Quartz
-// clone with its own node_modules, the build output, and a symlink to this
-// machine's install. Written before the clone rather than after, so the tree is
-// never untracked-and-huge in a `git status`; one `git add -A` in a project that
-// has nothing to do with publishing would otherwise commit ~300 MB.
-const GITIGNORE = `# Quartz itself is cloned at the commit in quartz.pin, never vendored; see
-# README.md here. Nothing of it belongs in this repo, including its node_modules
-# (~250 MB, entirely separate from the project's own).
-.quartz-src/
+/** The commit a project's package.json currently names, or null if it names none yet. */
+function readProjectPin(site) {
+  const pkgFile = path.join(site, "package.json")
+  if (!fs.existsSync(pkgFile)) return null
+  const pkg = JSON.parse(fs.readFileSync(pkgFile, "utf8"))
+  const dep = pkg.dependencies?.quartz ?? ""
+  const match = /#([0-9a-f]{7,40})$/.exec(dep)
+  return match ? match[1] : null
+}
+
+function writePackageJson(site, pin) {
+  const file = path.join(site, "package.json")
+  const pkg = {
+    name: "site",
+    private: true,
+    dependencies: { quartz: `github:${REPO}#${pin}` },
+    trustedDependencies: TRUSTED_DEPS,
+  }
+  fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`)
+}
+
+// What bootstrap adds to a site directory is machine-local — Quartz and its
+// dependencies under node_modules/, the build output, and the symlinks this
+// file wires up. Written before the install rather than after, so the tree is
+// never untracked-and-huge in a `git status`; one `git add -A` in a project
+// that has nothing to do with publishing would otherwise commit hundreds of MB.
+const GITIGNORE = `# Quartz and its dependencies are a bun-installed git dependency of
+# package.json here, never vendored; see README.md and SETUP.md in the toolbox
+# repo. package.json and bun.lock ARE tracked — they are the pin.
+node_modules/
 
 # Build output. Disposable: rebuild it with the serve command in README.md.
 public/
@@ -112,13 +134,7 @@ handoff/
 .handoff-prev/
 .quartz.offline.yaml
 
-# Symlinks to the Quartz plugins installed on this machine, created by
-# \`awt site setup\`, and the index they read. Machine-local by definition,
-# and regenerated rather than authored.
-awt-links
-awt-cross-wiki
-awt-headings
-awt-folder-notes
+# The link-graph index the Quartz plugins read, regenerated before every build.
 .awt-index.json
 `
 
@@ -144,10 +160,11 @@ function writeGitignore(site) {
   const file = path.join(site, ".gitignore")
   const shown = path.relative(process.cwd(), file)
 
-  // Never overwrite: the project owns this file once it exists, and it is tracked.
-  // But leaving it alone silently is not the same thing — a project adopting awt
-  // with a .gitignore from the old tooling ignores none of the plugin symlinks or
-  // the index, and finds out by committing them. Say what is missing instead.
+  // Never overwrite: the project owns this file once it exists, and it is
+  // tracked. But leaving it alone silently is not the same thing — a project
+  // adopting awt with a .gitignore from the old tooling ignores none of
+  // node_modules, and finds out by committing hundreds of MB. Say what is
+  // missing instead.
   if (fs.existsSync(file)) {
     const missing = gitignoreGaps(file)
     if (missing.length === 0) return "complete"
@@ -171,6 +188,86 @@ function relink(linkPath, target) {
   fs.symlinkSync(target, linkPath)
 }
 
+/** Where Quartz actually lives once bun has installed it. */
+export function quartzDir(site) {
+  return path.join(site, "node_modules", "quartz")
+}
+
+function wireSymlinks(site) {
+  const quartz = quartzDir(site)
+
+  // Quartz reads quartz.config.yaml AND ./package.json from its own working
+  // directory, so the config has to be reachable from inside node_modules/quartz
+  // while still living in site/ where it is tracked and reviewable. One level
+  // deeper than the old site/.quartz-src layout, because bun puts the package
+  // under node_modules rather than beside site/ directly.
+  relink(path.join(quartz, "quartz.config.yaml"), "../../quartz.config.yaml")
+
+  // Point the project at THIS installation of the plugins. The config names
+  // relative paths (`../awt-links`, `../awt-cross-wiki`, …), so it stays
+  // machine-independent and carries no version; these symlinks are what bind
+  // it to the copy installed on this machine. Gitignored, recreated on every
+  // ensure. One level deeper than site/ for the same reason as the config.
+  for (const [linkName, pluginDir] of PLUGINS) {
+    relink(path.join(site, "node_modules", linkName), path.join(HERE, "quartz-plugins", pluginDir))
+  }
+
+  // Quartz NEVER re-resolves an installed plugin: if .quartz/plugins/<name>
+  // exists it returns early without comparing the installed version to the
+  // configured one. So changing what a project should use is a silent no-op
+  // until this directory goes. Clearing it on every ensure makes that the one
+  // thing that always means "take the current tooling".
+  const cache = path.join(quartz, ".quartz", "plugins")
+  if (fs.existsSync(cache)) fs.rmSync(cache, { recursive: true, force: true })
+}
+
+function bunInstall(site) {
+  // Heuristic, not a guarantee: a first install for this project is the
+  // common case that is actually slow (network, no warm bun cache yet for
+  // this commit on this machine). A node_modules/quartz already present
+  // means bun is verifying an existing tree, which is fast — narrating that
+  // every time `serve` starts would be noise for no reason.
+  const firstInstall = !fs.existsSync(quartzDir(site))
+  if (firstInstall) {
+    say("installing Quartz (this can take a few minutes on a cold cache) ...")
+  }
+  const result = spawnSync("bun", ["install", "--silent"], {
+    cwd: site,
+    stdio: ["ignore", "ignore", "inherit"],
+  })
+  if (result.status !== 0) die("bun install failed")
+}
+
+/**
+ * Ensure this site's Quartz install is present, wired, and current with what
+ * is already committed — the safe part, with no project decision left to
+ * make. `serve` and `publish` call this instead of refusing outright when
+ * something is merely missing or stale.
+ *
+ * Refuses via the caller's own `die`, so each CLI keeps its own exit code —
+ * same convention as `requireProjectRoot`.
+ */
+export function ensureQuartz(site, die) {
+  if (!fs.existsSync(path.join(site, "package.json"))) {
+    die(
+      `no ${path.join(site, "package.json")}; this project's Quartz install has never been set up.\n` +
+        "Run `awt site setup` first.",
+    )
+  }
+
+  const toolboxPin = readToolboxPin()
+  const projectPin = readProjectPin(site)
+  if (projectPin && projectPin !== toolboxPin) {
+    say(
+      `note: this project is pinned to Quartz ${projectPin.slice(0, 12)}; the toolbox now ships ` +
+        `${toolboxPin.slice(0, 12)}. Run \`awt site setup\` to accept the update.`,
+    )
+  }
+
+  bunInstall(site)
+  wireSymlinks(site)
+}
+
 export function bootstrap(argv = process.argv.slice(2)) {
   const { values } = parseArgs({
     args: argv,
@@ -182,7 +279,7 @@ export function bootstrap(argv = process.argv.slice(2)) {
       json: { type: "boolean", default: false },
     },
   })
-  // Setting up clones Quartz and runs npm install, so it narrates for minutes.
+  // Setting up installs Quartz, so it narrates for minutes on a cold cache.
   // Under --json that goes to stderr and stdout carries the one document.
   if (values.json) narrateTo(process.stderr)
 
@@ -193,81 +290,38 @@ export function bootstrap(argv = process.argv.slice(2)) {
   if (!fs.existsSync(path.join(site, "quartz.config.yaml")))
     die(`no ${path.join(site, "quartz.config.yaml")}; a site directory needs its Quartz config`)
 
-  const pin = readPin(site)
-  const src = path.join(site, ".quartz-src")
-
+  const pin = readToolboxPin()
   const gitignore = writeGitignore(site)
 
-  if (values.force && fs.existsSync(src)) {
-    say(`removing ${src}`)
-    fs.rmSync(src, { recursive: true, force: true })
+  if (values.force) {
+    const nodeModules = path.join(site, "node_modules")
+    if (fs.existsSync(nodeModules)) {
+      say(`removing ${nodeModules}`)
+      fs.rmSync(nodeModules, { recursive: true, force: true })
+    }
   }
 
-  const cloned = !fs.existsSync(src)
-  if (cloned) {
-    say(`cloning Quartz ${BRANCH} into ${path.relative(process.cwd(), src)} ...`)
-    must("git", ["clone", "--quiet", "--branch", BRANCH, REPO_URL, src], "clone")
-  } else {
-    must("git", ["-C", src, "fetch", "--quiet", "origin", BRANCH], "fetch")
+  // Writing package.json is the one deliberate act in here: the first time,
+  // it is what "this project builds with Quartz" means; after that, it is
+  // accepting a pin the toolbox has since moved past. Neither happens from
+  // ensureQuartz, on purpose — see that function's own comment.
+  const existingPin = readProjectPin(site)
+  let pinAction = "unchanged"
+  if (!existingPin) {
+    writePackageJson(site, pin)
+    pinAction = "written"
+  } else if (existingPin !== pin || values.force) {
+    writePackageJson(site, pin)
+    if (existingPin !== pin) say(`updated the Quartz pin: ${existingPin.slice(0, 12)} -> ${pin.slice(0, 12)}`)
+    pinAction = "updated"
   }
 
-  const current = must("git", ["-C", src, "rev-parse", "HEAD"], "rev-parse")
-  const moved = !current.startsWith(pin) && current !== pin
-  if (moved) {
-    say(`checking out ${pin.slice(0, 12)} ...`)
-    must("git", ["-C", src, "checkout", "--quiet", pin], `checkout ${pin}`)
-  } else {
-    say(`already at ${pin.slice(0, 12)}`)
-  }
-
-  // Quartz reads quartz.config.yaml AND ./package.json from its own working
-  // directory, so the config has to be reachable from inside the clone while
-  // still living in site/ where it is tracked and reviewable.
-  relink(path.join(src, "quartz.config.yaml"), "../quartz.config.yaml")
-
-  // Point the project at THIS installation of the tools. The config names
-  // relative paths (`../awt-links`, `../awt-cross-wiki`, `../awt-headings`), so it
-  // stays machine-independent and carries no version; this symlink is what binds it to the copy installed on
-  // this machine. Gitignored, recreated on every bootstrap.
-  for (const [linkName, pluginDir] of PLUGINS) {
-    relink(path.join(site, linkName), path.join(HERE, "quartz-plugins", pluginDir))
-    say(`${linkName} -> ${path.join(HERE, "quartz-plugins", pluginDir)}`)
-  }
-
-  // Quartz NEVER re-resolves an installed plugin: if .quartz/plugins/<name>
-  // exists it returns early without comparing the installed version to the
-  // configured one. So changing what a project should use is a silent no-op
-  // until this directory goes. Clearing it here makes re-running bootstrap the
-  // one ritual that means "take the current tooling".
-  const cache = path.join(src, ".quartz", "plugins")
-  const cacheCleared = fs.existsSync(cache)
-  if (cacheCleared) {
-    fs.rmSync(cache, { recursive: true, force: true })
-    say("cleared the plugin cache")
-  }
-
-  say("installing dependencies (this takes a few minutes on a cold cache) ...")
-  const i = run("npm", ["install", "--no-audit", "--no-fund"], { cwd: src, stdio: "ignore" })
-  if (i.status !== 0) die("npm install failed")
+  ensureQuartz(site, die)
 
   say("\nready. Next:\n    awt site serve       dev server\n    awt site publish     release build into site/release")
   if (values.json) {
     process.stdout.write(
-      `${JSON.stringify(
-        {
-          ok: true,
-          site,
-          src,
-          pin,
-          cloned,
-          checkedOut: moved,
-          plugins: PLUGINS.map(([linkName]) => linkName),
-          cacheCleared,
-          gitignore,
-        },
-        null,
-        1,
-      )}\n`,
+      `${JSON.stringify({ ok: true, site, pin, pinAction, gitignore }, null, 1)}\n`,
     )
   }
   return 0
