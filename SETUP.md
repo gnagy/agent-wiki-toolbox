@@ -3,7 +3,9 @@
 How to get the toolbox running on a machine, either from nothing or from the `bin/install` +
 `skills add` setup that predates the plugin. `README.md`'s *The binary* section says what gets
 installed and why; this file is the sequence of commands for doing it, both ways, and the drift a
-half-finished switch leaves behind.
+half-finished switch leaves behind — both the plugin switch and, separately, a project's own Quartz
+install still sitting on the git-clone-and-`npm`-install mechanism that predates *its* switch to bun.
+A project can be fully current on one and stale on the other; they are not the same upgrade.
 
 ## Prerequisites
 
@@ -107,16 +109,7 @@ If a project's `.mcp.json` held nothing but the `agent-wiki-toolbox` entry, dele
 the entry — an empty `mcpServers` object is a second way of saying "no project server" that a later
 reader has to notice means the same thing as absence.
 
-### 4. Repoint a site build
-
-`wiki/site/`'s Quartz plugins may still be symlinked into the old install
-(`wiki/site/awt-links -> ~/.local/lib/agent-wiki-toolbox/quartz-plugins/quartz-links`, one per
-plugin). **Quartz never re-resolves a plugin directory it has already installed**, so a stale symlink
-is a silent no-op, not a build failure — the site keeps rendering with the old code with no error
-telling you so. Re-run `awt site setup` for each site once the new install exists; it repoints the
-symlinks at `~/.claude/skills/awt/quartz-plugins/<name>`.
-
-### 5. Verify
+### 4. Verify
 
 ```shell
 awt --version           # the new commit
@@ -127,6 +120,74 @@ awt fmt --dry-run        # formatting and front matter, unaffected by the switch
 And, per project: a fresh session, `/awt:wiki-docs`, no `mcp__agent-wiki-toolbox__*` tools bare
 (only the `mcp__plugin_awt_agent-wiki-toolbox__*` form), and the wiki-write guard firing once, not
 twice.
+
+A project's own Quartz install is a separate thing to check — see the next section, which applies
+whether or not this machine ever ran a pre-plugin `awt`.
+
+## Moving a project's Quartz install off the old clone
+
+**This is not part of the pre-plugin upgrade above, and does not require it.** A project can already
+be fully on the plugin and still have a `site/` built the old way — every wiki that existed before
+Quartz moved to a bun-installed git dependency (decision 20; see `quartz-install-sharing.md` in the
+AiSandbox workspace wiki for the evidence) is in exactly this state until someone re-runs
+`awt site setup` for it. Symptoms if this is skipped: `awt site serve`/`publish` still work (the old
+`site/.quartz-src` clone builds fine on its own), so nothing forces the question — the cost is just
+that the project keeps paying its own ~250–280 MB clone and `npm install` instead of sharing one
+install with every other project on the machine, and its Quartz plugins may still be symlinked into a
+path that no longer exists (`~/.local/lib/agent-wiki-toolbox`, removed by the pre-plugin upgrade
+above) or into an intermediate one (`~/.claude/skills/awt`, correct at the time but from before the
+plugin symlinks moved a level deeper). **Quartz never re-resolves a plugin directory it has already
+installed**, so any of these is a silent no-op, not a build failure — the site keeps rendering with
+whatever code it last resolved, with no error telling you so.
+
+### 1. Take the new install
+
+```shell
+awt site setup
+```
+
+Writes `site/package.json` (naming the toolbox's current `quartz.pin` as a git dependency) and
+`site/bun.lock`, then `bun install`s — which is what actually fetches Quartz into
+`site/node_modules/quartz` and rewires the config and plugin symlinks to match. Safe to run whether
+the project has never been set up, is on the old clone, or is already current; it does not touch or
+remove what it replaces.
+
+### 2. Remove what it replaced
+
+`awt site setup` adds the new files; it does not delete the old ones, the same way it will not rewrite
+a `.gitignore` it does not own. Once step 1 has succeeded (`site/node_modules/quartz` exists), these
+are dead weight, not a fallback — nothing reads them:
+
+| Leftover                                                               | Why it goes                                                                                                        |
+|------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `site/.quartz-src/`                                                    | The old git clone plus its own `npm install` — the ~250–280 MB this whole switch exists to stop paying per project |
+| `site/quartz.pin`                                                      | Read from the toolbox's own `quartz.pin` now, not per project — every wiki this machine builds shares one pin      |
+| `site/awt-links`, `awt-cross-wiki`, `awt-headings`, `awt-folder-notes` | Moved one level deeper, to `site/node_modules/`, to match where bun puts Quartz                                    |
+
+```shell
+rm -rf site/.quartz-src site/quartz.pin
+rm -f site/awt-links site/awt-cross-wiki site/awt-headings site/awt-folder-notes
+```
+
+### 3. Update `.gitignore`
+
+`awt site setup` only warns about a `.gitignore` it does not own — see its own message when it runs.
+Replace the old `.quartz-src/` entry (and the four `awt-*` lines, if the project ever tracked them
+explicitly) with `node_modules/`, which covers all of them at their new location. `bootstrap.js`'s own
+`GITIGNORE` constant is the current, authoritative form if there is any doubt what a fresh project's
+file should contain.
+
+### 4. Verify
+
+```shell
+awt site serve
+```
+
+Emits the index and builds itself — no separate `awt site index` step, that is what `serve` exists to
+never let come apart. A clean build with both `awt-links` and `awt-headings` agreeing is the whole
+test; there is nothing Quartz-specific left to check once that passes. `git status` on `site/` should
+show `package.json` and `bun.lock` as the only new tracked files, and nothing named `.quartz-src` or
+`quartz.pin` anywhere under it.
 
 ## Consumers the plugin install does not reach
 
