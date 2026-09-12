@@ -156,7 +156,10 @@ remove what it replaces.
 
 `awt site setup` adds the new files; it does not delete the old ones, the same way it will not rewrite
 a `.gitignore` it does not own. Once step 1 has succeeded (`site/node_modules/quartz` exists), these
-are dead weight, not a fallback — nothing reads them:
+are dead weight, not a fallback — nothing reads them. **Not every project carries all three**: one that
+was never built locally between the plugin switch and this one has only `quartz.pin`, with no clone and
+no symlinks to show for it. The commands below are safe either way — `rm -rf`/`rm -f` on a path that was
+never there is a no-op, not an error.
 
 | Leftover                                                               | Why it goes                                                                                                        |
 |------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
