@@ -143,8 +143,9 @@ export function createEdit(notesDir) {
           if (kind === 'create') created.push(path)
           else if (kind === 'remove') deleted.push(path)
           else if (kind === 'move') {
-            created.push(operation.to)
             if (operation.source !== undefined) changed.push(operation.to)
+            deleted.push(path)
+            created.push(operation.to)
           } else changed.push(path)
           continue
         }

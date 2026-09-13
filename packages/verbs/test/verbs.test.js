@@ -454,6 +454,30 @@ test('moveNotes removes the folders it emptied, and names one it could not', (t)
   assert.match(report.notes.join('\n'), /pics\/ holds no note any more but was left, for what else it holds: diagram\.png/)
 })
 
+test('moveNotes reports a dry run exactly as the real run: created, changed and deleted', (t) => {
+  const box = wiki({
+    'a/one.md': `${front('One')}See [[two]].\n`,
+    'a/two.md': `${front('Two')}Body.\n`,
+    'b/refs.md': `${front('Refs')}See [[one]] and [[a/two]].\n`,
+  })
+  t.after(() => box.cleanup())
+  const pairs = [
+    {from: 'a/one.md', to: 'c/one.md'},
+    {from: 'a/two.md', to: 'c/deep/two.md'},
+  ]
+  const sorted = (report) => ({
+    created: [...report.created].sort(),
+    changed: [...report.changed].sort(),
+    deleted: [...report.deleted].sort(),
+  })
+
+  const dry = moveNotes(box.root, {pairs, dryRun: true})
+  assert.deepEqual(dry.deleted.sort(), ['a/one.md', 'a/two.md'])
+  const real = moveNotes(box.root, {pairs})
+  assert.equal(real.ok, true)
+  assert.deepEqual(sorted(dry), sorted(real))
+})
+
 test('moveNotes is re-runnable: a half-applied plan finishes on the second run', (t) => {
   const box = wiki({
     'a/one.md': `${front('One')}Body.\n`,
