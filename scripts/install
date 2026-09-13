@@ -10,8 +10,8 @@
 #   working copy  ──install──▶  ~/.claude/skills/awt  ──▶  sessions, shells, builds
 #
 # Editing the working copy affects nothing until this runs. Pushing to GitHub is
-# a separate act, for backup and for other machines; a marketplace entry lives in
-# .claude-plugin/marketplace.json for those.
+# a separate act, for backup. There is no marketplace entry: plugin.json stays at
+# 0.0.0, and a marketplace that pins a version would never see a new snapshot.
 #
 # Usage:  scripts/install            # install (or reinstall) onto this machine
 #         scripts/install --dry-run  # show what would happen
