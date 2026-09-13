@@ -1175,7 +1175,7 @@ Decided 2026-09-11 and 2026-09-12.
  * The outline is what a caller reads before it can write a path for anything
  * else, so it is what `query` answers when asked for nothing in particular.
  */
-test('query with no path is the outline, and a path reads what it addresses', (t) => {
+test('query with no address is the outline, and an address reads what it addresses', (t) => {
   const box = wiki({'design/fields.md': BODY_NOTE})
   t.after(() => box.cleanup())
 
@@ -1185,7 +1185,7 @@ test('query with no path is the outline, and a path reads what it addresses', (t
   assert.match(outline.stdout, /## Options/)
 
   const table = JSON.parse(
-    awt(['query', 'design/fields.md', '-w', box.root, '--path', '[{"table":{}}]', '--json']).stdout,
+    awt(['query', 'design/fields.md', '-w', box.root, '--address', '[{"table":{}}]', '--json']).stdout,
   )
   assert.deepEqual(table.targets[0].rows[0], {Option: 'aliasDivider', 'Gives us': 'a seam', Cost: 'low'})
 })
@@ -1195,11 +1195,11 @@ test('query with no path is the outline, and a path reads what it addresses', (t
  * generated is one nobody should have to quote through a shell, and `-` is the
  * door that does not exist for the payload-carrying writes at all.
  */
-test('query takes its path from stdin with --path -', (t) => {
+test('query takes its address from stdin with --address -', (t) => {
   const box = wiki({'design/fields.md': BODY_NOTE})
   t.after(() => box.cleanup())
 
-  const {status, stdout} = awt(['query', 'design/fields.md', '-w', box.root, '--path', '-'], {
+  const {status, stdout} = awt(['query', 'design/fields.md', '-w', box.root, '--address', '-'], {
     input: '[{"table":{}},{"column":{"header":"Cost"}}]',
   })
   assert.equal(status, 0)
@@ -1207,20 +1207,28 @@ test('query takes its path from stdin with --path -', (t) => {
   assert.match(stdout, /high/)
 })
 
-test('a path that reaches nothing exits non-zero and names the segment it stopped at', (t) => {
+test('an address that reaches nothing exits non-zero and names the segment it stopped at', (t) => {
   const box = wiki({'design/fields.md': BODY_NOTE})
   t.after(() => box.cleanup())
 
-  const {status, stdout} = awt(['query', 'design/fields.md', '-w', box.root, '--path', '[{"section":"Nowhere"}]'])
+  const {status, stdout} = awt(['query', 'design/fields.md', '-w', box.root, '--address', '[{"section":"Nowhere"}]'])
   assert.equal(status, 1)
   assert.match(stdout, /segment 0/)
   assert.match(stdout, /PATH_NO_MATCH/)
 
   // A path that is not JSON is the caller's mistake, and exits the way every
   // other argument mistake on this binary does.
-  const bad = awt(['query', 'design/fields.md', '-w', box.root, '--path', '{oops'])
+  const bad = awt(['query', 'design/fields.md', '-w', box.root, '--address', '{oops'])
   assert.equal(bad.status, 2)
-  assert.match(bad.stderr, /--path is not JSON/)
+  assert.match(bad.stderr, /--address is not JSON/)
+
+  // And the old name is gone rather than quietly accepted: `--path` on this
+  // binary is a note, as `awt listing --path` shows, and a flag that means a
+  // file on one command and a segment path on another is one a caller gets
+  // wrong in the direction that reads as an answer.
+  const old = awt(['query', 'design/fields.md', '-w', box.root, '--path', '[{"table":{}}]'])
+  assert.equal(old.status, 2)
+  assert.match(old.stderr, /--path/)
 })
 
 test('measure counts the body and not the front matter, and a folder expands', (t) => {

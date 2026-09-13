@@ -871,42 +871,44 @@ export const COMMANDS = [
     summary: "Read inside a note's body by address: a section, a table as rows, a column, a block",
     usage:
       'awt query <note> [--outline]\n' +
-      '       awt query <note> --path \'[{"section": "Fields"}, {"table": {}}]\'\n' +
-      '       awt query <note> --path -   < path.json',
+      '       awt query <note> --address \'[{"section": "Fields"}, {"table": {}}]\'\n' +
+      '       awt query <note> --address -   < address.json',
     positionals: 1,
     notes: [
-      'With no --path it prints the outline: every heading, its depth, and the path that reaches it.',
+      'With no --address it prints the outline: every heading, its depth, and the address that reaches it.',
       'Read that first and write the next call off it.',
       '',
-      'A path is an array of {type: spec}, each resolving inside what the one before it found:',
+      'An address is an array of {type: spec}, each resolving inside what the one before it found:',
       '  section {text, nth} (or a bare heading string)   heading {text, nth}',
       '  table {header, nth}   row {where: {column, eq}, index}   column {header, index}',
       '  cell {row, column}    list {nth}   list_item {term, nth}   block {prefix, nth}',
       'Each segment carries a name and a position and prefers the name; pass both and a disagreement',
-      'is reported rather than hidden. An empty spec is every candidate, so a shorter path answers more.',
+      'is reported rather than hidden. An empty spec is every candidate, so a shorter address answers more.',
       '',
-      'The path is a coordinate, so it goes on argv; --path - reads it from stdin instead, which is',
-      'where a path a program generated belongs.',
+      'The address is a coordinate, so it goes on argv; --address - reads it from stdin instead, which',
+      'is where an address a program generated belongs.',
       '',
       'Front matter is a separate domain: `awt frontmatter` reads that, and this does not.',
     ],
-    options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, path: {type: 'string'}, outline: {type: 'boolean', default: false}},
+    options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, address: {type: 'string'}, outline: {type: 'boolean', default: false}},
     /**
-     * **The note is the positional and the segment path is the flag**, which is
-     * the opposite of how they read in the library, where `path` is the address
-     * and `note` names the file. It is the CLI's own rule rather than a
-     * divergence: every command on this binary takes the note it works on as its
-     * first argument, and a `query` that took the note on a flag would be the one
-     * exception.
+     * **The note is the positional and the address is the flag.** Every command on
+     * this binary takes the note it works on as its first argument, and a `query`
+     * that took the note on a flag would be the one exception.
+     *
+     * The flag is `--address`, which is what the verb calls the argument, and not
+     * `--path`, which on this binary is a note — `awt listing --path index.md`.
+     * One name meaning a file on one command and a segment path on another is a
+     * flag a caller gets wrong in the direction that reads as an answer.
      */
     async run({values, positionals}) {
       let path
-      if (values.path === '-') {
+      if (values.address === '-') {
         const chunks = []
         for await (const chunk of process.stdin) chunks.push(chunk)
         path = parsePath(Buffer.concat(chunks).toString('utf8'), 'stdin')
-      } else if (values.path !== undefined) {
-        path = parsePath(values.path, '--path')
+      } else if (values.address !== undefined) {
+        path = parsePath(values.address, '--address')
       }
 
       const found = query(loadWorkspace(await notesDirFor(values)), {
