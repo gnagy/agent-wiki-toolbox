@@ -14,17 +14,19 @@
  * disagreement between the two is reported rather than hidden). The operation is
  * one of five, and which apply is a property of the path's terminal segment:
  *
- *     section    replace, insert, delete, shift_level      (move: later)
+ *     section    replace, insert, delete, move, shift_level
  *     heading    replace
- *     block      replace, insert, delete                   (move: later)
- *     table      replace, delete                           (move: later)
+ *     block      replace, insert, delete, move
+ *     table      replace, delete, move
  *     row        replace, insert, delete, move             (within its table)
  *     column     replace, insert, delete, move             (within its table)
  *     cell       replace
- *     list       replace, delete                           (move: later)
+ *     list       replace, delete, move
  *     list_item  replace, insert, delete
  *
  * The table and list rows live in `body-tables.js`, with their payload shapes.
+ * `move` lives in `body-move.js`: it takes a `destination`, which may name
+ * another note, and stages the insert before the removal.
  *
  * The table is keyed by terminal kind so the next increment adds a row rather
  * than a branch. The design's full terminal-for matrix is kept beside it, so a
@@ -32,13 +34,13 @@
  * pair the scheme rules out is refused as *not a thing* — a caller can tell the
  * two apart.
  *
- * **Delete requires the nominal half of its terminal segment.** A wrong replace
- * leaves content in the wrong place, which a reader notices; a wrong delete leaves
- * nothing, which nobody does. A caller that read the section has its heading
- * text, and one that read the block has its opening words, so asking for either
- * costs a caller nothing and is proof that it read what it is about to remove. The
- * report carries what was removed, as markdown, so a mistake is recoverable from
- * the report and not only from git.
+ * **Delete requires the nominal half of its terminal segment, and so does move,
+ * which contains one.** A wrong replace leaves content in the wrong place, which
+ * a reader notices; a wrong delete leaves nothing, which nobody does. A caller
+ * that read the section has its heading text, and one that read the block has
+ * its opening words, so asking for either costs a caller nothing and is proof
+ * that it read what it is about to remove. The report carries what was removed,
+ * as markdown, so a mistake is recoverable from the report and not only from git.
  *
  * **`shift_level` refuses at the boundary rather than clamping.** Clamping
  * silently flattens a hierarchy — a parent and its child become siblings and
@@ -58,6 +60,7 @@ import {createAnchorSlugger, describeTarget, resolvePath, textOf} from '@agent-w
 import {visit} from '@agent-wiki-toolbox/syntax'
 
 import {LIST_OPERATIONS, TABLE_OPERATIONS} from './body-tables.js'
+import {afterMove, createMove, MOVE_CODES} from './body-move.js'
 import {createContext, finish, parseNote, refuse, resolveNotePath, serialize} from './context.js'
 import {visitLinks} from './rewrite.js'
 
@@ -97,6 +100,7 @@ export const BODY_CODES = {
   PAYLOAD_NOT_A_LIST_ITEM: 'BODY_PAYLOAD_NOT_A_LIST_ITEM',
   /** A `move` destination of the wrong shape, or naming nothing. */
   BAD_DESTINATION: 'BODY_BAD_DESTINATION',
+  ...MOVE_CODES,
 }
 
 const OPERATION_NAMES = new Set(['replace', 'insert', 'delete', 'move', 'shift_level'])
@@ -116,6 +120,9 @@ const TERMINAL_FOR = {
   list_item: ['replace', 'insert', 'delete'],
   block: ['replace', 'insert', 'delete', 'move'],
 }
+
+/** The kinds whose `move` leaves the container, and so contains a delete. */
+const MOVE_DEMANDS_NOMINAL = new Set(['section', 'block', 'table', 'list'])
 
 /** Which field is the nominal half, per segment type — what `delete` demands. */
 const NOMINAL_FIELD = {
@@ -141,11 +148,13 @@ const fail = (code, message, extra = {}) => refuse(VERB, message, {code, ...extr
  * of the five. `payload` is markdown text, for `replace` and `insert`;
  * `position` says where an `insert` lands — `first`/`last` inside a section,
  * `before`/`after` a section or a block; `delta` is `shift_level`'s signed
- * amount; `destination` is where a `move` lands.
+ * amount; `destination` is where a `move` goes — `{note?, address, position}`,
+ * the note absent for this one.
  *
  * Returns the verb report every other verb returns, plus `target` — the node the
  * address resolved to, as data — `disagreements` from the resolver, and `removed`
- * on a delete: the markdown that is no longer there.
+ * on a delete or a move: the markdown that is no longer there. A move adds
+ * `moved`, naming both ends.
  */
 export function body(notesDir, {path, address, operation, payload, position, delta, destination, workspace, dryRun} = {}) {
   if (!path) throw refuse(VERB, 'body needs a path')
@@ -184,22 +193,26 @@ export function body(notesDir, {path, address, operation, payload, position, del
     )
   }
 
-  if (operation === 'delete') {
+  // A move contains a delete, so it makes the same demand — for the kinds that
+  // leave their container, where a gap between the insert and the removal is a
+  // loss. A row or column moved within its own table is one reorder of one
+  // node, and nothing can go missing, so it is asked for nothing.
+  if (operation === 'delete' || (operation === 'move' && MOVE_DEMANDS_NOMINAL.has(target.kind))) {
     const field = NOMINAL_FIELD[target.kind]
     const last = address[address.length - 1][target.kind]
     const named = typeof last === 'string' || (last && last[field] !== undefined)
     if (!named) {
       throw fail(
         BODY_CODES.NOMINAL_REQUIRED,
-        `delete needs the ${target.kind}'s ${field}: a caller that read what it is removing can say what it is, ` +
-          'and a delete at an ordinal alone leaves nothing behind to show it went wrong',
+        `${operation} needs the ${target.kind}'s ${field}: a caller that read what it is removing can say what it is, ` +
+          `and a ${operation} at an ordinal alone leaves nothing behind to show it went wrong`,
       )
     }
   }
 
   const before = serialize(tree)
   const anchorsBefore = anchorsOf(tree)
-  const outcome = handler({context, tree, target, payload, position, delta, destination, notes}) ?? {}
+  const outcome = handler({context, tree, target, notePath, payload, position, delta, destination, notes}) ?? {}
   const after = serialize(tree)
 
   if (after === before) {
@@ -227,11 +240,13 @@ export function body(notesDir, {path, address, operation, payload, position, del
 
   context.edit.update(notePath, serialize(tree))
   const report = finish(VERB, context, {unresolved, notes})
+  afterMove(report, outcome.moved)
   return {
     ...report,
     target: describeTarget(target),
-    disagreements,
+    disagreements: [...disagreements, ...(outcome.disagreements ?? [])],
     ...(outcome.removed !== undefined ? {removed: outcome.removed} : {}),
+    ...(outcome.moved !== undefined ? {moved: outcome.moved} : {}),
   }
 }
 
@@ -319,6 +334,14 @@ const OPERATIONS = {
   ...TABLE_OPERATIONS,
   ...LIST_OPERATIONS,
 }
+
+/**
+ * `move` is one handler for every kind it applies to, built with this verb's
+ * own refusal and rebase, and hung on each kind's row — a row the table and
+ * list increment may add its own operations to.
+ */
+const move = createMove({fail, rebased, codes: BODY_CODES})
+for (const kind of ['section', 'block', 'table', 'list']) (OPERATIONS[kind] ??= {}).move = move
 
 function splice(parent, start, end, nodes) {
   parent.children.splice(start, end - start, ...nodes)
