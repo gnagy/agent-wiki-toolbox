@@ -1187,19 +1187,35 @@ export const COMMANDS = [
       const {declaration, notes} = extractDeclaration(parseYaml(readFileSync(tracked, 'utf8')))
       const block = renderDeclaration(declaration)
 
+      // A carried registry path is copied as written, and a wiki that moved its
+      // site since (docs/wiki + site -> wiki/site) leaves it pointing at nothing.
+      // The resolver only warns about that, at build time, in a way that reads as
+      // "the other wiki is not built" — so it is said here, where it can be fixed.
+      for (const [prefix, entry] of Object.entries(declaration.registry ?? {})) {
+        for (const key of ['buildIndex', 'publishedIndex']) {
+          const rel = entry?.[key]
+          if (typeof rel === 'string' && !existsSync(resolvePath(site, rel))) {
+            notes.push(
+              `registry.${prefix}.${key} names ${resolvePath(site, rel)}, which is not there; ` +
+                'check whether that wiki moved its site (wiki/site is the current layout) or is simply not built',
+            )
+          }
+        }
+      }
+
       const configPath = layout?.configPath
+      const text = configPath && configPath.endsWith('.mjs') ? readFileSync(configPath, 'utf8') : null
+      const marker = 'export default {'
+      const once = text !== null && text.indexOf(marker) !== -1 && text.indexOf(marker) === text.lastIndexOf(marker)
+      const hasSite = text !== null && /^\s*site\s*:/m.test(text)
       let wrote = null
-      if (!values['dry-run'] && configPath && configPath.endsWith('.mjs')) {
-        const text = readFileSync(configPath, 'utf8')
-        const marker = 'export default {'
-        const once = text.indexOf(marker) !== -1 && text.indexOf(marker) === text.lastIndexOf(marker)
-        const hasSite = /^\s*site\s*:/m.test(text)
-        if (once && !hasSite) {
+      if (hasSite) {
+        notes.push(`${configPath} already has a site key, so the block was not written; compare it with the one below`)
+      } else if (!values['dry-run'] && text !== null) {
+        if (once) {
           const at = text.indexOf(marker) + marker.length
           writeFileSync(configPath, `${text.slice(0, at)}\n${block}${text.slice(at)}`)
           wrote = configPath
-        } else if (hasSite) {
-          notes.push(`${configPath} already has a site key; the block below was not written`)
         } else {
           notes.push(`${configPath} has no single \`export default {\` to insert into; paste the block below`)
         }
@@ -1209,7 +1225,8 @@ export const COMMANDS = [
         `review ${tracked}: what it changed from Quartz's default beyond the block is not carried`,
         `git rm ${tracked}`,
         `add ${DERIVED_CONFIG} to ${resolvePath(site, '.gitignore')} (awt site setup names every missing line)`,
-        'awt site setup, then awt site serve',
+        `git rm ${resolvePath(site, 'quartz.pin')} if it is still there; the toolbox pins Quartz now`,
+        'awt site setup (if not already run), then awt site serve',
       ]
       const report = {ok: true, migrated: true, declaration, wrote, notes, steps}
       emit(values, report, () =>

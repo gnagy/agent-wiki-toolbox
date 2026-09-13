@@ -196,19 +196,40 @@ show `package.json` and `bun.lock` as the only new tracked files, and nothing na
 
 ## Moving a wiki's Quartz config into `awt.config.mjs`
 
-**Separate from both upgrades above, and the one every wiki that existed before 2026-09-13 needs.**
-Until then each project tracked a full `site/quartz.config.yaml`: Quartz's own default plus four
-`../awt-*` plugin entries plus the project's own few values. The toolbox now derives that file before
-every build — from the pinned install's own default, its own changes, and a `site` declaration in
-`awt.config.mjs` — and writes it as the gitignored `site/.quartz.config.yaml`. The four plugins are
-one, `quartz-plugins/awt`, named by absolute path into the install; nothing is symlinked into a
-project any more, and a change inside the toolbox reaches every wiki on its next build.
+**Every wiki that existed before 2026-09-13 needs this, and a project on the old clone does this and
+the previous section in one pass, in the order below.** Until then each project tracked a full
+`quartz.config.yaml`: Quartz's own default plus four `../awt-*` plugin entries plus the project's own
+few values. The toolbox now derives that file before every build — from the pinned install's own
+default, its own changes, and a `site` declaration in `awt.config.mjs` — and writes it as the
+gitignored `.quartz.config.yaml`. The four plugins are one, `quartz-plugins/awt`, named by absolute
+path into the install; nothing is symlinked into a project any more, and a change inside the toolbox
+reaches every wiki on its next build.
 
 **Symptom if this is skipped:** `awt site serve` and `publish` refuse outright, naming the `../awt-*`
-entries the tracked file still carries and this command. A build cannot silently run the old way,
-because the symlinks those entries named are removed by `awt site setup` and no longer written.
+entries the tracked file still carries and `awt site migrate`. A build cannot silently run the old
+way, because the symlinks those entries named are removed by `awt site setup` and no longer written.
 
-### 1. Lift the project's own values
+**Where "the site directory" is.** Every path below is inside it. It is `wiki/site/` on the current
+layout and `site/` beside `docs/wiki/` on the old one; `awt site serve` prints it as its `site:`
+line, and `awt check --json` reports the notes directory it sits beside. The old layout keeps working
+and prints one line saying so on every command; moving off it is `/awt:move-layout`, a separate
+change, and not part of this one.
+
+### 1. Take the new install first
+
+```shell
+awt site setup
+```
+
+Safe whether the project is on the old clone, half-migrated, or current. It installs Quartz under
+`node_modules/`, removes the four old plugin symlinks, and names every line the site's `.gitignore`
+is missing. It also warns when a `.gitignore` above the site ignores `package.json` — a framework's
+generated-files rule can — because that file is the Quartz pin and has to be tracked; add a negation
+after the rule that ignores it, or `git add -f` it.
+
+This goes first because the next two steps read things only the install provides.
+
+### 2. Lift the project's own values
 
 ```shell
 awt site migrate --dry-run     # shows the block it would write, changes nothing
@@ -218,49 +239,67 @@ awt site migrate
 It reads the tracked file and writes `site: {…}` into `awt.config.mjs` — title, base URL if it was a
 real host, the wiki's prefix and the registry entries for *other* wikis (its own is derived from the
 port), the note-properties field list, and footer links unless they were Quartz's stock ones. When
-the config file has no single `export default {` to insert into, or already has a `site` key, it
-prints the block to paste instead. Read its notes: a shadow that was off, or `failOnDisagreement:
-false`, has no equivalent now.
+`awt.config.mjs` already has a `site` key it writes nothing and says so; when the file has no single
+`export default {` to insert into, it prints the block to paste. **Read its notes.** A shadow that
+was off, or `failOnDisagreement: false`, has no equivalent now; and a registry path it carried that
+points at nothing is named — the usual cause is the other wiki having moved its site to `wiki/site/`
+since the path was written, and the fix is editing the path in `awt.config.mjs`.
 
-### 2. Check what else the file changed
+### 3. Check what else the tracked file changed, against the derived one
 
-The migration carries exactly what four real configs were found to differ in. Anything else the
-project changed from Quartz's default is not carried, so diff before deleting:
-
-```shell
-diff <(grep -v '^\s*#' site/node_modules/quartz/quartz.config.default.yaml) <(grep -v '^\s*#' site/quartz.config.yaml)
-```
-
-A difference worth keeping goes one of two ways: a `plugins` entry under `site` in `awt.config.mjs`
-(an entry whose `source` matches replaces that plugin's fields, so `{source: '@quartz-community/og-image', enabled: true}`
-turns the toolbox's default back on), or, for anything larger, keep `site/quartz.config.yaml`
-tracked with the `../awt-*` entries removed — the toolbox then takes that file as the base and injects
-only its own plugin entry.
-
-### 3. Remove and ignore
+The migration carries exactly what four real configs were found to differ in. To see whether this
+project changed anything else, build once so the derived file exists, then diff the tracked file
+against *that* — not against Quartz's stock default, which shows the toolbox's own changes
+(analytics off, `disableBrokenWikilinks`, `og-image` off) as if they were the project's:
 
 ```shell
-git rm site/quartz.config.yaml          # unless keeping it as the base, per step 2
+awt site serve    # Ctrl-C once the build has finished
+diff <(grep -v '^\s*#' <site>/quartz.config.yaml) <(grep -v '^\s*#' <site>/.quartz.config.yaml)
 ```
 
-Add `.quartz.config.yaml` to `site/.gitignore`; `awt site setup` names it among the missing lines
-if it is not there. Then take the new install, which also removes the old plugin symlinks:
+Plugin entries in a different order, and the `../awt-*` entries against the one absolute `awt` entry,
+are the expected noise. A difference worth keeping goes one of two ways: a `plugins` entry under
+`site` in `awt.config.mjs` (an entry whose `source` matches replaces that plugin's fields, so
+`{source: '@quartz-community/og-image', enabled: true}` turns the toolbox's default back on), or,
+for anything larger, keep `quartz.config.yaml` tracked with the `../awt-*` entries removed — the
+toolbox then takes that file as the base and injects only its own plugin entry. Keeping it means the
+`site` declaration's title, properties and footer are ignored, since the file wins; keep it only
+for a difference the declaration cannot express.
+
+### 4. Remove and ignore
 
 ```shell
-awt site setup
+git rm <site>/quartz.config.yaml         # unless keeping it as the base, per step 3
+git rm <site>/quartz.pin                 # the toolbox pins Quartz now; nothing reads this
+rm -rf <site>/.quartz-src <site>/awt-links <site>/awt-cross-wiki <site>/awt-headings <site>/awt-folder-notes
 ```
 
-### 4. Verify
+The last line is the old clone and the old symlinks, untracked, and a no-op where they were never
+there. Then the site's `.gitignore`: `.quartz.config.yaml` and `node_modules/` in, `.quartz-src/` and
+the four `awt-*` lines out; step 1 listed exactly what is missing. `git status` afterwards shows
+`package.json` and `bun.lock` as the new tracked files, the two deletions staged, and nothing else new
+under the site.
+
+### 5. Verify
 
 ```shell
 awt site serve
 ```
 
 `✓ awt: both resolvers agree on all N pages` and `✓ awt: N pages' headings in static/awtHeadings.json`
-are the lines to see. `site/node_modules/quartz/.quartz/plugins/` holds one link, `awt`, into the
-install; none of the four old names. Where `site/README.md` describes the config or the plugins, it
-describes something that is not there any more — rewrite it to say the config is derived and where the
-declaration lives.
+are the lines to see; a `⚠ awt: prefix:path is not a page …` line is a real cross-wiki link to a note
+the other wiki does not have, which a stale registry path used to hide. `<site>/node_modules/quartz/.quartz/plugins/`
+holds one link, `awt`, into the install; none of the four old names. The server runs until Ctrl-C;
+from a script, it is the `node quartz/bootstrap-cli.mjs build` process to kill.
+
+### 6. The site README
+
+Where `<site>/README.md` describes the config, the plugins, the pin or the old command names, it
+describes something that is not there any more. What changed, for rewriting it: `awt bootstrap-quartz`
+is `awt site setup`, `awt serve` and `awt publish` are `awt site serve` and `awt site publish`, the
+config is derived and the declaration lives in `awt.config.mjs`, `quartz.pin` and the `awt-*` symlinks
+are gone, and the shadow's lines start `✓ awt:` rather than naming `awt-links`. `awt site --help` is
+the current surface.
 
 ## Consumers the plugin install does not reach
 

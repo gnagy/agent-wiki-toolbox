@@ -111,6 +111,23 @@ function writePackageJson(site, pin) {
     trustedDependencies: TRUSTED_DEPS,
   }
   fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`)
+  warnIfIgnored(site, file)
+}
+
+/**
+ * The pin is only a pin if it is tracked, and a project's root .gitignore can
+ * swallow a `package.json` anywhere in the tree (a framework's generated-files
+ * rule, say). `git status` then shows nothing, and the next clone has no site to
+ * set up. Asked of git itself, since only git knows which rule wins.
+ */
+function warnIfIgnored(site, file) {
+  const asked = spawnSync("git", ["check-ignore", "-q", file], { cwd: site, stdio: "ignore" })
+  if (asked.status !== 0) return
+  say(
+    `\n⚠ ${path.relative(process.cwd(), file)} is ignored by a .gitignore above it, so it will not be tracked.\n` +
+      `  It is the Quartz pin. Add a negation for it (e.g. !/${path.relative(path.dirname(site), file)}\n` +
+      "  after the rule that ignores it), or git add -f it; either way, check it is tracked.",
+  )
 }
 
 // What bootstrap adds to a site directory is machine-local — Quartz and its
