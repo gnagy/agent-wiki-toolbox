@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
@@ -111,7 +111,7 @@ test('every write tool exposes dryRun', (t) => {
   t.after(() => box.cleanup())
 
   const tools = createServer({notesDir: box.root, allowWrites: true})._registeredTools
-  const writes = ['rename', 'move', 'delete', 'split_by_heading', 'merge_files', 'rename_tag', 'build_listing']
+  const writes = ['rename', 'move', 'delete', 'split_by_heading', 'merge_files', 'rename_tag', 'build_listing', 'body']
 
   for (const name of writes) {
     const keys = Object.keys(tools[name].inputSchema?.shape ?? {})
@@ -227,4 +227,97 @@ test('query says which half was wrong when the note is not there', async (t) => 
 
   const missing = textOf(await call(server, 'query', {note: 'nope.md', path: [{table: {}}]}))
   assert.equal(missing.code, 'QUERY_NOTE_NOT_FOUND')
+})
+
+/**
+ * The body's write half, over the surface that carries payloads. The four cases
+ * are the ones the tool's own shape can get wrong where the verb's tests cannot:
+ * a markdown payload arriving intact through zod, an array-shaped `destination`
+ * key surviving a schema that could have stripped it, the write gate, and the
+ * refusal reaching the caller as a code rather than as a thrown transport error.
+ */
+test('body replaces a section by address, over the write surface', async (t) => {
+  const box = wiki({...NOTES, 'design/fields.md': BODY})
+  t.after(() => box.cleanup())
+  const server = createServer({notesDir: box.root, allowWrites: true})
+
+  const report = textOf(
+    await call(server, 'body', {
+      path: 'design/fields.md',
+      address: [{section: 'Options'}],
+      operation: 'replace',
+      payload: '## Options\n\nNow prose, linking [[conventions]].\n',
+    }),
+  )
+  assert.equal(report.ok, true)
+  const after = readFileSync(join(box.root, 'design/fields.md'), 'utf8')
+  assert.match(after, /## Options\n\nNow prose, linking \[\[conventions\]\]\.\n/)
+  assert.doesNotMatch(after, /aliasDivider/)
+})
+
+/**
+ * A delete at an ordinal alone is refused, and the refusal is a report with a
+ * code — not an exception the transport turns into a stack trace.
+ */
+test('body refuses a delete that cannot name what it is removing', async (t) => {
+  const box = wiki({...NOTES, 'design/fields.md': BODY})
+  t.after(() => box.cleanup())
+  const server = createServer({notesDir: box.root, allowWrites: true})
+
+  const refused = textOf(
+    await call(server, 'body', {path: 'design/fields.md', address: [{section: {nth: 0}}], operation: 'delete'}),
+  )
+  assert.equal(refused.ok, false)
+  assert.equal(refused.code, 'BODY_NOMINAL_REQUIRED')
+  assert.equal(readFileSync(join(box.root, 'design/fields.md'), 'utf8'), BODY)
+})
+
+test('body previews a delete with dryRun and writes nothing', async (t) => {
+  const box = wiki({...NOTES, 'design/fields.md': BODY})
+  t.after(() => box.cleanup())
+  const server = createServer({notesDir: box.root, allowWrites: true})
+
+  const dry = textOf(
+    await call(server, 'body', {
+      path: 'design/fields.md',
+      address: [{section: 'Options'}],
+      operation: 'delete',
+      dryRun: true,
+    }),
+  )
+  assert.equal(dry.ok, true)
+  assert.match(dry.removed, /^## Options/)
+  assert.equal(readFileSync(join(box.root, 'design/fields.md'), 'utf8'), BODY)
+})
+
+/** A destination naming a second note: the one argument that reaches two files. */
+test('body moves a section into another note', async (t) => {
+  const box = wiki({...NOTES, 'design/fields.md': BODY, 'design/sink.md': '# Sink\n\n## Elsewhere\n\nHere.\n'})
+  t.after(() => box.cleanup())
+  const server = createServer({notesDir: box.root, allowWrites: true})
+
+  const report = textOf(
+    await call(server, 'body', {
+      path: 'design/fields.md',
+      address: [{section: 'Options'}],
+      operation: 'move',
+      destination: {note: 'design/sink.md', address: [{section: 'Elsewhere'}], position: 'last'},
+    }),
+  )
+  assert.equal(report.ok, true)
+  assert.equal(report.moved.to.note, 'design/sink.md')
+  assert.match(readFileSync(join(box.root, 'design/sink.md'), 'utf8'), /### Options\n\n\| Option/)
+  assert.doesNotMatch(readFileSync(join(box.root, 'design/fields.md'), 'utf8'), /aliasDivider/)
+})
+
+/**
+ * A read-only server does not list `body` and cannot be made to call it: unlike
+ * `frontmatter` and `fmt` it has no read half to keep, because `query` is it.
+ */
+test('body is not on a read-only server at all', async (t) => {
+  const box = wiki({...NOTES, 'design/fields.md': BODY})
+  t.after(() => box.cleanup())
+  const tools = createServer({notesDir: box.root})._registeredTools
+  assert.equal(tools.body, undefined)
+  assert.ok(tools.query, 'the read half is still there')
 })

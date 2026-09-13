@@ -1,5 +1,5 @@
 /**
- * The agent-facing surface: sixteen tools. Each answers something that cannot be
+ * The agent-facing surface: seventeen tools. Each answers something that cannot be
  * answered by opening a file; reading a note and writing prose into it are left
  * to the agent's own file tools.
  *
@@ -11,6 +11,7 @@ import {z} from 'zod'
 
 import {check, loadWorkspace, measure, query} from '@agent-wiki-toolbox/core'
 import {
+  body,
   buildListing,
   deleteNote,
   frontmatter,
@@ -72,6 +73,14 @@ const SEGMENT = z
       .describe('a paragraph, code block or quote — the one address with no name, so pass prefix as well as nth'),
   })
   .passthrough()
+
+/**
+ * The address itself, shared by the body's read and its write. One schema,
+ * because the scheme's whole claim is that the path a `query` returned is the
+ * path a `body` write takes; two declarations would drift apart key by key and
+ * the claim would stop being true without anything saying so.
+ */
+const ADDRESS = z.array(SEGMENT)
 
 const PATH_DESCRIPTION =
   'The segment path into the body: an array of {type: spec}, each resolving inside what the one before ' +
@@ -200,7 +209,7 @@ export function createServer({
         ' Front matter is a separate domain and is not reachable from here; use frontmatter.',
       {
         note: z.string().describe('workspace-relative path, e.g. design/foo.md'),
-        path: z.array(SEGMENT).optional().describe(PATH_DESCRIPTION),
+        path: ADDRESS.optional().describe(PATH_DESCRIPTION),
         outline: z.boolean().optional().describe('the headings and nothing else, whatever path was passed'),
       },
       (args, w) => query(w.index(), args),
@@ -249,8 +258,78 @@ export function createServer({
   // rather than to each by hand, so the next verb cannot arrive without it.
   const DRY_RUN = z.boolean().optional().describe('report what would change and write nothing')
 
+  /**
+   * The body's write half, and the only tool that takes markdown as an argument.
+   * That is the design's line between the surfaces rather than an omission: a
+   * payload is a document, and a document on argv is a quoting hazard, so the CLI
+   * never takes one and this tool is where body writes live.
+   *
+   * It is registered with the writes, not beside `frontmatter` and `fmt`: those
+   * two have a read half a read-only mount can serve, and this one has none —
+   * `query` is the read, and it is already listed.
+   */
+  const BODY_DESCRIPTION =
+    "Write inside one note's markdown body by the same address `query` reads with. Nothing is string-spliced: " +
+    'the payload is parsed by the processor that parsed the note and printed by the wikilink-aware printer, so ' +
+    'a [[link]] survives and a table the formatter re-aligned is still addressable. Read the address with ' +
+    '`query` first — its outline gives you the path, and what it showed you is what you should recognise in ' +
+    'the report. ' +
+    'Terminal kinds and what each is terminal for: section — replace, insert, delete, move, shift_level; ' +
+    'heading — replace; block (a paragraph, code block or quote) — replace, insert, delete, move; table — ' +
+    'replace, delete, move; row and column — replace, insert, delete, move, within their own table; cell — ' +
+    'replace; list — replace, delete, move; list_item — replace, insert, delete. ' +
+    'Payloads, per kind: section, markdown opening with a heading and holding exactly one section, its depths ' +
+    'rebased to where it lands; heading, one line of inline markdown — and the rename repoints every ' +
+    '[[note#heading]] into it, here and wiki-wide; block, markdown carrying no heading; table, exactly one ' +
+    'markdown table; row, one row line "| a | b |" or an array of cell strings; column, an array of strings, ' +
+    'header first and one per body row, its length matching; cell, inline markdown; list, exactly one markdown ' +
+    'list; list_item, one item written as a bullet or as bare content. ' +
+    'position places an insert: first, last, before or after at a section, before or after at a block, a row, a ' +
+    'column or a list item. delta is shift_level\'s signed amount, refused at depth 1 and 6 rather than clamped. ' +
+    'move takes destination: {note?, address, position} for a section, block, table or list — note absent means ' +
+    'this note, position is first or last inside a section and before or after beside any of them — and, for a ' +
+    'row or column moving within its table, {position: "first"|"last"}, {position: "before"|"after", row|column: ' +
+    '…} or {index}. ' +
+    "delete needs the nominal half of its terminal segment, and so does a move that leaves its container (section, " +
+    "block, table, list): a section's or heading's text, a block's or list's prefix, a table's or column's header, " +
+    "a row's where, a list item's term. An ordinal alone is refused — a caller that read what it is removing can " +
+    'name it. ' +
+    'The report carries target, disagreements (a segment whose name and ordinal disagreed, with the name winning), ' +
+    'removed (the markdown a delete or move took out, so a mistake is recoverable from the report), moved (both ' +
+    'ends), unresolved (inbound links whose anchor this write removed) and, on a refusal, a BODY_* or PATH_* code ' +
+    'to match on rather than a sentence. dryRun reports and writes nothing. ' +
+    'Front matter is a separate domain and is not reachable from here; use frontmatter.'
+
   // Verb plus object, snake_case on this surface.
   const writes = [
+    [
+      'body',
+      BODY_DESCRIPTION,
+      {
+        path: z.string().describe('workspace-relative path of the note to write, e.g. design/foo.md'),
+        address: ADDRESS.describe(PATH_DESCRIPTION),
+        operation: z.enum(['replace', 'insert', 'delete', 'move', 'shift_level']),
+        // A row is an array of cells and a column an array of values, so the
+        // payload is a document or a vector of them; a string-only schema would
+        // strip an array and the verb would see no payload at all.
+        payload: z.union([z.string(), z.array(z.string())]).optional().describe('markdown, or the cell values for a row or column'),
+        position: z.enum(['first', 'last', 'before', 'after']).optional().describe('where an insert lands, relative to the addressed node'),
+        delta: z.number().int().optional().describe('shift_level only: signed heading depths to move by'),
+        // Passthrough for the same reason `SEGMENT` is: a row or column move's
+        // destination carries `row`, `column` or `index`, and a stripped key
+        // becomes "no destination given" rather than a named refusal.
+        destination: z
+          .object({
+            note: z.string().optional().describe('the note to move into; absent means this one'),
+            address: ADDRESS.optional(),
+            position: z.string().optional(),
+          })
+          .passthrough()
+          .optional()
+          .describe('move only: where it goes'),
+      },
+      (args, w) => body(w.notesDir, args),
+    ],
     [
       'rename',
       'Rename a note within its folder, rewriting every link into it.',

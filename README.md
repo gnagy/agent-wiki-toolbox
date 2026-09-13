@@ -70,6 +70,9 @@ server and the site build. There is no second binary to reach for.
 awt --help                       # every operation, in sections
 awt check                        # everything wrong with the link graph, in one call
 awt search 'unique basenames'    # note bodies, titles, front matter and tags
+awt query a.md                   # the outline: every heading and the address that reaches it
+awt query a.md --address '[{"table": {}}]'   # …a table as rows keyed by its header
+awt measure design/              # words, ISO dates and a pattern's hits, per note
 awt move a.md design/a.md        # …rewriting every link into it
 awt move a.md b.md               # no folder in the destination means rename
 awt move old/ new/               # a folder moves as one plan, links written once
@@ -128,6 +131,16 @@ write is not the unit a schema applies to, and a migration passes through states
 on its way to one it does. `--validate` asks the question on its own, and the Stop hook asks it of
 everything a session wrote. Replacing the whole block reserialises it and loses an author's comments
 and quoting, so it needs `--derived` and takes its object from stdin.
+
+**The markdown body is a third domain, and its writes are not on this binary.** `awt query` reads
+inside a note by address — a path of segments, `section`, `heading`, `block`, `table`, `row`,
+`column`, `cell`, `list`, `list_item` — and the `body` MCP tool writes at that same address, with
+`replace`, `insert`, `delete`, `move` and `shift_level` as the addressed kind allows. Nothing is
+string-spliced: a payload is parsed and printed by the pipeline the note itself came through, so a
+`[[link]]` survives it, and a delete or a relocating move is refused unless the address names what it
+is removing. **Payloads stay off argv** — a payload is a document, and a document on argv is a
+quoting hazard — which is why there is no `awt body`, and why the read's `--address` is named for the
+verb's own argument rather than sharing `--path` with the commands that mean a note by it.
 
 **Every command finds the project from anywhere inside it**, by walking up to `awt.config.mjs` at
 the project root. That file names the wiki's home once, and every other directory is a fixed name

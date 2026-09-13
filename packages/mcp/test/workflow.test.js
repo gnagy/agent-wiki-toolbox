@@ -94,7 +94,7 @@ test('the wiki-docs lookup workflow runs end to end', async (t) => {
   assert.equal(health.healthy, true)
 })
 
-test('the surface is fourteen tools with --allow-writes, and every write is one of them', async (t) => {
+test('the surface is seventeen tools with --allow-writes, and every write is one of them', async (t) => {
   const box = wiki()
   t.after(() => box.cleanup())
   const client = await connect(box.root, ['--allow-writes'])
@@ -104,6 +104,7 @@ test('the surface is fourteen tools with --allow-writes, and every write is one 
   assert.deepEqual(
     tools.map((tool) => tool.name).sort(),
     [
+      'body',
       'build_listing',
       'check',
       'connections',

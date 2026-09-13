@@ -60,15 +60,16 @@ Write tools need a server started with `--allow-writes`. A read-only server does
 of the writes only `fmt` is there, and only with `dryRun: true`. Each replaces a shell command
 that breaks the graph:
 
-| Tool                               | Instead of                                                    |
-|------------------------------------|---------------------------------------------------------------|
-| `rename` · `move`                  | `mv`, which leaves every inbound link pointing at nothing     |
-| `delete`                           | `rm`; links into the note are reported, not rewritten         |
-| `split_by_heading` · `merge_files` | Re-emitting whole documents                                   |
-| `rename_tag`                       | `sed`, which cannot tell front matter from prose              |
-| `build_listing`                    | Hand-maintaining the notes table between markers in the index |
-| `frontmatter`                      | `sed` over a YAML block, which loses comments and quoting     |
-| `fmt`                              | Any other formatter, see the hazard below                     |
+| Tool                               | Instead of                                                                         |
+|------------------------------------|------------------------------------------------------------------------------------|
+| `rename` · `move`                  | `mv`, which leaves every inbound link pointing at nothing                          |
+| `delete`                           | `rm`; links into the note are reported, not rewritten                              |
+| `split_by_heading` · `merge_files` | Re-emitting whole documents                                                        |
+| `rename_tag`                       | `sed`, which cannot tell front matter from prose                                   |
+| `build_listing`                    | Hand-maintaining the notes table between markers in the index                      |
+| `frontmatter`                      | `sed` over a YAML block, which loses comments and quoting                          |
+| `body`                             | Re-emitting a note to change one section, or a regex over a table's rendered pipes |
+| `fmt`                              | Any other formatter, see the hazard below                                          |
 
 Prose edits are made with ordinary file tools; the index is recomputed on the next call. A note
 written that way is formatted when the session ends; `awt check` runs then too, and so do the
@@ -87,6 +88,24 @@ knows which files a shell command touched — run `awt fmt <path>` on it yoursel
 - `split_by_heading` takes a heading-to-path plan and a source fate of `delete`, `stub` or
   `keep`. A target that already exists is skipped and reported; the other sections proceed.
 - Every write accepts `dryRun`.
+
+### The body, addressed by segment path
+
+`body` writes what `query` reads, at the same address: a path of segments, each resolving inside what
+the one before it found — `section`, `heading`, `block`, `table`, `row`, `column`, `cell`, `list`,
+`list_item`. **Read the address with `query` first.** Its outline names the path to every heading, and
+a table comes back as rows keyed by its header — the only reading of a table that survives the
+formatter re-aligning its columns.
+
+Each segment carries a name and a position and **the name wins**. Pass both and a segment that finds
+*Fields* at 1 rather than the 3 you gave edits the one you named and reports the disagreement, which
+is how you learn the note moved under you; pass the ordinal alone and there is nothing to disagree
+with. So **`delete`, and a `move` that leaves its container, refuse a segment with no name**: a wrong
+replace puts content somewhere a reader notices, a wrong delete leaves nothing and nobody does. A
+caller that read the target can name it, and what went comes back in `removed` as markdown.
+
+**Payload writes are MCP-only.** `awt query` reads a body from the command line and there is no
+`awt body`: a payload is a document, and a document on argv is a quoting hazard.
 
 ### Front matter is a separate domain
 
