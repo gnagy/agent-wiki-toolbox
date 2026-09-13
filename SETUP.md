@@ -136,9 +136,11 @@ that the project keeps paying its own ~250–280 MB clone and `npm install` inst
 install with every other project on the machine, and its Quartz plugins may still be symlinked into a
 path that no longer exists (`~/.local/lib/agent-wiki-toolbox`, removed by the pre-plugin upgrade
 above) or into an intermediate one (`~/.claude/skills/awt`, correct at the time but from before the
-plugin symlinks moved a level deeper). **Quartz never re-resolves a plugin directory it has already
-installed**, so any of these is a silent no-op, not a build failure — the site keeps rendering with
-whatever code it last resolved, with no error telling you so.
+plugin symlinks moved a level deeper). Quartz re-links a local plugin by real path on every build,
+but a chain of symlinks that still *resolves* to a stale tree is not something it can tell from the
+right one, so any of these is a silent no-op, not a build failure — the site keeps rendering with
+whatever code it last resolved, with no error telling you so. The section after this one removes the
+per-project symlinks altogether.
 
 ### 1. Take the new install
 
@@ -165,7 +167,7 @@ never there is a no-op, not an error.
 |------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
 | `site/.quartz-src/`                                                    | The old git clone plus its own `npm install` — the ~250–280 MB this whole switch exists to stop paying per project |
 | `site/quartz.pin`                                                      | Read from the toolbox's own `quartz.pin` now, not per project — every wiki this machine builds shares one pin      |
-| `site/awt-links`, `awt-cross-wiki`, `awt-headings`, `awt-folder-notes` | Moved one level deeper, to `site/node_modules/`, to match where bun puts Quartz                                    |
+| `site/awt-links`, `awt-cross-wiki`, `awt-headings`, `awt-folder-notes` | Gone: the one plugin is named by absolute path in the config the toolbox derives, and Quartz links it itself |
 
 ```shell
 rm -rf site/.quartz-src site/quartz.pin
@@ -187,10 +189,78 @@ awt site serve
 ```
 
 Emits the index and builds itself — no separate `awt site index` step, that is what `serve` exists to
-never let come apart. A clean build with both `awt-links` and `awt-headings` agreeing is the whole
-test; there is nothing Quartz-specific left to check once that passes. `git status` on `site/` should
+never let come apart. A clean build with `awt` reporting both resolvers agreeing is the whole test;
+there is nothing Quartz-specific left to check once that passes. `git status` on `site/` should
 show `package.json` and `bun.lock` as the only new tracked files, and nothing named `.quartz-src` or
 `quartz.pin` anywhere under it.
+
+## Moving a wiki's Quartz config into `awt.config.mjs`
+
+**Separate from both upgrades above, and the one every wiki that existed before 2026-09-13 needs.**
+Until then each project tracked a full `site/quartz.config.yaml`: Quartz's own default plus four
+`../awt-*` plugin entries plus the project's own few values. The toolbox now derives that file before
+every build — from the pinned install's own default, its own changes, and a `site` declaration in
+`awt.config.mjs` — and writes it as the gitignored `site/.quartz.config.yaml`. The four plugins are
+one, `quartz-plugins/awt`, named by absolute path into the install; nothing is symlinked into a
+project any more, and a change inside the toolbox reaches every wiki on its next build.
+
+**Symptom if this is skipped:** `awt site serve` and `publish` refuse outright, naming the `../awt-*`
+entries the tracked file still carries and this command. A build cannot silently run the old way,
+because the symlinks those entries named are removed by `awt site setup` and no longer written.
+
+### 1. Lift the project's own values
+
+```shell
+awt site migrate --dry-run     # shows the block it would write, changes nothing
+awt site migrate
+```
+
+It reads the tracked file and writes `site: {…}` into `awt.config.mjs` — title, base URL if it was a
+real host, the wiki's prefix and the registry entries for *other* wikis (its own is derived from the
+port), the note-properties field list, and footer links unless they were Quartz's stock ones. When
+the config file has no single `export default {` to insert into, or already has a `site` key, it
+prints the block to paste instead. Read its notes: a shadow that was off, or `failOnDisagreement:
+false`, has no equivalent now.
+
+### 2. Check what else the file changed
+
+The migration carries exactly what four real configs were found to differ in. Anything else the
+project changed from Quartz's default is not carried, so diff before deleting:
+
+```shell
+diff <(grep -v '^\s*#' site/node_modules/quartz/quartz.config.default.yaml) <(grep -v '^\s*#' site/quartz.config.yaml)
+```
+
+A difference worth keeping goes one of two ways: a `plugins` entry under `site` in `awt.config.mjs`
+(an entry whose `source` matches replaces that plugin's fields, so `{source: '@quartz-community/og-image', enabled: true}`
+turns the toolbox's default back on), or, for anything larger, keep `site/quartz.config.yaml`
+tracked with the `../awt-*` entries removed — the toolbox then takes that file as the base and injects
+only its own plugin entry.
+
+### 3. Remove and ignore
+
+```shell
+git rm site/quartz.config.yaml          # unless keeping it as the base, per step 2
+```
+
+Add `.quartz.config.yaml` to `site/.gitignore`; `awt site setup` names it among the missing lines
+if it is not there. Then take the new install, which also removes the old plugin symlinks:
+
+```shell
+awt site setup
+```
+
+### 4. Verify
+
+```shell
+awt site serve
+```
+
+`✓ awt: both resolvers agree on all N pages` and `✓ awt: N pages' headings in static/awtHeadings.json`
+are the lines to see. `site/node_modules/quartz/.quartz/plugins/` holds one link, `awt`, into the
+install; none of the four old names. Where `site/README.md` describes the config or the plugins, it
+describes something that is not there any more — rewrite it to say the config is derived and where the
+declaration lives.
 
 ## Consumers the plugin install does not reach
 

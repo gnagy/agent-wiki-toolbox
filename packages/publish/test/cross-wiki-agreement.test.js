@@ -16,7 +16,7 @@ import test from 'node:test'
 
 import {parseCrossWikiTarget} from '@agent-wiki-toolbox/syntax'
 
-const {parseReference} = await import(new URL('../../../quartz-plugins/quartz-cross-wiki/index.js', import.meta.url).pathname)
+const {parseReference} = await import(new URL('../../../quartz-plugins/awt/index.js', import.meta.url).pathname)
 
 const CROSS_WIKI = [
   'vsf:meta/scope.md',
@@ -85,7 +85,7 @@ test('an anchor the target wiki does not publish warns, and never fails', async 
   const {mkdirSync, mkdtempSync, rmSync, writeFileSync} = await import('node:fs')
   const {tmpdir} = await import('node:os')
   const {join} = await import('node:path')
-  const crossWikiLinks = (await import(new URL('../../../quartz-plugins/quartz-cross-wiki/index.js', import.meta.url).pathname)).default
+  const crossWikiLinks = (await import(new URL('../../../quartz-plugins/awt/index.js', import.meta.url).pathname)).default
 
   const dir = mkdtempSync(join(tmpdir(), 'awt-xwiki-'))
   t.after(() => rmSync(dir, {recursive: true, force: true}))
@@ -100,7 +100,11 @@ test('an anchor the target wiki does not publish warns, and never fails', async 
     JSON.stringify({'meta/scope': {filePath: 'meta/scope.md', headings: ['scope', 'what-belongs']}}),
   )
 
+  // One policy for the index: the transformer reads it too, so a test hands one over.
+  const index = join(dir, '.awt-index.json')
+  writeFileSync(index, JSON.stringify({version: 1, notesDir: dir, slugs: [], pages: {}}))
   const plugin = crossWikiLinks({
+    index,
     registry: {vsf: {buildIndex: join(target, 'contentIndex.json'), dev: 'http://localhost:8081'}},
   })
   const [transform] = plugin.markdownPlugins({argv: {serve: true}})

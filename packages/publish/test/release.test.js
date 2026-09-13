@@ -291,25 +291,17 @@ test('offlineConfig derives one that turns off everything needing a browser', as
   const logs = []
   t.mock.method(process.stdout, 'write', (m) => logs.push(String(m).replace(/\n$/, '')))
   const site = tmp()
-  put(
-    site,
-    'quartz.config.yaml',
-    [
-      'configuration:',
-      '  pageTitle: Test wiki',
-      '  enableSPA: true',
-      'plugins:',
-      '  - source: quartz/plugins/components/graph',
-      '  - source: quartz/plugins/emitters/contentIndex',
-      '  - source:',
-      '      name: search',
-      '  - source: quartz/plugins/components/darkmode',
-      '    enabled: false',
-      '',
-    ].join('\n'),
-  )
+  const derived = {
+    configuration: {pageTitle: 'Test wiki', enableSPA: true},
+    plugins: [
+      {source: 'quartz/plugins/components/graph'},
+      {source: 'quartz/plugins/emitters/contentIndex'},
+      {source: {name: 'search'}},
+      {source: 'quartz/plugins/components/darkmode', enabled: false},
+    ],
+  }
 
-  const name = await offlineConfig(site, fakeQuartz())
+  const name = await offlineConfig(site, fakeQuartz(), derived)
   assert.equal(name, '.quartz.offline.yaml')
 
   const {parse} = await import('yaml')
@@ -331,17 +323,14 @@ test('offlineConfig rewrites its generated file rather than accumulating', async
   t.mock.method(process.stdout, 'write', () => true)
   const site = tmp()
   const quartz = fakeQuartz()
-  put(site, 'quartz.config.yaml', 'configuration: {pageTitle: One}\nplugins: []\n')
-  await offlineConfig(site, quartz)
-
-  put(site, 'quartz.config.yaml', 'configuration: {pageTitle: Two}\nplugins: []\n')
-  await offlineConfig(site, quartz)
+  await offlineConfig(site, quartz, {configuration: {pageTitle: 'One'}, plugins: []})
+  await offlineConfig(site, quartz, {configuration: {pageTitle: 'Two'}, plugins: []})
 
   const {parse} = await import('yaml')
   assert.equal(parse(readFileSync(join(site, '.quartz.offline.yaml'), 'utf8')).configuration.pageTitle, 'Two')
   assert.deepEqual(
     readdirSync(site).sort(),
-    ['.quartz.offline.yaml', 'quartz.config.yaml'],
+    ['.quartz.offline.yaml'],
     'one generated file, not one per build',
   )
 })
@@ -349,10 +338,9 @@ test('offlineConfig rewrites its generated file rather than accumulating', async
 test('offlineConfig says where to look when the Quartz clone has no yaml', async (t) => {
   const errors = noExit(t)
   const site = tmp()
-  put(site, 'quartz.config.yaml', 'configuration: {}\n')
   const quartz = tmp()
   mkdirSync(join(quartz, 'node_modules'))
 
-  await assert.rejects(() => offlineConfig(site, quartz), /exit 2/)
+  await assert.rejects(() => offlineConfig(site, quartz, {configuration: {}}), /exit 2/)
   assert.match(errors.join('\n'), /awt site setup/, 'the fix, not just the symptom')
 })

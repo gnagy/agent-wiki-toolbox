@@ -19,7 +19,7 @@
  * `renameNote` depending on its destination, `site index` is a `core` function
  * grouped by what consumes it, and the MCP surface stays flat with its own names.
  */
-import {existsSync, readFileSync, statSync} from 'node:fs'
+import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs'
 import {dirname, resolve as resolvePath} from 'node:path'
 import process from 'node:process'
 
@@ -188,7 +188,7 @@ export const GROUPS = [
     options: SITE_OPTIONS,
     text: {
       wiki: "the notes to render (default: the project's rootDir/notes)",
-      site: 'the Quartz clone to build in (default: rootDir/site)',
+      site: 'the site directory to build in (default: rootDir/site)',
     },
   },
 ]
@@ -386,6 +386,23 @@ async function emitIndexForSite(command, values) {
   // first, which is the one thing a --json caller cannot be handed.
   if (!values.json) process.stdout.write(`index: ${summary.notes} notes, ${summary.links} links\n`)
   return {code: 0, ...summary}
+}
+
+/**
+ * What the build needs from awt.config.mjs, as arguments: the `site` declaration
+ * as one JSON document, the project directory its relative paths are written
+ * against, and the ports. Config discovery belongs to `format`, and `publish`
+ * may not reach it, so these are read here and handed over explicitly.
+ */
+async function siteArgs(layout) {
+  const {config} = await loadProjectConfig(layout?.projectDir ?? process.cwd())
+  const ports = config.serve ?? {}
+  return [
+    ...(config.site ? ['--site-config', JSON.stringify(config.site)] : []),
+    ...(layout?.projectDir ? ['--project', layout.projectDir] : []),
+    ...(ports.port === undefined ? [] : ['--configPort', String(ports.port)]),
+    ...(ports.wsPort === undefined ? [] : ['--configWsPort', String(ports.wsPort)]),
+  ]
 }
 
 /** What was written, the same four numbers whichever command asked for it. */
@@ -915,12 +932,17 @@ export const COMMANDS = [
     group: 'site',
     section: 'Publish',
     declines: ['wiki'],
-    summary: 'Set up (or re-pin) the Quartz clone a site builds from, and link the toolbox plugins into it',
+    summary: 'Set up (or re-pin) the Quartz install a site builds from',
     usage: 'awt site setup [--site path] [--force]',
     positionals: 0,
     notes: [
       "Runs from anywhere inside the project: the site is <rootDir>/site, with rootDir from the project's",
-      'awt.config.mjs (default wiki/). --site names another one, resolved against the cwd.',
+      'awt.config.mjs (default wiki/), created if it is not there yet. --site names another one,',
+      'resolved against the cwd, and has to exist.',
+      '',
+      "The config Quartz reads is derived before every build from the install's own default and the",
+      "`site` declaration in awt.config.mjs, so a site directory needs nothing in it to start. A tracked",
+      'site/quartz.config.yaml, if the project keeps one, replaces that base wholesale.',
     ],
     options: {...OUTPUT_OPTIONS, force: {type: 'boolean', default: false}},
     async run({values}) {
@@ -994,6 +1016,7 @@ export const COMMANDS = [
         ...(values.diagrams ? ['--diagrams', values.diagrams] : []),
         ...(values.nginx ? ['--nginx'] : []),
         ...(values.json ? ['--json'] : []),
+        ...(await siteArgs(layout)),
       ])
     },
   },
@@ -1009,12 +1032,18 @@ export const COMMANDS = [
       "Emits the link-graph index, then runs Quartz's dev server over the wiki. The awt-links",
       'plugin compares the rendered pages against that index.',
       '',
-      "Ports come from `serve` in the project's awt.config.mjs:",
+      "Ports come from `serve` in the project's awt.config.mjs, and what the site says about",
+      'itself from `site` in the same file:',
       '',
-      '    export default {serve: {port: 8101}}',
+      '    export default {',
+      '      serve: {port: 8101},',
+      "      site: {title: 'DIOS wiki', self: 'shelton-dios', registry: {…}, properties: [...]},",
+      '    }',
       '',
       '--ws-port defaults to the port plus 100. Runs from anywhere inside the project.',
       'The config key stays `serve: {wsPort}` — that is a JS object, where camelCase is right.',
+      "The Quartz config itself is derived from that before every build; `awt site migrate` lifts",
+      'a tracked quartz.config.yaml into the declaration.',
     ],
     options: {
       out: {type: 'string'},
@@ -1037,8 +1066,6 @@ export const COMMANDS = [
       // matter where in it you are standing.
       const layout = await layoutFor('serve', values)
       if (layout === undefined) return 2
-      const {config} = await loadProjectConfig(layout?.projectDir ?? process.cwd())
-      const ports = config.serve ?? {}
 
       return serve([
         '--wiki',
@@ -1048,8 +1075,7 @@ export const COMMANDS = [
         ...(values.out ? ['--out', values.out] : []),
         ...(values.port ? ['--port', values.port] : []),
         ...(values['ws-port'] ? ['--ws-port', values['ws-port']] : []),
-        ...(ports.port === undefined ? [] : ['--configPort', String(ports.port)]),
-        ...(ports.wsPort === undefined ? [] : ['--configWsPort', String(ports.wsPort)]),
+        ...(await siteArgs(layout)),
       ])
     },
   },
@@ -1063,7 +1089,7 @@ export const COMMANDS = [
     notes: [
       'With no --out it writes <site>/.awt-index.json, which is where the build looks and what',
       'publish and serve emit before they run. It is grouped here because that file is read by the',
-      'three Quartz plugins and by nothing else — it is not the graph offered as data.',
+      "toolbox's Quartz plugin and by nothing else — it is not the graph offered as data.",
       '',
       '--out names another file and needs no site, for looking at the graph directly.',
     ],
@@ -1124,6 +1150,80 @@ export const COMMANDS = [
       })
       await server.connect(new StdioServerTransport())
       return null // stays up until the transport closes
+    },
+  },
+  {
+    name: 'migrate',
+    group: 'site',
+    section: 'Publish',
+    writes: true,
+    declines: ['wiki'],
+    summary: "Lift a tracked site/quartz.config.yaml into the `site` declaration in awt.config.mjs",
+    usage: 'awt site migrate [--dry-run]',
+    positionals: 0,
+    notes: [
+      'For a project from before the toolbox derived the Quartz config. Reads the tracked file, pulls',
+      "out what was the project's own — title, base URL, prefix and registry, properties, footer — and",
+      "writes it as `site: {…}` into awt.config.mjs, when that file has one `export default {` and no",
+      '`site` key yet; otherwise it prints the block to paste. Then says what to delete and ignore.',
+      '',
+      'Anything else the file changed from Quartz\'s default is not carried; the report names the file',
+      'so it can be diffed before it goes. --dry-run prints the block and changes nothing.',
+    ],
+    options: {...OUTPUT_OPTIONS, 'dry-run': {type: 'boolean', default: false}},
+    async run({values}) {
+      const {extractDeclaration, renderDeclaration, PROJECT_CONFIG, DERIVED_CONFIG} = await import('@agent-wiki-toolbox/publish')
+      const layout = values.site ? null : await resolveLayout()
+      const site = values.site ? resolvePath(values.site) : layout?.siteDir
+      if (!site) {
+        process.stderr.write('awt site migrate: no awt.config.mjs here or in any parent. Run this from inside the project.\n')
+        return 2
+      }
+      const tracked = resolvePath(site, PROJECT_CONFIG)
+      if (!existsSync(tracked)) {
+        emit(values, {ok: true, migrated: false, notes: [`no ${tracked}; nothing to migrate`]}, () => `no ${tracked}: nothing to migrate.`)
+        return 0
+      }
+      const {declaration, notes} = extractDeclaration(parseYaml(readFileSync(tracked, 'utf8')))
+      const block = renderDeclaration(declaration)
+
+      const configPath = layout?.configPath
+      let wrote = null
+      if (!values['dry-run'] && configPath && configPath.endsWith('.mjs')) {
+        const text = readFileSync(configPath, 'utf8')
+        const marker = 'export default {'
+        const once = text.indexOf(marker) !== -1 && text.indexOf(marker) === text.lastIndexOf(marker)
+        const hasSite = /^\s*site\s*:/m.test(text)
+        if (once && !hasSite) {
+          const at = text.indexOf(marker) + marker.length
+          writeFileSync(configPath, `${text.slice(0, at)}\n${block}${text.slice(at)}`)
+          wrote = configPath
+        } else if (hasSite) {
+          notes.push(`${configPath} already has a site key; the block below was not written`)
+        } else {
+          notes.push(`${configPath} has no single \`export default {\` to insert into; paste the block below`)
+        }
+      }
+
+      const steps = [
+        `review ${tracked}: what it changed from Quartz's default beyond the block is not carried`,
+        `git rm ${tracked}`,
+        `add ${DERIVED_CONFIG} to ${resolvePath(site, '.gitignore')} (awt site setup names every missing line)`,
+        'awt site setup, then awt site serve',
+      ]
+      const report = {ok: true, migrated: true, declaration, wrote, notes, steps}
+      emit(values, report, () =>
+        [
+          wrote ? `wrote the site declaration into ${wrote}:` : 'the site declaration to add to awt.config.mjs:',
+          '',
+          block,
+          '',
+          ...notes.map((note) => `  note: ${note}`),
+          'next:',
+          ...steps.map((step, n) => `  ${n + 1}. ${step}`),
+        ].join('\n'),
+      )
+      return 0
     },
   },
 ]

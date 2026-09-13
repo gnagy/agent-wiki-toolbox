@@ -19,10 +19,18 @@
  *                     file the first time is a project decision, not a
  *                     materialization of one already made.
  *
- *   bootstrap()      the deliberate part — `awt site setup`. Writes
+ *   bootstrap()      the deliberate part — `awt site setup`. Creates the site
+ *                     directory when the project has none yet, writes
  *                     `site/package.json` (first time, or to accept a newer
  *                     pin the toolbox now ships, or under --force), the
  *                     `.gitignore`, then calls ensureQuartz for the rest.
+ *
+ * The config Quartz reads is not the project's to write: `site-config.js`
+ * derives it before every build from the pinned install's own default and the
+ * project's `site` declaration in awt.config.mjs, and the one symlink wired here
+ * points the install at that derived file. The four per-project plugin symlinks
+ * this used to write are gone with the four plugins; the one plugin is named by
+ * absolute path in the derived config and Quartz links it itself.
  *
  * The pin itself lives at this repo's own root (`quartz.pin`, beside
  * `mise.toml`), not per project — every wiki this machine builds shares it,
@@ -51,15 +59,13 @@ import { fileURLToPath } from "node:url"
 
 import { narrateTo, say } from "./narrate.js"
 import { requireProjectRoot } from "./project-root.js"
+import { DERIVED_CONFIG } from "./site-config.js"
 
 /** The toolbox root: packages/publish/lib -> packages/publish -> packages -> root. */
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
-const PLUGINS = [
-  ["awt-links", "quartz-links"],
-  ["awt-cross-wiki", "quartz-cross-wiki"],
-  ["awt-headings", "quartz-headings"],
-  ["awt-folder-notes", "quartz-folder-notes"],
-]
+
+/** What the four retired plugins were linked as, under site/node_modules and Quartz's cache. */
+const OLD_LINKS = ["awt-links", "awt-cross-wiki", "awt-headings", "awt-folder-notes"]
 
 const REPO = "jackyzha0/quartz"
 
@@ -125,6 +131,11 @@ public/
 release/
 .release-staging/
 .release-prev/
+
+# The config Quartz reads, derived by awt before every build from the pinned
+# install's own default and the site declaration in awt.config.mjs. A project
+# that takes it over tracks quartz.config.yaml beside it instead.
+.quartz.config.yaml
 
 # The handoff copy built by awt site publish --offline, and the config it derives
 # to build it with. Both are regenerated on demand; quartz.offline.yaml, if the
@@ -197,28 +208,19 @@ function wireSymlinks(site) {
   const quartz = quartzDir(site)
 
   // Quartz reads quartz.config.yaml AND ./package.json from its own working
-  // directory, so the config has to be reachable from inside node_modules/quartz
-  // while still living in site/ where it is tracked and reviewable. One level
-  // deeper than the old site/.quartz-src layout, because bun puts the package
-  // under node_modules rather than beside site/ directly.
-  relink(path.join(quartz, "quartz.config.yaml"), "../../quartz.config.yaml")
+  // directory, so the config has to be reachable from inside node_modules/quartz.
+  // What it reaches is the derived file, rewritten before every build; the
+  // project's own tracked file, when it has one, is that derivation's base.
+  relink(path.join(quartz, "quartz.config.yaml"), `../../${DERIVED_CONFIG}`)
 
-  // Point the project at THIS installation of the plugins. The config names
-  // relative paths (`../awt-links`, `../awt-cross-wiki`, …), so it stays
-  // machine-independent and carries no version; these symlinks are what bind
-  // it to the copy installed on this machine. Gitignored, recreated on every
-  // ensure. One level deeper than site/ for the same reason as the config.
-  for (const [linkName, pluginDir] of PLUGINS) {
-    relink(path.join(site, "node_modules", linkName), path.join(HERE, "quartz-plugins", pluginDir))
+  // The four plugins this toolbox used to link per project are one plugin now,
+  // named by absolute path in the derived config; Quartz symlinks a local source
+  // into .quartz/plugins itself and re-links it by real path on every build. What
+  // is left of the old wiring is removed so nothing stale can be read by mistake.
+  for (const name of OLD_LINKS) {
+    fs.rmSync(path.join(site, "node_modules", name), { recursive: true, force: true })
+    fs.rmSync(path.join(quartz, ".quartz", "plugins", name), { recursive: true, force: true })
   }
-
-  // Quartz NEVER re-resolves an installed plugin: if .quartz/plugins/<name>
-  // exists it returns early without comparing the installed version to the
-  // configured one. So changing what a project should use is a silent no-op
-  // until this directory goes. Clearing it on every ensure makes that the one
-  // thing that always means "take the current tooling".
-  const cache = path.join(quartz, ".quartz", "plugins")
-  if (fs.existsSync(cache)) fs.rmSync(cache, { recursive: true, force: true })
 }
 
 function bunInstall(site) {
@@ -283,12 +285,18 @@ export function bootstrap(argv = process.argv.slice(2)) {
   // Under --json that goes to stderr and stdout carries the one document.
   if (values.json) narrateTo(process.stderr)
 
+  // The project's own site directory is created when it is not there yet: with
+  // the config derived, an empty directory is all a new wiki's site starts as.
+  // A directory named outright has to exist, since a typo would otherwise be
+  // created rather than refused.
   const site = values.site
     ? path.resolve(values.site)
     : path.join(requireProjectRoot(die), "site")
-  if (!fs.existsSync(site) || !fs.statSync(site).isDirectory()) die(`no site directory at ${site}`)
-  if (!fs.existsSync(path.join(site, "quartz.config.yaml")))
-    die(`no ${path.join(site, "quartz.config.yaml")}; a site directory needs its Quartz config`)
+  if (values.site && (!fs.existsSync(site) || !fs.statSync(site).isDirectory())) die(`no site directory at ${site}`)
+  if (!fs.existsSync(site)) {
+    fs.mkdirSync(site, { recursive: true })
+    say(`created ${path.relative(process.cwd(), site)}`)
+  }
 
   const pin = readToolboxPin()
   const gitignore = writeGitignore(site)

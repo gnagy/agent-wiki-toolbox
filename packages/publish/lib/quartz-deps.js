@@ -31,7 +31,11 @@ function manifestPath(modules, pkg) {
 
 export async function loadFromQuartz(quartz, pkg, die) {
   const nested = path.join(quartz, "node_modules")
-  const hoisted = path.join(path.dirname(quartz), "node_modules")
+  // `quartz` is `site/node_modules/quartz`, so the hoisted tree is its parent.
+  // This used to append a second `node_modules` to that and looked one level
+  // too deep, which no build noticed until the config derivation needed yaml on
+  // every run rather than only for --offline.
+  const hoisted = path.dirname(quartz)
   const modules = manifestPath(nested, pkg) ? nested : hoisted
   const manifest = manifestPath(modules, pkg)
   if (!manifest) {

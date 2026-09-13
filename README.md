@@ -78,11 +78,37 @@ awt frontmatter a.md --validate  # does this note satisfy its schema? (writes no
 awt frontmatter a.md --schema    # which schema claims this path — ask before writing a note
 awt mcp --allow-writes           # the MCP server, over stdio
 
-awt site setup                   # clone or re-pin the renderer a site builds from
-awt site serve                   # emit the index, then Quartz's dev server
+awt site setup                   # install or re-pin the renderer a site builds from
+awt site serve                   # emit the index and the config, then Quartz's dev server
 awt site publish                 # build, then swap into wiki/site/release
-awt site index                   # just the artifact the Quartz plugins read
+awt site index                   # just the artifact the Quartz plugin reads
+awt site migrate                 # lift a tracked quartz.config.yaml into awt.config.mjs
 ```
+
+**The Quartz config is the toolbox's, derived before every build.** Quartz reads
+`quartz.config.yaml` from its own directory and nothing else, and every wiki's copy was Quartz's
+shipped default plus the same handful of changes, so the toolbox now writes that file
+(`wiki/site/.quartz.config.yaml`, gitignored) from the pinned install's own default, its own changes,
+and what the project declares under `site` in `awt.config.mjs`:
+
+```js
+site: {
+  title: 'DIOS wiki',                // the page title
+  self: 'shelton-dios',              // this wiki's cross-wiki prefix; its registry entry is derived
+  registry: {'shelton-dios-data': {dev: 'http://localhost:8102', buildIndex: '../../…/contentIndex.json'}},
+  baseUrl: 'wiki.example.org',       // the published host; localhost:<port> when serving
+  properties: ['type', 'status'],    // front-matter fields shown on a page
+  footer: {GitHub: 'https://…'},     // footer links
+  plugins: [{source: './plugins/mine', options: {}, order: 70}],   // extra Quartz plugins, passed through
+}
+```
+
+A change inside the toolbox — a plugin option, a Quartz pin bump that renames a community plugin —
+reaches every wiki on the next build without touching a project's files. A project that needs what
+the declaration does not expose tracks its own `wiki/site/quartz.config.yaml`, which replaces the
+derived base wholesale; the toolbox still injects its one plugin entry into it. The one Quartz plugin,
+`quartz-plugins/awt`, is named in that entry by absolute path into the install, and Quartz links it
+itself; nothing of the toolbox is symlinked into a project any more.
 
 **`site` is the one group, and a group is a namespace rather than an alias** — there is no flat
 `awt serve` kept working beside `awt site serve`. It is grouped because its four commands share a
@@ -157,6 +183,16 @@ What the plugin is, beyond the binary:
 
 Every automatic part is gated on `awt.config.mjs` and inert without it, so a project is not something
 that installs the plugin — it is something the plugin recognises.
+
+## The Quartz plugin
+
+One package, `quartz-plugins/awt`, declared to Quartz as both a transformer and an emitter. It reads
+the index `awt site index` writes and computes nothing of its own: a note beside a folder of its own
+name is served at the address the index gives it, `prefix:path.md` links resolve through the target
+wiki's own content index, every page's heading anchors are published beside `contentIndex.json`, and
+the shadow compares Quartz's link resolution against the toolbox's and fails the build on a
+disagreement. `shadow: false` in its options is the resolver switch, when its gate is met. It has no
+dependencies, because Quartz imports it through a symlink from which nothing else resolves.
 
 ## Where the reasoning lives
 

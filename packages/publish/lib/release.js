@@ -64,6 +64,9 @@ import { requireProjectRoot } from "./project-root.js"
 import { loadFromQuartz } from "./quartz-deps.js"
 import { prerenderDiagrams } from "./diagrams-pass.js"
 import { quartzDir } from "./bootstrap.js"
+import { DEFAULT_PORT } from "./serve.js"
+import { readDeclaration } from "./declaration.js"
+import { DERIVED_CONFIG, writeSiteConfig } from "./site-config.js"
 
 /** The toolbox root: packages/publish/lib -> packages/publish -> packages -> root. */
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
@@ -93,11 +96,10 @@ const BROWSER_ONLY_PLUGINS = [
   "og-image",
 ]
 
-// One level deeper than it used to be: Quartz lives at site/node_modules/quartz
-// now, not site/.quartz-src, so its config symlink needs two ".." to reach
-// site/ instead of one. bootstrap.js's wireSymlinks() creates the canonical
+// The config Quartz reads is the derived one, two ".." up from
+// site/node_modules/quartz. bootstrap.js's wireSymlinks() creates the canonical
 // form; this is what an offline build repoints and later checks against.
-const CANONICAL_CONFIG = "../../quartz.config.yaml"
+const CANONICAL_CONFIG = `../../${DERIVED_CONFIG}`
 
 function run(cmd, args, opts = {}) {
   return spawnSync(cmd, args, { encoding: "utf8", env: CLEAN_ENV, ...opts })
@@ -143,29 +145,21 @@ function mb(bytes) {
  * Warn about a base URL that only makes sense locally. Quartz writes it into
  * absolute URLs — the sitemap, the RSS feed, `og:` tags — which a reader never
  * clicks and a crawler always does, so a localhost value here fails silently and
- * only off-site. Regex rather than a YAML parser: this tool has no dependencies,
- * and being wrong costs a missing warning, not a bad build.
+ * only off-site. Read from the derived config, which is what the build used.
  */
-function checkBaseUrl(site) {
-  const config = path.join(site, "quartz.config.yaml")
-  if (!fs.existsSync(config)) return
-  const m = /^\s*baseUrl:\s*(.*)$/m.exec(fs.readFileSync(config, "utf8"))
-  const value = m ? m[1].trim().replace(/^["']|["']$/g, "").replace(/\s+#.*$/, "") : ""
+function checkBaseUrl(config) {
+  const value = String(config?.configuration?.baseUrl ?? "").trim()
   if (!value || value === "null" || /^(https?:\/\/)?(localhost|127\.0\.0\.1)\b/.test(value)) {
     say(
-      `\n⚠ baseUrl in quartz.config.yaml is ${value ? `"${value}"` : "unset"}. The sitemap, RSS\n` +
-        "  and og: tags in this release carry it. Set it to the host that serves the release.",
+      `\n⚠ baseUrl is ${value ? `"${value}"` : "unset"}. The sitemap, RSS and og: tags in this\n` +
+        "  release carry it. Declare site.baseUrl in awt.config.mjs as the host that serves the release.",
     )
   }
 }
 
 /** The wiki's own name, for the note that travels with a handoff copy. */
-function siteTitle(site) {
-  const config = path.join(site, "quartz.config.yaml")
-  const m = fs.existsSync(config)
-    ? /^\s*pageTitle:\s*(.*)$/m.exec(fs.readFileSync(config, "utf8"))
-    : null
-  const value = m ? m[1].trim().replace(/^["']|["']$/g, "") : ""
+function siteTitle(config) {
+  const value = String(config?.configuration?.pageTitle ?? "").trim()
   return value || "wiki"
 }
 
@@ -307,26 +301,26 @@ export function swap(staging, out, prev) {
 
 /**
  * The config a handoff build uses: the project's own `quartz.offline.yaml` if it
- * has one, else one derived from `quartz.config.yaml` with the browser-only
- * plugins turned off. Derived by default because the interesting choice is
- * *which* plugins those are, and that answer is the same in every project;
- * a project that disagrees writes the file and owns it from then on.
+ * has one, else the derived config with the browser-only plugins turned off.
+ * Derived by default because the interesting choice is *which* plugins those
+ * are, and that answer is the same in every project; a project that disagrees
+ * writes the file and owns it from then on.
  *
- * Parsed with the `yaml` inside the Quartz clone — the same parser Quartz reads
- * the config with, so this cannot disagree with it about what the file says.
+ * Written with the `yaml` inside the Quartz install — the same parser Quartz
+ * reads the config with, so this cannot disagree with it about what the file says.
  *
  * Returns the file name, relative to `site/`, since that is what the symlink
- * inside the clone has to name.
+ * inside the install has to name.
  */
-export async function offlineConfig(site, quartz) {
+export async function offlineConfig(site, quartz, derived) {
   const own = "quartz.offline.yaml"
   if (fs.existsSync(path.join(site, own))) {
     say(`config: ${own} (the project's own)`)
     return own
   }
 
-  const { parse, stringify } = await loadFromQuartz(quartz, "yaml", die)
-  const config = parse(fs.readFileSync(path.join(site, "quartz.config.yaml"), "utf8"))
+  const { stringify } = await loadFromQuartz(quartz, "yaml", die)
+  const config = structuredClone(derived ?? {})
 
   config.configuration ??= {}
   // Both are progressive enhancement over `file://` and worse than useless
@@ -622,6 +616,11 @@ export async function publish(argv = process.argv.slice(2)) {
         diagrams: { type: "string" },
         nginx: { type: "boolean", default: false },
         json: { type: "boolean", default: false },
+        "site-config": { type: "string" },
+        project: { type: "string" },
+        // The dev port, for the wiki's own registry entry: a publish build
+        // resolves nothing against it, but the entry is written whole.
+        configPort: { type: "string" },
       },
     })
   } catch (e) {
@@ -685,7 +684,16 @@ export async function publish(argv = process.argv.slice(2)) {
   assertCanonicalConfig(quartz)
 
   say(`wiki: ${wiki}\nsite: ${site}\n${values.offline ? "handoff" : "release"}: ${out}`)
-  const configName = values.offline ? await offlineConfig(site, quartz) : null
+  // The config Quartz reads, derived for a publish build: cross-wiki links to
+  // published bases, the declared host as the base URL.
+  const derived = await writeSiteConfig(site, quartz, readDeclaration(values["site-config"], die), {
+    projectDir: values.project ? path.resolve(values.project) : path.dirname(site),
+    port: Number(values.configPort) || DEFAULT_PORT,
+    serving: false,
+    die,
+  })
+  say(`config: ${DERIVED_CONFIG} (${derived.own ? "from this project's own quartz.config.yaml" : "derived"})`)
+  const configName = values.offline ? await offlineConfig(site, quartz, derived.config) : null
   say()
 
   const staging = path.join(path.dirname(out), `.${path.basename(out)}-staging`)
@@ -756,7 +764,7 @@ export async function publish(argv = process.argv.slice(2)) {
     say(`  ${v.total} clickable references, all of them files a browser can open from disk`)
     const inlined = inlineRootIndex(staging)
     if (inlined) say(`  index.html is ${inlined} itself now, not a redirect to it`)
-    fs.writeFileSync(path.join(staging, "README.txt"), handoffReadme(siteTitle(site)))
+    fs.writeFileSync(path.join(staging, "README.txt"), handoffReadme(siteTitle(derived.config)))
   }
 
   const replaced = swap(staging, out, prev)
@@ -785,7 +793,7 @@ export async function publish(argv = process.argv.slice(2)) {
     return 0
   }
 
-  checkBaseUrl(site)
+  checkBaseUrl(derived.config)
   say(
     "\nServe it with any static host that tries $uri.html before 404:\n" +
       "    try_files $uri $uri.html $uri/index.html =404;\n" +

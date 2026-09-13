@@ -29,39 +29,36 @@ test('the orchestrators are functions that take an argv array', () => {
   assert.ok(publish.length <= 1)
 })
 
-test('every Quartz plugin declares a manifest its loader can read', () => {
-  const names = readdirSync(PLUGINS)
-  assert.deepEqual(names.sort(), ['quartz-cross-wiki', 'quartz-folder-notes', 'quartz-headings', 'quartz-links'])
+/**
+ * The loading contract, asserted the way Quartz's own `config-loader.ts` reads
+ * it at the pinned commit: the manifest's `category` may be a list, the loader
+ * puts the package into every bucket named there, calls the *default* export once
+ * per bucket, and checks only that the instance has that bucket's methods. None
+ * of that is importable here — the loader is TypeScript inside the Quartz
+ * install — so this mirrors it. Re-verify against the loader on a pin bump.
+ */
+test('the one Quartz plugin declares a manifest its loader can read', () => {
+  assert.deepEqual(readdirSync(PLUGINS).sort(), ['awt'])
 
-  for (const name of names) {
-    const manifest = JSON.parse(readFileSync(new URL(`${name}/package.json`, PLUGINS), 'utf8'))
-    assert.ok(manifest.quartz, `${name} has no quartz manifest`)
-    assert.ok(
-      ['transformer', 'emitter', 'filter', 'pageType'].includes(manifest.quartz.category),
-      `${name} declares category "${manifest.quartz.category}"`,
-    )
-    assert.ok(manifest.quartz.description?.length > 20, `${name} needs a description`)
-    // A local plugin is symlinked into the Quartz tree, so a bare specifier here
-    // would have to resolve from outside it. Zero dependencies is the contract.
-    assert.deepEqual(manifest.dependencies ?? {}, {}, `${name} must stay dependency-free`)
-  }
+  const manifest = JSON.parse(readFileSync(new URL('awt/package.json', PLUGINS), 'utf8'))
+  assert.ok(manifest.quartz, 'no quartz manifest')
+  assert.deepEqual(manifest.quartz.category, ['transformer', 'emitter'])
+  assert.equal(manifest.quartz.name, 'awt')
+  assert.ok(manifest.quartz.description?.length > 20, 'needs a description')
+  // A local plugin is symlinked into the Quartz tree, so a bare specifier here
+  // would have to resolve from outside it. Zero dependencies is the contract.
+  assert.deepEqual(manifest.dependencies ?? {}, {}, 'must stay dependency-free')
 })
 
-test('every Quartz plugin exports a default factory returning its category shape', async () => {
-  const expected = {
-    'quartz-links': 'emit',
-    'quartz-headings': 'emit',
-    'quartz-cross-wiki': 'markdownPlugins',
-    'quartz-folder-notes': 'markdownPlugins',
-  }
-
-  for (const [name, method] of Object.entries(expected)) {
-    const module = await import(new URL(`${name}/index.js`, PLUGINS).pathname)
-    assert.equal(typeof module.default, 'function', `${name} has no default export`)
-    const instance = module.default({})
-    assert.equal(typeof instance[method], 'function', `${name} instance has no ${method}()`)
-    assert.ok(instance.name, `${name} instance has no name`)
-  }
+test('its default factory answers both category buckets from one instance', async () => {
+  const module = await import(new URL('awt/index.js', PLUGINS).pathname)
+  assert.equal(typeof module.default, 'function', 'no default export')
+  const instance = module.default({})
+  assert.ok(instance.name, 'instance has no name')
+  // validateCategory, restated: a transformer has any of the three passes, an
+  // emitter has emit. One instance passes both.
+  assert.ok(['textTransform', 'markdownPlugins', 'htmlPlugins'].some((m) => typeof instance[m] === 'function'))
+  assert.equal(typeof instance.emit, 'function')
 })
 
 /**
@@ -73,8 +70,8 @@ test('every Quartz plugin exports a default factory returning its category shape
  * running.
  */
 const shadow = async (options) => {
-  const {default: AwtLinks} = await import(new URL('quartz-links/index.js', PLUGINS).pathname)
-  return AwtLinks(options)
+  const {default: Awt} = await import(new URL('awt/index.js', PLUGINS).pathname)
+  return Awt({headings: false, ...options})
 }
 
 /** A wiki, an index beside it, and a rendered page — the three the shadow compares. */
@@ -147,7 +144,7 @@ test('the shadow is quiet when they agree', async (t) => {
  */
 test('no index at all is an error, not a shrug', async () => {
   const plugin = await shadow({index: '/nowhere/at/all.json'})
-  await assert.rejects(() => plugin.emit({}, []), /the comparison this plugin exists for did not run/)
+  await assert.rejects(() => plugin.emit({}, []), /no index at \/nowhere\/at\/all.json, so nothing here can run/)
 })
 
 test('an index older than the newest note is an error', async (t) => {
@@ -159,11 +156,15 @@ test('an index older than the newest note is an error', async (t) => {
   await assert.rejects(() => plugin.emit({}, box.content), /is older than the newest note/)
 })
 
-test('failOnDisagreement: false downgrades every one of those to a warning', async (t) => {
+/**
+ * `shadow: false` is the resolver switch: the comparison goes and nothing else
+ * does. A missing or stale index is still an error, because the folder-note
+ * addresses and the heading list are read from it whether or not it is compared.
+ */
+test('shadow: false skips the comparison and nothing else', async (t) => {
   const box = site(t, {links: ['two'], rendered: ['three']})
-  const options = {index: box.index, failOnDisagreement: false}
-  assert.deepEqual(await (await shadow(options)).emit({}, box.content), [])
-  assert.deepEqual(await (await shadow({...options, index: '/nowhere.json'})).emit({}, []), [])
+  assert.deepEqual(await (await shadow({index: box.index, shadow: false})).emit({}, box.content), [])
+  await assert.rejects(() => shadow({index: '/nowhere.json', shadow: false}).then((p) => p.emit({}, [])), /no index/)
 })
 
 /**
@@ -183,6 +184,7 @@ test('an existing .gitignore is reported against rather than rewritten', (t) => 
   const missing = gitignoreGaps(file)
   assert.ok(missing.includes('node_modules/'))
   assert.ok(missing.includes('.awt-index.json'))
+  assert.ok(missing.includes('.quartz.config.yaml'), 'the derived config is never tracked')
   assert.ok(!missing.includes('public/'), 'what it already has is not reported')
 
   writeFileSync(file, `${missing.join('\n')}\npublic/\nrelease/\n.quartz-src/\n`)

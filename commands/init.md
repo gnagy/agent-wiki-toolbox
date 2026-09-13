@@ -35,7 +35,7 @@ configurable, so nothing outside the home needs to name anything inside it:
 awt.config.mjs        # rootDir names the home; ./wiki is the default, so usually unwritten
 wiki/
   notes/              # the wiki root — every workspace-relative path is relative to this
-  site/               # the rendered site's config and build; absent until wanted
+  site/               # the rendered site's install and build; absent until `awt site setup`
   schemas/            # front-matter schemas; absent until the project fixes a vocabulary
   inbox/              # the interop inbox; absent until a message arrives
 ```
@@ -48,7 +48,9 @@ a path is the one that goes stale.
 export default {}
 ```
 
-`export default {}` is enough. Write `rootDir` only if the home is not `./wiki`.
+`export default {}` is enough. Write `rootDir` only if the home is not `./wiki`. A site, when
+wanted, is `site: {title: '…', self: '…'}` in the same file and `awt site setup`; the Quartz config is
+derived from that and never written by hand.
 
 ## 3. The skeleton
 

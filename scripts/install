@@ -80,10 +80,10 @@ if [[ -z "$DRY" ]]; then
   say "Claude Code adopts $PLUGIN as the plugin 'awt' from the next session:"
   say "the skill is /awt:wiki-docs, and the MCP server and hooks come with it."
   say ""
-  say "The Quartz plugins live at $PLUGIN/quartz-plugins/<name>. A site that"
-  say "still symlinks the old ~/.local/lib path has to be repointed, and takes a"
-  say "new install by re-running 'awt site setup' either way: Quartz never"
-  say "re-resolves a plugin directory it has already installed."
+  say "The Quartz plugin lives at $PLUGIN/quartz-plugins/awt. Every site names it"
+  say "by that path in the config awt derives before each build, so the next"
+  say "'awt site serve' in any project builds with this install. A project still"
+  say "tracking site/quartz.config.yaml with ../awt-* entries: 'awt site migrate'."
   case ":$PATH:" in
     *":$BIN:"*) ;;
     *) say ""; say "WARNING: $BIN is not on PATH." ;;

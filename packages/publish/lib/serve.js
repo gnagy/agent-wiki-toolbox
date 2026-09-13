@@ -50,6 +50,8 @@ import { parseArgs } from "node:util"
 
 import { requireProjectRoot } from "./project-root.js"
 import { ensureQuartz, quartzDir } from "./bootstrap.js"
+import { readDeclaration } from "./declaration.js"
+import { writeSiteConfig } from "./site-config.js"
 
 /**
  * The port a wiki is served on when the project has not said. High enough to clear
@@ -97,7 +99,7 @@ function heldBy(port) {
 
 const show = (p) => path.relative(process.cwd(), p) || "."
 
-export function serve(argv = process.argv.slice(2)) {
+export async function serve(argv = process.argv.slice(2)) {
   const { values } = parseArgs({
     args: argv,
     options: {
@@ -110,6 +112,10 @@ export function serve(argv = process.argv.slice(2)) {
       // here: `publish` may not reach `format`, which owns config discovery.
       configPort: { type: "string" },
       configWsPort: { type: "string" },
+      // The project's `site` declaration, as JSON, and the directory its relative
+      // paths are written against. Passed in by `cli` for the same reason.
+      "site-config": { type: "string" },
+      project: { type: "string" },
     },
     allowPositionals: false,
   })
@@ -138,6 +144,15 @@ export function serve(argv = process.argv.slice(2)) {
   const named = (flag, key) => (values[flag] ? `--${flag}` : `serve.${key} in awt.config.mjs`)
   const httpPort = port(values.port ?? values.configPort, named("port", "port"), DEFAULT_PORT)
   const socketPort = port(values["ws-port"] ?? values.configWsPort, named("ws-port", "wsPort"), wsPortFor(httpPort))
+
+  // The config Quartz reads, derived now so it reflects this declaration and
+  // this port. It is what the symlink ensureQuartz wired points at.
+  await writeSiteConfig(site, quartz, readDeclaration(values["site-config"], die), {
+    projectDir: values.project ? path.resolve(values.project) : path.dirname(site),
+    port: httpPort,
+    serving: true,
+    die,
+  })
 
   const args = [
     "quartz/bootstrap-cli.mjs",

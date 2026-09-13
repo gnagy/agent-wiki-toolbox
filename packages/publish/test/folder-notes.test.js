@@ -12,8 +12,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
 
-const PLUGINS = new URL('../../../quartz-plugins/', import.meta.url)
-const load = async (name) => (await import(new URL(`${name}/index.js`, PLUGINS).pathname)).default
+const load = async () => (await import(new URL('../../../quartz-plugins/awt/index.js', import.meta.url).pathname)).default
 
 /** An index carrying one moved note and one that stays put. */
 function index(t) {
@@ -58,7 +57,7 @@ function index(t) {
 }
 
 test('the moved note takes its folder\'s address, and nothing else moves', async (t) => {
-  const plugin = (await load('quartz-folder-notes'))({index: index(t)})
+  const plugin = (await load())({index: index(t)})
   const [transform] = plugin.markdownPlugins({})
 
   const moved = {data: {slug: 'campaigns/cosites-v2'}}
@@ -71,7 +70,7 @@ test('the moved note takes its folder\'s address, and nothing else moves', async
 })
 
 test('an href into a moved note gets the trailing slash back', async (t) => {
-  const plugin = (await load('quartz-folder-notes'))({index: index(t)})
+  const plugin = (await load())({index: index(t)})
   const [transform] = plugin.htmlPlugins({})
 
   const anchor = (href, className) => ({
@@ -101,10 +100,10 @@ test('an href into a moved note gets the trailing slash back', async (t) => {
   assert.equal(external.properties.href, 'https://example.com/campaigns/cosites-v2')
 })
 
-test('with no index it moves nothing rather than guessing', async () => {
-  const plugin = (await load('quartz-folder-notes'))({index: '/nowhere/at/all.json'})
-  assert.deepEqual(plugin.markdownPlugins({}), [])
-  assert.deepEqual(plugin.htmlPlugins({}), [])
+test('with no index it refuses rather than guessing', async () => {
+  const plugin = (await load())({index: '/nowhere/at/all.json'})
+  assert.throws(() => plugin.markdownPlugins({}), /no index at \/nowhere\/at\/all.json/)
+  assert.throws(() => plugin.htmlPlugins({}), /no index at/)
 })
 
 /**
@@ -116,7 +115,7 @@ test('the shadow and the heading list still find a moved note', async (t) => {
   const page = (slug) => [{type: 'root', children: []}, {data: {slug}}]
   const content = [page('campaigns/cosites-v2/index'), page('notes/plain')]
 
-  const shadow = (await load('quartz-links'))({index: file})
+  const plugin = (await load())({index: file})
   // Agreement on both pages — including the moved one, which used to be skipped
   // and was not even counted as skipped.
   const logged = []
@@ -125,13 +124,10 @@ test('the shadow and the heading list still find a moved note', async (t) => {
   t.after(() => {
     console.log = real
   })
-  assert.deepEqual(await shadow.emit({}, content), [])
-  assert.match(logged.join('\n'), /agree on all 2 pages/)
-
   const out = mkdtempSync(join(tmpdir(), 'awt-folder-out-'))
   t.after(() => rmSync(out, {recursive: true, force: true}))
-  const headings = (await load('quartz-headings'))({index: file})
-  const [written] = await headings.emit({argv: {output: out}}, content)
+  const [written] = await plugin.emit({argv: {output: out}}, content)
+  assert.match(logged.join('\n'), /agree on all 2 pages/)
 
   const published = JSON.parse(await import('node:fs').then((fs) => fs.readFileSync(written, 'utf-8')))
   // Keyed by address, which is also how Quartz keys contentIndex.json — so the

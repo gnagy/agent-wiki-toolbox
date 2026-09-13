@@ -1102,18 +1102,19 @@ test('site index reports as data, and says nothing else on stdout', (t) => {
 })
 
 /**
- * `site setup` clones Quartz and runs npm install, so the full run is not a test.
- * What is testable, and what would actually break, is that the flag reaches
+ * `site setup` installs Quartz with bun, so the full run is not a test. What is
+ * testable, and what would actually break, is that the flag reaches
  * `bootstrap`'s own parser: it is a separate `parseArgs` in the publish package,
  * and an option the CLI accepts and it does not fails there, under a command name
- * that has nothing to do with the mistake.
+ * that has nothing to do with the mistake. A `--site` named outright has to
+ * exist, which is the refusal used here.
  */
 test('site setup passes --json through to its own parser', (t) => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'awt-setup-')))
   t.after(() => rmSync(dir, {recursive: true, force: true}))
 
-  const {status, stderr} = awt(['site', 'setup', '--json', '--site', dir])
+  const {status, stderr} = awt(['site', 'setup', '--json', '--site', join(dir, 'nowhere')])
   assert.equal(status, 2)
-  assert.match(stderr, /a site directory needs its Quartz config/)
+  assert.match(stderr, /no site directory at/)
   assert.doesNotMatch(stderr, /Unknown option/)
 })

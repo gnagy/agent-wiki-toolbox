@@ -1,0 +1,25 @@
+{
+  "name": "@agent-wiki-toolbox/quartz",
+  "version": "0.0.0",
+  "description": "The toolbox inside a Quartz build: folder notes served at the address the index gives them, prefixed cross-wiki links resolved from the target wiki's own content index, every page's heading anchors published, and the shadow comparison of Quartz's link resolution against the toolbox's",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js" },
+  "license": "MIT",
+  "scripts": { "build": "exit 0" },
+  "quartz": {
+    "name": "awt",
+    "displayName": "agent-wiki-toolbox",
+    "category": ["transformer", "emitter"],
+    "description": "Reads the toolbox's link-graph index (.awt-index.json) as data: moves a note beside a folder of its own name onto that folder's landing page, resolves prefix:path.md cross-wiki links, publishes static/awtHeadings.json, and fails the build when Quartz's link resolution disagrees with the toolbox's.",
+    "defaultEnabled": false,
+    "defaultOrder": 61,
+    "defaultOptions": {
+      "index": "./.awt-index.json",
+      "self": null,
+      "registry": {},
+      "shadow": true,
+      "headings": "static/awtHeadings.json"
+    }
+  }
+}
