@@ -31,7 +31,7 @@
  *     row        where: {column, eq}           index: among body rows
  *     column     header: cell text             index                    (terminal)
  *     cell       row + column, each as above                            (terminal)
- *     list       —                             nth: among lists in the container
+ *     list       prefix: first item's opening   nth: among lists in the container
  *     list_item  term: leading bold/code span  nth: ordinal in its list
  *     block      prefix: opening text          nth: among prose blocks  (terminal)
  *
@@ -40,8 +40,11 @@
  * a check on the text the caller read: it survives edits above the block and
  * trailing edits to the block itself, and breaks exactly when the block's own
  * opening changed — which is when the caller's reading was stale about the thing
- * it cared about. `list_item`'s `term` is the same reduced guarantee for the
- * bold-lead-in habit, checked where an item has one and absent where it does not.
+ * it cared about. `list` takes the same `prefix`, checked against its first
+ * item's text, for the same reason and with the same reach — it is what a
+ * `list:delete` can demand. `list_item`'s `term` is the same reduced guarantee
+ * for the bold-lead-in habit, checked where an item has one and absent where it
+ * does not.
  *
  * **Reads and writes share the scheme and differ on cardinality.** A write needs
  * exactly one node; more than one is a refusal, the toolbox's existing
@@ -69,7 +72,7 @@ export const PATH_CODES = {
   OUT_OF_RANGE: 'PATH_OUT_OF_RANGE',
   /** More than one node matched, and the mode allows one. */
   AMBIGUOUS: 'PATH_AMBIGUOUS',
-  /** The block at `nth` does not open with `prefix`, and no other block does. */
+  /** The block or list at `nth` does not open with `prefix`, and no other one does. */
   PREFIX_MISMATCH: 'PATH_PREFIX_MISMATCH',
   /** A `where` or `cell` named a column the table's header row does not have. */
   COLUMN_NOT_FOUND: 'PATH_COLUMN_NOT_FOUND',
@@ -101,7 +104,7 @@ const FIELDS = {
   row: ['where', 'index'],
   column: ['header', 'index'],
   cell: ['row', 'column'],
-  list: ['nth'],
+  list: ['prefix', 'nth'],
   list_item: ['term', 'nth'],
   block: ['prefix', 'nth'],
 }
@@ -458,8 +461,23 @@ const STEP = {
   },
 
   list(target, spec, at) {
-    const all = nodesOf(target, 'list').map((found) => ({kind: 'list', ...found}))
-    return select({all, hasNominal: false, ordinal: (list) => list.nth, nth: spec.nth, at, type: 'list'})
+    const all = nodesOf(target, 'list').map((found) => ({kind: 'list', ...found, text: textOf(found.node.children[0])}))
+    return withPrefix(
+      select({
+        all,
+        hasNominal: spec.prefix !== undefined,
+        nominal: (list) => list.text.startsWith(spec.prefix),
+        ordinal: (list) => list.nth,
+        nth: spec.nth,
+        at,
+        type: 'list',
+        describe: `prefix ${JSON.stringify(spec.prefix)}`,
+      }),
+      all,
+      spec,
+      at,
+      'list',
+    )
   },
 
   list_item(target, spec, at) {
@@ -489,22 +507,27 @@ const STEP = {
       type: 'block',
       describe: `prefix ${JSON.stringify(spec.prefix)}`,
     })
-    // No block opens with the prefix. When the caller also said where it sat,
-    // the report quotes what is there now, so a person can tell at a glance
-    // whether the verb was right to stop — a hash mismatch could not say that.
-    if (step.failure?.code === PATH_CODES.NO_MATCH && spec.nth !== undefined) {
-      const there = all.find((block) => block.nth === spec.nth)
-      const found = there ? there.text.slice(0, Math.max(spec.prefix.length, 40)) : null
-      return {
-        targets: [],
-        failure: failure(PATH_CODES.PREFIX_MISMATCH, at, `segment ${at}: block ${spec.nth} does not open with ${JSON.stringify(spec.prefix)}; found ${JSON.stringify(found)}`, {
-          expected: spec.prefix,
-          found,
-        }),
-      }
-    }
-    return step
+    return withPrefix(step, all, spec, at, 'block')
   },
+}
+
+/**
+ * Nothing opens with the prefix. When the caller also said where it sat, the
+ * report quotes what is there now, so a person can tell at a glance whether the
+ * verb was right to stop — a hash mismatch could not say that. Shared by the two
+ * prefix-named kinds, `block` and `list`.
+ */
+function withPrefix(step, all, spec, at, type) {
+  if (step.failure?.code !== PATH_CODES.NO_MATCH || spec.nth === undefined) return step
+  const there = all.find((candidate) => candidate.nth === spec.nth)
+  const found = there ? there.text.slice(0, Math.max(spec.prefix.length, 40)) : null
+  return {
+    targets: [],
+    failure: failure(PATH_CODES.PREFIX_MISMATCH, at, `segment ${at}: ${type} ${spec.nth} does not open with ${JSON.stringify(spec.prefix)}; found ${JSON.stringify(found)}`, {
+      expected: spec.prefix,
+      found,
+    }),
+  }
 }
 
 function rowsOf(table) {

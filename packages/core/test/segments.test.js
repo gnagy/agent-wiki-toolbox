@@ -313,6 +313,17 @@ test('a list is positional only, and a list item has an ordinal and a weak term'
   assert.equal(write([{section: 'Fixture'}, {list_item: {nth: 0}}]).code, PATH_CODES.WRONG_CONTAINER)
 })
 
+test('a list takes a prefix on its first item, the way a block does', () => {
+  const section = [{section: {text: 'Fields', nth: 0}}]
+  assert.equal(one(write([...section, {list: {prefix: 'status'}}])).nth, 0)
+  const moved = write([...section, {list: {prefix: 'status', nth: 4}}])
+  assert.deepEqual(moved.disagreements, [{segment: 1, type: 'list', field: 'nth', expected: 4, actual: 0}])
+  const stale = write([...section, {list: {prefix: 'type', nth: 0}}])
+  assert.equal(stale.code, PATH_CODES.PREFIX_MISMATCH)
+  assert.equal(stale.found, 'status: OKF\'s field.')
+  assert.equal(write([...section, {list: {prefix: 'type'}}]).code, PATH_CODES.NO_MATCH)
+})
+
 test('a list item traverses into its nested list', () => {
   const path = [{section: {text: 'Fields', nth: 0}}, {list: {nth: 0}}, {list_item: {term: 'type'}}, {list: {nth: 0}}, {list_item: {nth: 1}}]
   const item = one(write(path))

@@ -17,7 +17,14 @@
  *     section    replace, insert, delete, shift_level      (move: later)
  *     heading    replace
  *     block      replace, insert, delete                   (move: later)
- *     table, row, column, cell, list, list_item            (later)
+ *     table      replace, delete                           (move: later)
+ *     row        replace, insert, delete, move             (within its table)
+ *     column     replace, insert, delete, move             (within its table)
+ *     cell       replace
+ *     list       replace, delete                           (move: later)
+ *     list_item  replace, insert, delete
+ *
+ * The table and list rows live in `body-tables.js`, with their payload shapes.
  *
  * The table is keyed by terminal kind so the next increment adds a row rather
  * than a branch. The design's full terminal-for matrix is kept beside it, so a
@@ -50,6 +57,7 @@
 import {createAnchorSlugger, describeTarget, resolvePath, textOf} from '@agent-wiki-toolbox/core'
 import {visit} from '@agent-wiki-toolbox/syntax'
 
+import {LIST_OPERATIONS, TABLE_OPERATIONS} from './body-tables.js'
 import {createContext, finish, parseNote, refuse, resolveNotePath, serialize} from './context.js'
 import {visitLinks} from './rewrite.js'
 
@@ -75,6 +83,20 @@ export const BODY_CODES = {
   BAD_DELTA: 'BODY_BAD_DELTA',
   /** A heading that would leave depths 1–6, by `shift_level` or by a rebased payload. */
   DEPTH_OUT_OF_RANGE: 'BODY_DEPTH_OUT_OF_RANGE',
+  /** A table payload that is not exactly one markdown table. */
+  PAYLOAD_NOT_A_TABLE: 'BODY_PAYLOAD_NOT_A_TABLE',
+  /** A row payload that is not one row line or an array of cells, or has more cells than the header. */
+  PAYLOAD_NOT_A_ROW: 'BODY_PAYLOAD_NOT_A_ROW',
+  /** A column payload that is not an array of strings one longer than the body rows. */
+  PAYLOAD_NOT_A_COLUMN: 'BODY_PAYLOAD_NOT_A_COLUMN',
+  /** A cell's text that does not read as one table cell: two paragraphs, a line break. */
+  PAYLOAD_NOT_INLINE: 'BODY_PAYLOAD_NOT_INLINE',
+  /** A list payload that is not exactly one markdown list. */
+  PAYLOAD_NOT_A_LIST: 'BODY_PAYLOAD_NOT_A_LIST',
+  /** A list item payload that holds a heading or several items. */
+  PAYLOAD_NOT_A_LIST_ITEM: 'BODY_PAYLOAD_NOT_A_LIST_ITEM',
+  /** A `move` destination of the wrong shape, or naming nothing. */
+  BAD_DESTINATION: 'BODY_BAD_DESTINATION',
 }
 
 const OPERATION_NAMES = new Set(['replace', 'insert', 'delete', 'move', 'shift_level'])
@@ -102,6 +124,7 @@ const NOMINAL_FIELD = {
   table: 'header',
   row: 'where',
   column: 'header',
+  list: 'prefix',
   list_item: 'term',
   block: 'prefix',
 }
@@ -118,13 +141,13 @@ const fail = (code, message, extra = {}) => refuse(VERB, message, {code, ...extr
  * of the five. `payload` is markdown text, for `replace` and `insert`;
  * `position` says where an `insert` lands — `first`/`last` inside a section,
  * `before`/`after` a section or a block; `delta` is `shift_level`'s signed
- * amount.
+ * amount; `destination` is where a `move` lands.
  *
  * Returns the verb report every other verb returns, plus `target` — the node the
  * address resolved to, as data — `disagreements` from the resolver, and `removed`
  * on a delete: the markdown that is no longer there.
  */
-export function body(notesDir, {path, address, operation, payload, position, delta, workspace, dryRun} = {}) {
+export function body(notesDir, {path, address, operation, payload, position, delta, destination, workspace, dryRun} = {}) {
   if (!path) throw refuse(VERB, 'body needs a path')
   if (!OPERATION_NAMES.has(operation)) {
     throw refuse(VERB, `no such operation "${operation}"; it is one of ${[...OPERATION_NAMES].join(', ')}`)
@@ -176,7 +199,7 @@ export function body(notesDir, {path, address, operation, payload, position, del
 
   const before = serialize(tree)
   const anchorsBefore = anchorsOf(tree)
-  const outcome = handler({context, tree, target, payload, position, delta, notes}) ?? {}
+  const outcome = handler({context, tree, target, payload, position, delta, destination, notes}) ?? {}
   const after = serialize(tree)
 
   if (after === before) {
@@ -292,6 +315,9 @@ const OPERATIONS = {
       return {removed: markdownOf(removed)}
     },
   },
+
+  ...TABLE_OPERATIONS,
+  ...LIST_OPERATIONS,
 }
 
 function splice(parent, start, end, nodes) {

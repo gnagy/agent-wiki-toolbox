@@ -316,7 +316,7 @@ test('heading is terminal for replace only, and says which refusal it is', (t) =
   assert.match(move.notes[0], /not built yet/)
 
   const table = refusal(() =>
-    body(box.root, {path: 'fixture.md', address: [{section: 'Fields'}, {table: {nth: 0}}], operation: 'replace', payload: 'x'}),
+    body(box.root, {path: 'fixture.md', address: [{section: 'Fields'}, {table: {nth: 0}}], operation: 'move', destination: {}}),
   )
   assert.equal(table.code, BODY_CODES.UNSUPPORTED)
   assert.match(table.notes[0], /not built yet/)
