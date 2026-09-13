@@ -14,3 +14,17 @@ export {check} from './lib/check.js'
 export {computeAddresses} from './lib/address.js'
 export {materialiseIndex, writeIndexArtifact, ARTIFACT_VERSION} from './lib/artifact.js'
 export {INDEX_VERSION, cachePathFor, cacheDirectory, hashSource, readCache, writeCache} from './lib/cache.js'
+export {
+  resolvePath,
+  describeTarget,
+  renderTarget,
+  sectionEnd,
+  sectionsOf,
+  tableHeader,
+  columnIndex,
+  tableRows,
+  listItemTerm,
+  textOf,
+  PATH_CODES,
+  SEGMENT_TYPES,
+} from './lib/segments.js'
