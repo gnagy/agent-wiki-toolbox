@@ -44,11 +44,11 @@ git mv .remark         wiki/schemas      # if it has schemas
 git mv docs/wiki-inbox wiki/inbox        # if it exists — it may not, between messages
 ```
 
-`git mv` carries untracked files inside `site/` along — the Quartz clone, `public/`, the plugin
-symlinks — so nothing has to be rebuilt. The symlinks `awt site setup` made are absolute or
-relative within `site/` and survive the move; the one from the clone back to `quartz.config.yaml` is
-relative and survives too. Re-run `awt site setup` afterwards if anything about the site looks off;
-it is idempotent.
+`git mv` carries untracked files inside `site/` along — the Quartz install under `node_modules/`,
+`public/`, the derived config — so nothing has to be rebuilt. The one symlink `awt site setup` made,
+from the install back to the derived `.quartz.config.yaml`, is relative within `site/` and survives
+the move; the plugin is named by absolute path into the toolbox's install, not into this project.
+Re-run `awt site setup` afterwards if anything about the site looks off; it is idempotent.
 
 ## 3. Rewrite `awt.config.mjs`
 
@@ -81,9 +81,10 @@ stale path. Reduce each to the choice it records, or delete it.
 
 ## 6. Tell the wikis that depend on this one
 
-A registry in another project's `site/quartz.config.yaml` names this wiki's build output by relative
-path — `../../this-project/site/public/static/contentIndex.json` — and now has to say
-`../../this-project/wiki/site/public/…`. The resolver warns rather than fails on a missing index, so
+A registry entry in another project's `awt.config.mjs` (under `site.registry`, or in a
+`site/quartz.config.yaml` that project still tracks) names this wiki's build output by a path
+relative to *that* project's site directory — `../../this-project/site/public/static/contentIndex.json`
+— and now has to say `../../this-project/wiki/site/public/…`. The resolver warns rather than fails on a missing index, so
 a stale registry shows up as every cross-wiki link into this wiki going dead with a warning in *that*
 project's build log, not as an error here. Send that project a message through its inbox, or fix it
 if it is yours.
@@ -99,6 +100,6 @@ git status                        # nothing untracked that used to be ignored
 Then §1's grep once more over the new paths — a `docs/wiki` that survives is either history, which is
 fine in `log.md`, or a stale instruction, which is not.
 
-**What does not change:** the notes themselves, every wikilink, every rendered URL, the site's
-`quartz.config.yaml`, the pin, and the port. **What stays behind on purpose:** `.mcp.json` and
+**What does not change:** the notes themselves, every wikilink, every rendered URL, the `site`
+declaration and the port in `awt.config.mjs`, and the pin. **What stays behind on purpose:** `.mcp.json` and
 `.claude/`, at the repo root where the harness looks for them.
