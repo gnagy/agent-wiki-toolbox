@@ -11,7 +11,7 @@
  * Every verb is re-runnable: nothing locks, a file that changed underneath is
  * skipped and reported, and re-running finishes the rest.
  */
-export {moveNote, renameNote} from './lib/move.js'
+export {moveNote, moveNotes, renameNote} from './lib/move.js'
 export {deleteNote} from './lib/delete.js'
 export {splitByHeading} from './lib/split.js'
 export {mergeFiles} from './lib/merge.js'

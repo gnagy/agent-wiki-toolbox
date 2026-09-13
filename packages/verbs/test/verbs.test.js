@@ -6,7 +6,7 @@
  * has to finish what a first run left.
  */
 import assert from 'node:assert/strict'
-import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
@@ -21,6 +21,7 @@ import {
   MARKER_START,
   mergeFiles,
   moveNote,
+  moveNotes,
   renameNote,
   renameTag,
   splitByHeading,
@@ -318,6 +319,162 @@ test('moveNote reports a partial completion, and a re-run finishes it', (t) => {
   const second = moveNote(box.root, {from: 'a/one.md', to: 'a/renamed.md'})
   assert.equal(second.ok, true)
   assert.deepEqual(second.created, ['a/renamed.md'])
+})
+
+/**
+ * The batch move. Every link is written once, against the tree the whole plan
+ * produces — the property that one move at a time cannot have, since each of
+ * those rewrites against a layout only part of the way there.
+ */
+test('moveNotes writes each qualifier for the end state, not for a tree on the way there', (t) => {
+  const box = wiki({
+    'index.md': `${front('Wiki')}See [[a/x]] and [[b/x]].\n`,
+    'a/x.md': `${front('X in a')}Body.\n`,
+    'b/x.md': `${front('X in b')}Body.\n`,
+  })
+  t.after(() => box.cleanup())
+
+  // One at a time, the first move would write `[[ws/x]]` — unique at that moment —
+  // and the second would make it ambiguous.
+  const report = moveNotes(box.root, {
+    pairs: [
+      {from: 'a/x.md', to: 'one/ws/x.md'},
+      {from: 'b/x.md', to: 'two/ws/x.md'},
+    ],
+  })
+
+  assert.equal(report.ok, true)
+  assert.match(box.read('index.md'), /\[\[one\/ws\/x]] and \[\[two\/ws\/x]]/)
+  assert.deepEqual(report.changed, ['index.md'])
+  assert.deepEqual(report.created.sort(), ['one/ws/x.md', 'two/ws/x.md'])
+  assert.deepEqual(check(box.index()).problems, [])
+})
+
+test('a move rewrites a link it made mean something else, though that link points at nothing moving', (t) => {
+  const box = wiki({
+    'maci/workspaces/x.md': `${front('X')}Body.\n`,
+    'misc/x.md': `${front('Other X')}Body.\n`,
+    'refs.md': `${front('Refs')}See [[workspaces/x]] and [[misc/x]].\n`,
+  })
+  t.after(() => box.cleanup())
+
+  const report = moveNote(box.root, {from: 'misc/x.md', to: 'lab/workspaces/x.md'})
+
+  assert.equal(report.ok, true)
+  // `[[workspaces/x]]` would have matched both; it now names its note in full.
+  assert.match(box.read('refs.md'), /\[\[maci\/workspaces\/x]] and \[\[lab\/workspaces\/x]]/)
+  assert.match(report.notes.join(' '), /in notes it neither moves nor points at: refs\.md/)
+  assert.deepEqual(check(box.index()).problems, [])
+})
+
+test('moveNotes rebases relative links between notes that both move', (t) => {
+  const box = wiki({
+    'a/one.md': `${front('One')}See [two](../b/two.md#part).\n`,
+    'b/two.md': `${front('Two')}See [one](../a/one.md).\n\n## Part\n`,
+    'c/stays.md': `${front('Stays')}See [one](../a/one.md) and [[two]].\n`,
+  })
+  t.after(() => box.cleanup())
+
+  const report = moveNotes(box.root, {
+    pairs: [
+      {from: 'a/one.md', to: 'c/one.md'},
+      {from: 'b/two.md', to: 'd/deep/two.md'},
+    ],
+  })
+
+  assert.equal(report.ok, true)
+  assert.match(box.read('c/one.md'), /\[two]\(\.\.\/d\/deep\/two\.md#part\)/)
+  assert.match(box.read('d/deep/two.md'), /\[one]\(\.\.\/\.\.\/c\/one\.md\)/)
+  assert.match(box.read('c/stays.md'), /\[one]\(\.\/one\.md\) and \[\[two]]/)
+  assert.deepEqual(check(box.index()).problems, [])
+})
+
+test('moveNotes refuses a plan that is not one, and writes nothing', (t) => {
+  const box = wiki({
+    'a/one.md': `${front('One')}Body.\n`,
+    'a/two.md': `${front('Two')}See [[one]].\n`,
+  })
+  t.after(() => box.cleanup())
+  const before = {one: box.read('a/one.md'), two: box.read('a/two.md')}
+
+  const refused = [
+    [[], /at least one/],
+    [[{from: 'a/one.md', to: 'b/one.md'}, {from: 'a/one.md', to: 'c/one.md'}], /moved by more than one pair/],
+    [[{from: 'a/one.md', to: 'b/x.md'}, {from: 'a/two.md', to: 'b/x.md'}], /destination of more than one pair/],
+    [[{from: 'a/one.md', to: 'b/one.md'}, {from: 'b/one.md', to: 'c/one.md'}], /chain or a swap/],
+    [[{from: 'a/one.md', to: 'a/two.md'}, {from: 'a/two.md', to: 'a/one.md'}], /chain or a swap/],
+    [[{from: 'a/one.md', to: 'a/two.md'}], /a\/two\.md already exists/],
+    [[{from: 'a/one.md', to: 'b/one.md'}, {from: 'a/nowhere.md', to: 'b/nowhere.md'}], /no note at a\/nowhere\.md/],
+    [[{from: 'a/one.md', to: 'b/one'}], /must be a \.md path/],
+  ]
+  for (const [pairs, message] of refused) {
+    assert.throws(() => moveNotes(box.root, {pairs}), message)
+  }
+  assert.deepEqual({one: box.read('a/one.md'), two: box.read('a/two.md')}, before)
+  assert.equal(box.exists('b/one.md'), false)
+})
+
+test('moveNotes refuses a plan that leaves a link no form can reach its note by', (t) => {
+  const box = wiki({
+    'x/a.md': `${front('A')}Body.\n`,
+    'z/a.md': `${front('Other A')}Body.\n`,
+    'n.md': `${front('N')}See [[x/a]].\n`,
+  })
+  t.after(() => box.cleanup())
+
+  // `x/a` is the whole of the slug of x/a.md and a suffix of y/x/a.md.
+  assert.throws(() => moveNotes(box.root, {pairs: [{from: 'z/a.md', to: 'y/x/a.md'}]}), /no link could reach x\/a\.md/)
+  assert.equal(box.exists('z/a.md'), true)
+  assert.match(box.read('n.md'), /\[\[x\/a]]/)
+})
+
+test('moveNotes removes the folders it emptied, and names one it could not', (t) => {
+  const box = wiki({
+    'old/deep/one.md': `${front('One')}Body.\n`,
+    'old/deep/.DS_Store': 'finder\n',
+    'pics/two.md': `${front('Two')}![[diagram.png]]\n`,
+    'pics/diagram.png': 'png\n',
+    'keep/three.md': `${front('Three')}See [[one]] and [[two]].\n`,
+  })
+  t.after(() => box.cleanup())
+  const pairs = [
+    {from: 'old/deep/one.md', to: 'new/one.md'},
+    {from: 'pics/two.md', to: 'new/two.md'},
+  ]
+
+  const dry = moveNotes(box.root, {pairs, dryRun: true})
+  assert.match(dry.notes.join('\n'), /would remove the empty folder old\/deep\//)
+  assert.match(dry.notes.join('\n'), /would remove the empty folder old\//)
+  assert.equal(box.exists('old/deep/one.md'), true, 'a dry run writes nothing')
+
+  const report = moveNotes(box.root, {pairs})
+  assert.equal(report.ok, true)
+  assert.equal(existsSync(join(box.root, 'old')), false)
+  assert.equal(existsSync(join(box.root, 'pics/diagram.png')), true)
+  assert.match(report.notes.join('\n'), /pics\/ holds no note any more but was left, for what else it holds: diagram\.png/)
+})
+
+test('moveNotes is re-runnable: a half-applied plan finishes on the second run', (t) => {
+  const box = wiki({
+    'a/one.md': `${front('One')}Body.\n`,
+    'a/two.md': `${front('Two')}Body.\n`,
+    'b/refs.md': `${front('Refs')}See [[one]] and [[two]].\n`,
+  })
+  t.after(() => box.cleanup())
+  const pairs = [
+    {from: 'a/one.md', to: 'c/first.md'},
+    {from: 'a/two.md', to: 'c/second.md'},
+  ]
+
+  // A run that moved one file and died before any link.
+  box.write('c/first.md', box.read('a/one.md'))
+  rmSync(join(box.root, 'a/one.md'))
+
+  const report = moveNotes(box.root, {pairs})
+  assert.equal(report.ok, true)
+  assert.match(box.read('b/refs.md'), /\[\[first]] and \[\[second]]/)
+  assert.match(report.notes.join(' '), /a\/one\.md was already at c\/first\.md/)
+  assert.deepEqual(check(box.index()).problems, [])
 })
 
 test('renameNote refuses a path and takes a name', (t) => {

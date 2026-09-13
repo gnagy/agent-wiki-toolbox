@@ -1,5 +1,5 @@
 /**
- * Rewriting the links into a note that moved.
+ * Rewriting the links a move changes.
  *
  * The edit is AST-scoped, not text-scoped: a stem appears in code spans, in URLs
  * and in ordinary prose, and node offsets tell those apart.
@@ -81,39 +81,92 @@ export function relativePathFrom(from, to) {
 }
 
 /**
- * Rewrite every link in one already-parsed note that pointed at the note being
- * moved, so it points at where the note went. Returns what it did, so a verb can
- * report an empty rewrite rather than writing an unchanged file.
+ * Point every link in one already-parsed note where a plan of moves leaves its
+ * target, and write it once, against the tree the plan produces. Returns what it
+ * did, so a verb can skip writing an unchanged file.
  *
- * `pointsAtMoved` is a predicate rather than a path because of the re-run case: a
- * move that wrote the file and died before the links leaves those links resolving
- * to *nothing*, so "which links pointed at the old note" can no longer be answered
- * by resolution. Finishing a partial completion has to match on the written target.
+ * A wikilink is touched when its note moves — rewritten to the shortest form that
+ * resolves to the note in `resolveAfter`, which may drop a qualifier as well as
+ * add one — or when its note stays but the written form would reach something
+ * else afterwards. A link that still reaches the note it reached is left as
+ * written.
+ *
+ * A relative markdown link is written from where its note sits, so a note that
+ * moves has *every* relative link recomputed from `destination`, including the
+ * ones pointing back at itself. In a note that stays, only a link whose target
+ * moves changes.
+ *
+ * `finished` is the re-run case: a move that wrote the file and died before the
+ * links leaves those links resolving to *nothing*, so which note they meant
+ * cannot be answered by resolution, and the written target is matched against
+ * the old slug by the same suffix rule that resolved it before.
  */
-export function rewriteLinksInTree({tree, notePath, pointsAtMoved, movedTo, resolveAfter, rebasing = false}) {
+export function retargetLinksInTree({
+  tree,
+  notePath,
+  destination,
+  resolveBefore,
+  resolveRelativeBefore,
+  resolveAfter,
+  finalPath,
+  finished = [],
+}) {
   const rewritten = []
   const unresolved = []
-  const wanted = shortestResolvingForm({path: movedTo, slug: slugifyPath(movedTo)}, resolveAfter)
+  const moving = destination !== notePath
+  const forms = new Map()
+  const formFor = (path) => {
+    if (!forms.has(path)) forms.set(path, shortestResolvingForm({path, slug: slugifyPath(path)}, resolveAfter))
+    return forms.get(path)
+  }
 
   visitLinks(tree, (node) => {
     const line = node.position?.start.line ?? 0
 
     if (node.type === 'wikiLink') {
       if (!node.target) return
-      const verdict = pointsAtMoved(node, 'wiki')
-      if (verdict === 'ambiguous') {
-        unresolved.push({line, target: node.target, reason: 'ambiguous before the rewrite', candidates: []})
-        return
-      }
-      if (verdict !== true) return
+      const before = resolveBefore(node.target)
+      let target
+      let moves
 
-      if (wanted === null) {
+      if (before.status === 'resolved') {
+        target = finalPath(before.resource.path)
+        moves = target !== before.resource.path
+      } else if (before.status === 'ambiguous') {
+        // Somebody else's ambiguity, unless the plan moves one of the notes it names.
+        if (before.candidates.every((candidate) => finalPath(candidate.path) === candidate.path)) return
         unresolved.push({
           line,
           target: node.target,
-          reason: 'no unambiguous form for the new path',
-          candidates: [movedTo],
+          reason: 'ambiguous before the rewrite',
+          candidates: before.candidates.map((candidate) => candidate.path),
         })
+        return
+      } else {
+        const written = slugifyPath(node.target)
+        const meant = finished.filter(({oldSlug}) => oldSlug === written || oldSlug.endsWith(`/${written}`))
+        if (meant.length === 0) return
+        if (meant.length > 1) {
+          unresolved.push({
+            line,
+            target: node.target,
+            reason: 'ambiguous before the rewrite',
+            candidates: meant.map((entry) => entry.to),
+          })
+          return
+        }
+        target = meant[0].to
+        moves = true
+      }
+
+      if (!moves) {
+        const now = resolveAfter(node.target)
+        if (now.status === 'resolved' && now.resource.path === target) return
+      }
+
+      const wanted = formFor(target)
+      if (wanted === null) {
+        unresolved.push({line, target: node.target, reason: 'no unambiguous form for the new path', candidates: [target]})
         return
       }
       if (node.target === wanted) return
@@ -123,62 +176,32 @@ export function rewriteLinksInTree({tree, notePath, pointsAtMoved, movedTo, reso
     }
 
     if (node.type === 'link' && typeof node.url === 'string' && /\.md(#|$)/i.test(node.url)) {
-      // The note being moved carries *every* relative link from a directory that is
-      // about to change, not only the ones aimed at itself. `rebaseRelativeLinks`
-      // takes all of them, so this branch would only compute a second, wrong answer.
-      if (rebasing) return
       if (isExternal(node.url)) return // a URL, or a cross-wiki reference
-      if (pointsAtMoved(node, 'markdown') !== true) return
-      const [, anchor] = node.url.split('#')
-      const next = relativePathFrom(notePath, movedTo)
-      if (node.url === next) return
-      rewritten.push({from: node.url, to: next})
-      node.url = anchor === undefined ? next : `${next}#${anchor}`
+
+      const [path, anchor] = node.url.split('#')
+      const before = resolveRelativeBefore(notePath, path)
+      if (before.status !== 'resolved') {
+        // Nothing to recompute a new form from, and the folder it was written
+        // from is changing: reported rather than guessed at.
+        if (moving) {
+          unresolved.push({
+            line,
+            target: node.url,
+            reason: 'a relative link that resolved to nothing, written from a folder that has changed',
+            candidates: [],
+          })
+        }
+        return
+      }
+
+      const target = finalPath(before.resource.path)
+      if (!moving && target === before.resource.path) return
+      const next = relativePathFrom(destination, target)
+      if (path === next) return
+      const url = anchor === undefined ? next : `${next}#${anchor}`
+      rewritten.push({from: node.url, to: url})
+      node.url = url
     }
-  })
-
-  return {rewritten, unresolved}
-}
-
-/**
- * Recompute a moved note's own outbound relative links against its new directory.
- *
- * `[text](../b/other.md)` is written from where the note sits, so a note that
- * changes folder arrives carrying paths computed from a directory it no longer
- * occupies — including the ones that point back at itself, which have to follow it
- * to its new path rather than resolve to the old one.
- *
- * A link that resolved to nothing before the move cannot be rebased: there is no
- * correct new form to compute, so it is reported rather than guessed at.
- */
-export function rebaseRelativeLinks({tree, from, to, resolveRelative}) {
-  const rewritten = []
-  const unresolved = []
-
-  visitLinks(tree, (node) => {
-    if (node.type !== 'link' || typeof node.url !== 'string') return
-    if (!/\.md(#|$)/i.test(node.url)) return
-    if (isExternal(node.url)) return
-
-    const [path, anchor] = node.url.split('#')
-    const line = node.position?.start.line ?? 0
-    const outcome = resolveRelative(from, path)
-    if (outcome.status !== 'resolved') {
-      unresolved.push({
-        line,
-        target: node.url,
-        reason: 'a relative link that resolved to nothing, written from a folder that has changed',
-        candidates: [],
-      })
-      return
-    }
-
-    const destination = outcome.resource.path === from ? to : outcome.resource.path
-    const next = relativePathFrom(to, destination)
-    const url = anchor === undefined ? next : `${next}#${anchor}`
-    if (node.url === url) return
-    rewritten.push({from: node.url, to: url})
-    node.url = url
   })
 
   return {rewritten, unresolved}

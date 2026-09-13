@@ -72,6 +72,8 @@ awt check                        # everything wrong with the link graph, in one 
 awt search 'unique basenames'    # note bodies, titles, front matter and tags
 awt move a.md design/a.md        # …rewriting every link into it
 awt move a.md b.md               # no folder in the destination means rename
+awt move old/ new/               # a folder moves as one plan, links written once
+awt move --plan plan.json         # …or any plan, as [{"from", "to"}] pairs
 awt frontmatter a.md             # the whole block, as the note holds it
 awt frontmatter a.md --set status=stable    # …one key, checked against the schema
 awt frontmatter a.md --validate  # does this note satisfy its schema? (writes nothing)

@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
-import {chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test from 'node:test'
@@ -416,6 +416,42 @@ test('a verb reports, exits non-zero when incomplete, and honours --dry-run', (t
   const refused = awt(['move', '-w', box.root, 'a/nowhere.md', 'a/four.md'])
   assert.equal(refused.status, 1)
   assert.match(refused.stdout, /no note at a\/nowhere\.md/)
+})
+
+/**
+ * A folder, or a plan read as JSON, moves as one batch: the same `pairs` the MCP
+ * surface takes. A wrong invocation is refused before anything runs.
+ */
+test('move takes a folder or a --plan, and moves either as one batch', (t) => {
+  const box = wiki({
+    'old/one.md': '# One\n',
+    'old/sub/two.md': '# Two\n',
+    'refs.md': '# Refs\n\nSee [[one]] and [[two]].\n',
+  })
+  t.after(() => box.cleanup())
+
+  const folder = awt(['move', '-w', box.root, 'old/', 'new/', '--json'])
+  assert.equal(folder.status, 0, folder.stdout + folder.stderr)
+  const report = JSON.parse(folder.stdout)
+  assert.deepEqual(report.created.sort(), ['new/one.md', 'new/sub/two.md'])
+  assert.match(report.notes.join(' '), /removed the empty folder old\//)
+  assert.equal(existsSync(join(box.root, 'old')), false)
+
+  const planned = awt(['move', '-w', box.root, '--plan', '-'], {
+    input: JSON.stringify([
+      {from: 'new/one.md', to: 'split/a/one.md'},
+      {from: 'new/sub/two.md', to: 'split/b/two.md'},
+    ]),
+  })
+  assert.equal(planned.status, 0, planned.stdout + planned.stderr)
+  assert.match(readFileSync(join(box.root, 'refs.md'), 'utf8'), /\[\[one]] and \[\[two]]/)
+  assert.equal(existsSync(join(box.root, 'split/b/two.md')), true)
+
+  assert.equal(awt(['move', '-w', box.root, '--plan', '-', 'a.md', 'b.md'], {input: '[]'}).status, 2)
+  assert.equal(awt(['move', '-w', box.root, '--plan', '-'], {input: '{"from": "x"}'}).status, 2)
+  const empty = awt(['move', '-w', box.root, 'nothing/', 'else/'])
+  assert.equal(empty.status, 1)
+  assert.match(empty.stdout, /no note under nothing\//)
 })
 
 /**

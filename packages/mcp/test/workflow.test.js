@@ -158,6 +158,31 @@ test('with writes allowed, a rename comes back in the structured shape', async (
   assert.deepEqual(health.placeholders.map((entry) => entry.target), ['missing-note'])
 })
 
+test('move takes a plan of pairs, and the old single-note shape is refused by the schema', async (t) => {
+  const box = wiki()
+  t.after(() => box.cleanup())
+  const client = await connect(box.root, ['--allow-writes'])
+  t.after(() => client.close())
+
+  const report = json(
+    await client.callTool({
+      name: 'move',
+      arguments: {
+        pairs: [
+          {from: 'design/shape.md', to: 'archive/shape.md'},
+          {from: 'meta/conventions.md', to: 'archive/conventions.md'},
+        ],
+      },
+    }),
+  )
+  assert.equal(report.ok, true)
+  assert.deepEqual(report.created.sort(), ['archive/conventions.md', 'archive/shape.md'])
+  assert.match(report.notes.join(' '), /removed the empty folder design\//)
+
+  const old = await client.callTool({name: 'move', arguments: {from: 'archive/shape.md', to: 'shape.md'}})
+  assert.equal(old.isError, true)
+})
+
 test('a verb that refuses reports in the same shape as one that finished', async (t) => {
   const box = wiki()
   t.after(() => box.cleanup())

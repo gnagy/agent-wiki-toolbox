@@ -75,6 +75,10 @@ graph broke or a note stopped satisfying its schema. Only the paths a file tool 
 formatted. A note a shell command wrote is named in that report and left alone, because nothing
 knows which files a shell command touched — run `awt fmt <path>` on it yourself.
 
+- **Restructuring many notes is one `move` plan, not a sequence of moves.** Moved one at a time,
+  each rewrite picks link qualifiers for a layout that is only part of the way there, and a later
+  move makes them ambiguous. A plan writes every link once, against where the notes end up. A plan
+  in which a destination is another pair's source is refused; split a chain or a swap into two.
 - Nothing locks. A file that changed under a verb is listed in `skipped`, not overwritten, and
   running the verb again finishes the job.
 - `unresolved` lists the links the verb would not guess at, such as an ambiguous stem.

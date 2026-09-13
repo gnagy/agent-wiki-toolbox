@@ -104,11 +104,14 @@ export function serialize(tree) {
 /**
  * Finish a verb: apply the batch and return the report.
  *
- * `unresolved` lists the links the tool would not guess at. It travels beside
+ * `unresolved` lists the links the tool would not guess at. `settle` runs after the
+ * batch is applied, with what was applied, and returns notes for the report. It travels beside
  * `skipped` so one return answers both "what did I not do" questions.
  */
-export function finish(verb, context, {unresolved = [], notes = []} = {}) {
+export function finish(verb, context, {unresolved = [], notes = [], settle} = {}) {
   const applied = context.edit.commit({dryRun: context.dryRun})
+  // What a verb tidies once the files have landed, reported in its notes.
+  if (settle) notes = [...notes, ...settle(applied)]
   return {
     verb,
     ok: applied.skipped.length === 0 && unresolved.length === 0,

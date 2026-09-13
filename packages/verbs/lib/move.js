@@ -1,17 +1,34 @@
 /**
- * `moveNote` and `renameNote`: the same operation, named for the two intents.
+ * `moveNotes`, and `moveNote` and `renameNote` as a plan of one pair.
  *
- * Re-runnable: if the source is gone and the destination is there, the move
- * already happened and the verb finishes the link rewriting instead of failing.
+ * **A plan is resolved against the tree it produces, once.** Moving notes one at
+ * a time rewrites every link against a layout that is only part of the way there:
+ * a qualifier chosen because it was unique at that moment stops being unique when
+ * a later move lands a same-named note beside it, and one dropped because it was
+ * not needed yet is needed again a move later. Each rewrite is correct for the
+ * tree it saw, and the sequence is wrong. So the whole plan is validated, the
+ * final layout computed, and every link written once against that layout — the
+ * rule *Applying operations as a set* names for a batch, taken across notes.
+ *
+ * Re-runnable per pair: a source that is gone with its destination there is a
+ * move that already happened, and the verb finishes its links instead of failing.
  */
+import {existsSync, readdirSync, rmdirSync, rmSync, statSync} from 'node:fs'
+import {join} from 'node:path'
+
 import {createResolver, slugifyPath} from '@agent-wiki-toolbox/core'
 
 import {createContext, finish, parseNote, refuse, serialize} from './context.js'
-import {ambiguousStems, rebaseRelativeLinks, rewriteLinksInTree} from './rewrite.js'
+import {ambiguousStems, retargetLinksInTree} from './rewrite.js'
+
+/** Move every note in a plan of `{from, to}` pairs, rewriting links against the end state. */
+export function moveNotes(notesDir, {pairs, workspace, dryRun} = {}) {
+  return relocate('moveNotes', notesDir, {pairs, workspace, dryRun})
+}
 
 /** Move a note to a new path, rewriting every link into it. */
 export function moveNote(notesDir, {from, to, workspace, dryRun} = {}) {
-  return relocate('moveNote', notesDir, {from, to, workspace, dryRun})
+  return relocate('moveNote', notesDir, {pairs: [{from, to}], workspace, dryRun})
 }
 
 /** Rename a note within its own folder. Same machinery, narrower intent. */
@@ -21,148 +38,233 @@ export function renameNote(notesDir, {path, name, workspace, dryRun} = {}) {
   }
   const folder = path.split('/').slice(0, -1).join('/')
   const to = folder ? `${folder}/${name}` : name
-  return relocate('renameNote', notesDir, {from: path, to, workspace, dryRun})
+  return relocate('renameNote', notesDir, {pairs: [{from: path, to}], workspace, dryRun})
 }
 
-function relocate(verb, notesDir, {from, to, workspace, dryRun}) {
+function relocate(verb, notesDir, {pairs, workspace, dryRun}) {
+  validatePlan(verb, pairs)
+
   const context = createContext(notesDir, {workspace, dryRun})
   const index = context.workspace
   const notes = []
 
-  if (!to?.endsWith('.md')) throw refuse(verb, `the destination must be a .md path, got "${to}"`)
+  // Still to move, keyed by where the index holds the note now; and the ones a
+  // previous run already moved, whose inbound links are what is left.
+  const moves = new Map()
+  const finished = []
+  for (const {from, to} of pairs) {
+    const source = index.get(from)
+    const destination = index.get(to)
+    if (!source && !destination) throw refuse(verb, `no note at ${from}`)
+    if (source && destination) throw refuse(verb, `${to} already exists`)
+    if (source) moves.set(from, to)
+    else finished.push({from, to, oldSlug: slugifyPath(from)})
+  }
+  const finalPath = (path) => moves.get(path) ?? path
 
-  const source = index.get(from)
-  const destination = index.get(to)
-
-  // Re-run of a move that already happened: the file is where it should be and
-  // only the links are outstanding.
-  const alreadyMoved = !source && destination !== undefined
-  if (!source && !alreadyMoved) throw refuse(verb, `no note at ${from}`)
-  if (source && destination) throw refuse(verb, `${to} already exists`)
-
-  const moved = source ?? destination
-  const newSlug = slugifyPath(to)
-
-  // The wiki this move *produces*, and its resolver. A link is written as the
-  // shortest form that resolves to the note, and "resolves" has to mean in the tree
-  // that will exist — the note is not where it used to be, and a form checked
-  // against the old tree can name something that has moved away.
-  const after = index.resources.map((resource) =>
-    resource.path === moved.path ? {...resource, path: to, slug: newSlug} : resource,
-  )
+  // The wiki this plan *produces*, and its resolver. A link is written as the
+  // shortest form that resolves to its note in the tree that will exist — never in
+  // the tree as it is, and never in one on the way there.
+  const after = index.resources.map((resource) => {
+    const to = moves.get(resource.path)
+    return to ? {...resource, path: to, slug: slugifyPath(to)} : resource
+  })
   const {resolve: resolveAfter} = createResolver(after)
 
-  // A move that makes a bare stem ambiguous is refused, as `splitByHeading`
-  // refuses the same thing.
-  //
-  // Refused rather than reported because of *whose* links break: this verb rewrites
-  // the links pointing at the note it moved, and the ones that break are the other
-  // ones — every note that already wrote `[[stem]]` about the note whose name this
-  // one just took. Those are not this move's to rewrite, and nothing would have
-  // told anyone until the next `awt check`.
+  // A plan that makes a bare stem ambiguous is refused, as `splitByHeading`
+  // refuses the same thing. The links in the wiki today could be rewritten, but
+  // `[[stem]]` is how the next note will be written, by someone who has no idea a
+  // second note took the name.
   const wasAmbiguous = ambiguousStems(index.resources, index.resolve)
   const introduced = [...ambiguousStems(after, resolveAfter)].filter((stem) => !wasAmbiguous.has(stem)).sort()
   if (introduced.length > 0) {
+    const landing = [...moves.values()].filter((to) => introduced.includes(slugifyPath(to).split('/').pop()))
     const matched = introduced
       .map((stem) => `[[${stem}]] (${resolveAfter(stem).candidates.map((c) => c.path).join(' and ')})`)
       .join(', ')
     throw refuse(
       verb,
-      `${to} takes a name already in the wiki: ${matched}. Every note already linking by that bare ` +
-        'stem would break, and those are not this move to rewrite. Nothing was written',
+      `${landing.join(', ')} ${landing.length === 1 ? 'takes' : 'take'} a name already in the wiki: ${matched}. ` +
+        'Every note linking by that bare stem would stop resolving. Nothing was written',
     )
   }
 
-  // An ambiguity that was already there is not this move's doing, and explains why
+  // An ambiguity that was already there is not this plan's doing, and explains why
   // the links it rewrites come out naming a folder segment.
-  if (wasAmbiguous.has(newSlug.split('/').pop())) {
-    notes.push(
-      `[[${newSlug.split('/').pop()}]] already matched more than one note, so links to this one ` +
-        'name a folder segment',
-    )
+  for (const to of moves.values()) {
+    const stem = slugifyPath(to).split('/').pop()
+    if (wasAmbiguous.has(stem)) {
+      notes.push(`[[${stem}]] already matched more than one note, so links to ${to} name a folder segment`)
+    }
+  }
+
+  // The notes to read: every moved note, whose own relative links are written from
+  // a folder that is changing; every note linking into one; the placeholder sites
+  // left by a move already done; and every note holding a link whose meaning the
+  // plan changes although it points at nothing that moves — `[[workspaces/x]]`,
+  // unique today, ambiguous once another `workspaces/x` lands elsewhere.
+  const scan = new Set()
+  for (const path of moves.keys()) {
+    scan.add(path)
+    for (const inbound of index.backlinks(path)) scan.add(inbound)
+  }
+  for (const placeholder of index.placeholders()) {
+    if (!finished.some(({oldSlug}) => matchesSlug(oldSlug, placeholder.target))) continue
+    for (const site of placeholder.sites) scan.add(site.from)
+  }
+  const collateral = new Set()
+  for (const edge of index.edges) {
+    if (edge.kind === 'markdown' || !edge.target) continue
+    const outcome = resolveAfter(edge.target)
+    if (outcome.status === 'resolved' && outcome.resource.path === finalPath(edge.to)) continue
+    if (!moves.has(edge.to)) collateral.add(edge.from)
+    scan.add(edge.from)
   }
 
   const unresolved = []
-  const oldSlug = slugifyPath(from)
-  let currentNote = from
-
-  /**
-   * Does this link point at the note that is moving? Resolution answers it in the
-   * ordinary case. After a half-finished move it cannot — the file is already gone
-   * from where the link says — so the written target is matched against the old
-   * slug by the same suffix rule that resolved it before.
-   */
-  const pointsAtMoved = (node, kind) => {
-    if (kind === 'markdown') {
-      // A relative path resolves against the note it is written in, never by stem.
-      const [path] = node.url.split('#')
-      const outcome = index.resolveRelative(node.notePath ?? currentNote, path)
-      return outcome.status === 'resolved' && outcome.resource.path === moved.path
-    }
-    const outcome = index.resolve(node.target)
-    if (outcome.status === 'ambiguous') return 'ambiguous'
-    if (outcome.status === 'resolved') return outcome.resource.path === moved.path
-    // Unresolved: the only way it can concern us is a move already half done.
-    if (!alreadyMoved) return false
-    const written = slugifyPath(node.target)
-    return oldSlug === written || oldSlug.endsWith(`/${written}`)
-  }
-
-  // Every note that links to this one, plus the note itself: all of its own
-  // relative markdown links are written from a directory that is about to change,
-  // and get rebased on the destination. After a half-done move the file already
-  // sits at its new path with its links rebased, and what is left is the inbound
-  // ones — which resolve to nothing now, so the placeholder sites are the work.
-  const inbound = new Set(alreadyMoved ? [] : index.backlinks(moved.path))
-  if (alreadyMoved) {
-    for (const placeholder of index.placeholders()) {
-      if (oldSlug !== placeholder.target && !oldSlug.endsWith(`/${placeholder.target}`)) continue
-      for (const site of placeholder.sites) inbound.add(site.from)
-    }
-  } else {
-    inbound.add(moved.path)
-  }
-
-  for (const notePath of [...inbound].sort()) {
-    const isMoved = notePath === moved.path && !alreadyMoved
-    const readFrom = isMoved ? from : notePath
-    if (!context.edit.exists(readFrom)) continue
-
-    currentNote = readFrom
-    const tree = parseNote(context, readFrom)
-    const links = rewriteLinksInTree({
+  for (const notePath of [...scan].sort()) {
+    if (!context.edit.exists(notePath)) continue
+    const tree = parseNote(context, notePath)
+    const links = retargetLinksInTree({
       tree,
-      notePath: readFrom,
-      pointsAtMoved,
-      movedTo: to,
+      notePath,
+      destination: finalPath(notePath),
+      resolveBefore: index.resolve,
+      resolveRelativeBefore: index.resolveRelative,
       resolveAfter,
-      rebasing: isMoved,
+      finalPath,
+      finished,
     })
-    const rewritten = [...links.rewritten]
-    const residue = [...links.unresolved]
-
-    if (isMoved) {
-      const rebased = rebaseRelativeLinks({
-        tree,
-        from,
-        to,
-        resolveRelative: (notePath, target) => index.resolveRelative(notePath, target),
-      })
-      rewritten.push(...rebased.rewritten)
-      residue.push(...rebased.unresolved)
-    }
-
-    unresolved.push(...residue.map((entry) => ({from: notePath, ...entry})))
+    unresolved.push(...links.unresolved.map((entry) => ({from: notePath, ...entry})))
 
     // A file whose links did not change is not rewritten.
-    if (rewritten.length === 0) continue
-    context.edit.update(readFrom, serialize(tree))
+    if (links.rewritten.length === 0) continue
+    context.edit.update(notePath, serialize(tree))
   }
 
-  // The moved note's rewrite and its move are one operation, keyed by one path:
-  // `edit.move` picks up whatever was staged for `from` and carries it across.
-  if (!alreadyMoved) context.edit.move(from, to)
-  else notes.push(`${from} was already at ${to}; only the links needed finishing`)
+  // A link the plan leaves with no form that reaches its note is a note the plan
+  // makes unreachable, and landing the rest would be landing that. Refused while
+  // nothing is written.
+  const stranded = unresolved.filter((entry) => entry.reason === 'no unambiguous form for the new path')
+  if (stranded.length > 0) {
+    const named = [...new Set(stranded.flatMap((entry) => entry.candidates))].sort()
+    throw refuse(
+      verb,
+      `no link could reach ${named.join(', ')} after this plan: every form of the name would match more ` +
+        'than one note. Nothing was written',
+      {unresolved: stranded},
+    )
+  }
 
-  return finish(verb, context, {unresolved, notes})
+  if (collateral.size > 0) {
+    notes.push(
+      `rewrote links that the plan would otherwise have pointed elsewhere, in notes it neither moves nor ` +
+        `points at: ${[...collateral].sort().join(', ')}`,
+    )
+  }
+
+  // A moved note's rewrite and its move are one operation, keyed by one path:
+  // `edit.move` picks up whatever was staged for the source and carries it across.
+  for (const [from, to] of moves) context.edit.move(from, to)
+  for (const {from, to} of finished) notes.push(`${from} was already at ${to}; only the links needed finishing`)
+
+  return finish(verb, context, {
+    unresolved,
+    notes,
+    settle: (applied) => settleFolders(notesDir, {moves, applied, dryRun: context.dryRun}),
+  })
+}
+
+/**
+ * What a plan must be before anything is read. A chain or a swap is refused, not
+ * ordered: after a partial run, a re-run finds a note at `b` and nothing on disk
+ * says whether it is the one that was there or the one that arrived. Two plans
+ * say what one ambiguous plan cannot.
+ */
+function validatePlan(verb, pairs) {
+  if (!Array.isArray(pairs) || pairs.length === 0) throw refuse(verb, 'a move needs at least one {from, to} pair')
+  for (const {from, to} of pairs) {
+    if (typeof from !== 'string' || !from) throw refuse(verb, `every pair needs a from, got ${JSON.stringify(from)}`)
+    if (typeof to !== 'string' || !to.endsWith('.md')) {
+      throw refuse(verb, `the destination must be a .md path, got "${to}"`)
+    }
+  }
+
+  const twice = (values) => values.filter((value, at) => values.indexOf(value) !== at)
+  const sources = pairs.map((pair) => pair.from)
+  const destinations = pairs.map((pair) => pair.to)
+  const repeatedSource = twice(sources)
+  if (repeatedSource.length > 0) throw refuse(verb, `${repeatedSource[0]} is moved by more than one pair`)
+  const repeatedDestination = twice(destinations)
+  if (repeatedDestination.length > 0) {
+    throw refuse(verb, `${repeatedDestination[0]} is the destination of more than one pair`)
+  }
+
+  const chained = pairs.find((pair) => pair.from !== pair.to && sources.includes(pair.to))
+  if (chained) {
+    throw refuse(
+      verb,
+      `${chained.to} is both a destination and a source in this plan. A chain or a swap cannot be re-run ` +
+        `safely: after a partial run nothing on disk says which note is at ${chained.to}. Split it into two ` +
+        'plans. Nothing was written',
+    )
+  }
+}
+
+/** Does a written link target name this slug by the resolver's suffix rule? */
+function matchesSlug(slug, target) {
+  const written = slugifyPath(target)
+  return slug === written || slug.endsWith(`/${written}`)
+}
+
+/**
+ * Remove the folders this plan's moves emptied, and name the ones that hold no
+ * note any more but still hold something else.
+ *
+ * Only a folder a move left from is considered, and its ancestors, and never one
+ * a destination lands in. A dry run answers from the listing, subtracting what the
+ * plan would take away. `.DS_Store` is the file system's, not content: a folder
+ * holding nothing else is empty.
+ */
+function settleFolders(notesDir, {moves, applied, dryRun}) {
+  const vacated = [...moves.keys()].filter((from) => dryRun || applied.deleted.includes(from))
+  const gone = new Set(vacated)
+  const kept = new Set([...moves.values()].flatMap(ancestors))
+  const folders = [...new Set(vacated.flatMap(ancestors))]
+    .filter((folder) => !kept.has(folder))
+    .sort((a, b) => b.split('/').length - a.split('/').length || (a < b ? -1 : 1))
+
+  const removed = new Set()
+  const notes = []
+  for (const folder of folders) {
+    const absolute = join(notesDir, folder)
+    if (!existsSync(absolute)) continue
+    const remaining = readdirSync(absolute).filter((name) => {
+      const path = `${folder}/${name}`
+      return !gone.has(path) && !removed.has(path)
+    })
+    const content = remaining.filter((name) => name !== '.DS_Store')
+
+    if (content.length === 0) {
+      if (!dryRun) {
+        for (const name of remaining) rmSync(join(absolute, name))
+        rmdirSync(absolute)
+      }
+      removed.add(folder)
+      notes.push(`${dryRun ? 'would remove' : 'removed'} the empty folder ${folder}/`)
+      continue
+    }
+
+    const holdsNotes = content.some((name) => name.endsWith('.md') || statSync(join(absolute, name)).isDirectory())
+    if (!holdsNotes) {
+      notes.push(`${folder}/ holds no note any more but was left, for what else it holds: ${content.sort().join(', ')}`)
+    }
+  }
+  return notes
+}
+
+/** Every folder above a notes-relative path, nearest first. */
+function ancestors(path) {
+  const segments = path.split('/').slice(0, -1)
+  return segments.map((_, at) => segments.slice(0, segments.length - at).join('/'))
 }

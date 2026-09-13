@@ -15,9 +15,10 @@
  * dropped by four commands — `awt check ../other-wiki` checked this one and said
  * nothing — and a count a command states is also a count a test can read.
  *
- * The CLI is not a mirror of the packages. `move` here is `moveNote` or
- * `renameNote` depending on its destination, `site index` is a `core` function
- * grouped by what consumes it, and the MCP surface stays flat with its own names.
+ * The CLI is not a mirror of the packages. `move` here is `moveNote`,
+ * `renameNote` or `moveNotes` depending on what it is given, `site index` is a
+ * `core` function grouped by what consumes it, and the MCP surface stays flat
+ * with its own names.
  */
 import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs'
 import {dirname, resolve as resolvePath} from 'node:path'
@@ -42,6 +43,7 @@ import {
   frontmatter,
   mergeFiles,
   moveNote,
+  moveNotes,
   renameNote,
   renameTag,
   splitByHeading,
@@ -288,6 +290,87 @@ function reportLines(report) {
 }
 
 /** A verb that refuses reports in the same shape as one that finished partially. */
+/** A wrong invocation: nothing runs, and the exit code says it was the call. */
+function usageError(message) {
+  const error = new Error(message)
+  error.exitCode = 2
+  throw error
+}
+
+/**
+ * A move plan as JSON: the MCP `pairs` shape, read from a file or from stdin as
+ * `-`. One shape on both surfaces, so a plan an agent built for one runs on the
+ * other.
+ */
+async function readPlan(source) {
+  let text
+  if (source === '-') {
+    const chunks = []
+    for await (const chunk of process.stdin) chunks.push(chunk)
+    text = Buffer.concat(chunks).toString('utf8')
+  } else {
+    if (!existsSync(source)) usageError(`--plan names ${resolvePath(source)}, which is not there.`)
+    text = readFileSync(source, 'utf8')
+  }
+  let pairs
+  try {
+    pairs = JSON.parse(text)
+  } catch (error) {
+    usageError(`--plan is not JSON: ${error.message}`)
+  }
+  const shaped =
+    Array.isArray(pairs) &&
+    pairs.every((pair) => pair && typeof pair.from === 'string' && typeof pair.to === 'string')
+  if (!shaped) usageError('--plan takes a JSON array of {"from": "...", "to": "..."} pairs.')
+  return pairs
+}
+
+/** Does a `move` source name a folder of the notes rather than a note? */
+function isFolder(notesDir, path) {
+  if (path.endsWith('/')) return true
+  const absolute = resolvePath(notesDir, path)
+  return existsSync(absolute) && statSync(absolute).isDirectory()
+}
+
+/**
+ * A folder move as the plan it stands for: one pair per note under the folder,
+ * listed when the verb runs, so a note added since the caller looked still moves.
+ * Only notes are in the index, so anything else in the folder stays where it is,
+ * and the report names the folder it was left in.
+ */
+function folderPlan(workspace, from, to) {
+  const trim = (path) => path.replace(/\/+$/, '').replace(/^\.\/?/, '')
+  const source = trim(from)
+  const destination = trim(to ?? '')
+  const refuse = (message) => {
+    const error = new Error(message)
+    error.report = {
+      verb: 'moveNotes',
+      ok: false,
+      changed: [],
+      created: [],
+      deleted: [],
+      skipped: [],
+      unresolved: [],
+      notes: [message],
+    }
+    throw error
+  }
+  if (to === undefined) refuse(`a folder moves to a folder: awt move ${from} <folder>/`)
+  if (destination.endsWith('.md')) refuse(`${from} is a folder, and ${to} names a note`)
+
+  const pairs = workspace.resources
+    .map((resource) => resource.path)
+    .filter((path) => path.startsWith(`${source}/`))
+    .sort()
+    .map((path) => {
+      const rest = path.slice(source.length + 1)
+      return {from: path, to: destination ? `${destination}/${rest}` : rest}
+    })
+  if (pairs.length === 0) refuse(`no note under ${source}/`)
+  return pairs
+}
+
 async function runVerb(values, action) {
   // `human` is the one command whose report is not only a list of what changed:
   // `frontmatter` answers with a value. Every other verb leaves it unset and gets
@@ -695,23 +778,44 @@ export const COMMANDS = [
     name: 'move',
     writes: true,
     section: 'Change',
-    summary: 'Move or rename a note, rewriting every link into it',
-    usage: 'awt move <from> <to>',
+    summary: 'Move or rename notes, rewriting every link into them',
+    usage: 'awt move <from> <to>  |  awt move <folder>/ <folder>/  |  awt move --plan <file|->',
     positionals: 2,
     notes: [
       'A destination with no folder in it stays in the source\'s own, so <to> is either a new name',
       'or a new path. There was a separate `rename` for the first of those; move.js calls the two',
       '"the same operation, named for the two intents", so the CLI shows one and the library keeps',
       'both. The MCP surface, which does not nest, keeps rename as its own tool.',
+      '',
+      'A folder moves every note under it as one plan, and --plan reads one as JSON, an array of',
+      '{"from", "to"} pairs, from a file or from stdin as -. A plan is resolved against the layout',
+      'it produces, so every link is written once; a destination that is another pair\'s source is',
+      'refused, and the folders the moves empty are removed.',
     ],
-    options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, 'dry-run': {type: 'boolean', default: false}},
+    options: {
+      ...WORKSPACE_OPTION,
+      ...OUTPUT_OPTIONS,
+      'dry-run': {type: 'boolean', default: false},
+      plan: {type: 'string'},
+    },
     async run({values, positionals}) {
       const [from, to] = positionals
+      const dryRun = values['dry-run']
+      if (values.plan !== undefined && positionals.length > 0) {
+        usageError('--plan is the whole plan, and takes no <from> <to> beside it.')
+      }
+      const pairs = values.plan === undefined ? undefined : await readPlan(values.plan)
+
       return runVerb(values, async () => {
         const notesDir = await notesDirFor(values)
+        if (pairs) return moveNotes(notesDir, {pairs, dryRun})
+        if (from && isFolder(notesDir, from)) {
+          const workspace = loadWorkspace(notesDir)
+          return moveNotes(notesDir, {pairs: folderPlan(workspace, from, to), workspace, dryRun})
+        }
         return to && !to.includes('/')
-          ? renameNote(notesDir, {path: from, name: to, dryRun: values['dry-run']})
-          : moveNote(notesDir, {from, to, dryRun: values['dry-run']})
+          ? renameNote(notesDir, {path: from, name: to, dryRun})
+          : moveNote(notesDir, {from, to, dryRun})
       })
     },
   },

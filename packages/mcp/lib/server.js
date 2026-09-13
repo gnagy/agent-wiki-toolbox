@@ -15,7 +15,7 @@ import {
   deleteNote,
   frontmatter,
   mergeFiles,
-  moveNote,
+  moveNotes,
   renameNote,
   renameTag,
   splitByHeading,
@@ -169,9 +169,11 @@ export function createServer({
     ],
     [
       'move',
-      'Move a note to a new path, rewriting every link into it.',
-      {from: z.string(), to: z.string()},
-      (args, w) => moveNote(w.notesDir, args),
+      'Move notes as one plan of {from, to} pairs — one pair for a single note — rewriting every link ' +
+        'once, against the layout the whole plan produces. A plan whose destination is another pair\'s ' +
+        'source is refused; folders the moves empty are removed.',
+      {pairs: z.array(z.object({from: z.string(), to: z.string()})).min(1)},
+      (args, w) => moveNotes(w.notesDir, args),
     ],
     [
       'delete',
