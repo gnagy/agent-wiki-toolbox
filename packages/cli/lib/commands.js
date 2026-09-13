@@ -26,7 +26,7 @@ import process from 'node:process'
 
 import {parse as parseYaml, stringify as stringifyYaml} from 'yaml'
 
-import {check, loadWorkspace, writeIndexArtifact} from '@agent-wiki-toolbox/core'
+import {check, loadWorkspace, measure, query, writeIndexArtifact} from '@agent-wiki-toolbox/core'
 import {
   AMBIGUOUS_CONFIG,
   collectStream,
@@ -444,6 +444,97 @@ function frontmatterLines(report) {
 }
 
 /**
+ * A segment path as typed, or a refusal that names where it came from.
+ *
+ * JSON rather than a little selector language: the path is the library's own
+ * structure, an agent generates it more often than a person types it, and a
+ * dialect invented here would be a second thing to keep in step with the scheme.
+ */
+function parsePath(text, source) {
+  let value
+  try {
+    value = JSON.parse(text)
+  } catch (error) {
+    const refusal = new Error(`${source} is not JSON: ${error.message}`)
+    refusal.exitCode = 2
+    throw refusal
+  }
+  if (!Array.isArray(value)) {
+    const refusal = new Error(`${source} is a path, which is an array of segments, and this is ${typeof value}.`)
+    refusal.exitCode = 2
+    throw refusal
+  }
+  return value
+}
+
+/**
+ * A query's answer, for a person.
+ *
+ * The lines go first on every target, because the reason to read a section here
+ * rather than open the file is usually to find out which lines to change.
+ */
+function queryLines(found) {
+  if (!found.ok) {
+    return [found.message, found.code ? `  code: ${found.code}` : '', found.candidates?.length ? `  candidates: ${found.candidates.length}` : '']
+      .filter(Boolean)
+      .join('\n')
+  }
+  if (found.kind === 'outline') {
+    if (!found.outline.length) return 'no headings'
+    return found.outline
+      .map((entry) => `${String(entry.line).padStart(5)}  ${'  '.repeat(entry.depth - 1)}${'#'.repeat(entry.depth)} ${entry.text}`)
+      .join('\n')
+  }
+
+  const lines = []
+  for (const target of found.targets) {
+    const where = target.line ? `${target.line}${target.endLine && target.endLine !== target.line ? `-${target.endLine}` : ''}: ` : ''
+    lines.push(`${where}${target.kind}`)
+    lines.push(...targetBody(target).map((line) => `  ${line}`))
+  }
+  for (const disagreement of found.disagreements ?? []) {
+    lines.push(
+      `  note: segment ${disagreement.segment}'s ${disagreement.type} ${disagreement.field} said ` +
+        `${disagreement.expected} and the name is at ${disagreement.actual}; the name won`,
+    )
+  }
+  return lines.join('\n')
+}
+
+function targetBody(target) {
+  switch (target.kind) {
+    case 'table':
+      return [target.header.join(' | '), ...target.rows.map((row) => target.header.map((name) => row[name]).join(' | '))]
+    case 'row':
+      return Object.entries(target.values).map(([name, value]) => `${name}: ${value}`)
+    case 'column':
+      return target.values
+    case 'cell':
+      return [target.value]
+    case 'heading':
+      return [`${'#'.repeat(target.depth)} ${target.text}`]
+    case 'list':
+      return target.items.flatMap((item) => item.markdown.trimEnd().split('\n'))
+    default:
+      return (target.markdown ?? target.text ?? '').trimEnd().split('\n')
+  }
+}
+
+/** One row per note, and the totals under them. */
+function measureLines(measured) {
+  if (measured.code) return measured.message
+  const columns = ['words', 'dates', ...('matches' in (measured.notes[0] ?? {}) ? ['matches'] : [])]
+  const lines = measured.notes.map((row) =>
+    [...columns.map((name) => String(row[name]).padStart(6)), ` ${row.path}`].join(''),
+  )
+  if (measured.notes.length !== 1) {
+    lines.push([...columns.map((name) => String(measured.totals[name]).padStart(6)), ` (${measured.totals.notes} notes)`].join(''))
+  }
+  for (const path of measured.missing) lines.push(`  MISSING ${path}: no note and no folder there`)
+  return lines.join('\n')
+}
+
+/**
  * Write the toolbox index into the site, for a build that is about to run.
  *
  * It is emitted here rather than left to whoever runs the build, because the
@@ -772,6 +863,84 @@ export const COMMANDS = [
           .join('\n'),
       )
       return outcome.status === 'resolved' || outcome.status === 'crossWiki' ? 0 : 1
+    },
+  },
+  {
+    name: 'query',
+    section: 'Ask',
+    summary: "Read inside a note's body by address: a section, a table as rows, a column, a block",
+    usage:
+      'awt query <note> [--outline]\n' +
+      '       awt query <note> --path \'[{"section": "Fields"}, {"table": {}}]\'\n' +
+      '       awt query <note> --path -   < path.json',
+    positionals: 1,
+    notes: [
+      'With no --path it prints the outline: every heading, its depth, and the path that reaches it.',
+      'Read that first and write the next call off it.',
+      '',
+      'A path is an array of {type: spec}, each resolving inside what the one before it found:',
+      '  section {text, nth} (or a bare heading string)   heading {text, nth}',
+      '  table {header, nth}   row {where: {column, eq}, index}   column {header, index}',
+      '  cell {row, column}    list {nth}   list_item {term, nth}   block {prefix, nth}',
+      'Each segment carries a name and a position and prefers the name; pass both and a disagreement',
+      'is reported rather than hidden. An empty spec is every candidate, so a shorter path answers more.',
+      '',
+      'The path is a coordinate, so it goes on argv; --path - reads it from stdin instead, which is',
+      'where a path a program generated belongs.',
+      '',
+      'Front matter is a separate domain: `awt frontmatter` reads that, and this does not.',
+    ],
+    options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, path: {type: 'string'}, outline: {type: 'boolean', default: false}},
+    /**
+     * **The note is the positional and the segment path is the flag**, which is
+     * the opposite of how they read in the library, where `path` is the address
+     * and `note` names the file. It is the CLI's own rule rather than a
+     * divergence: every command on this binary takes the note it works on as its
+     * first argument, and a `query` that took the note on a flag would be the one
+     * exception.
+     */
+    async run({values, positionals}) {
+      let path
+      if (values.path === '-') {
+        const chunks = []
+        for await (const chunk of process.stdin) chunks.push(chunk)
+        path = parsePath(Buffer.concat(chunks).toString('utf8'), 'stdin')
+      } else if (values.path !== undefined) {
+        path = parsePath(values.path, '--path')
+      }
+
+      const found = query(loadWorkspace(await notesDirFor(values)), {
+        note: positionals[0],
+        path,
+        outline: values.outline,
+      })
+      emit(values, found, queryLines)
+      return found.ok ? 0 : 1
+    },
+  },
+  {
+    name: 'measure',
+    section: 'Ask',
+    summary: 'Words, ISO dates and a pattern\'s hits, per note, in one call',
+    usage: 'awt measure [paths...] [--pattern REGEX]',
+    positionals: 'any',
+    notes: [
+      'A path is a note or a folder; a folder measures every note under it, and no path at all',
+      'measures the whole wiki.',
+      '',
+      'Front matter is not counted: it is prose to `wc` and to nothing else, and a note with eight',
+      'fields and two sentences measures as a substantial one. --pattern counts hits rather than',
+      'lines, which is the other half of what the `wc`/`grep -c` loop this replaces gets wrong.',
+      'It is a regex, bare or as /pattern/flags.',
+    ],
+    options: {...WORKSPACE_OPTION, ...OUTPUT_OPTIONS, pattern: {type: 'string'}},
+    async run({values, positionals}) {
+      const measured = measure(loadWorkspace(await notesDirFor(values)), {
+        paths: positionals,
+        pattern: values.pattern,
+      })
+      emit(values, measured, measureLines)
+      return measured.ok ? 0 : 1
     },
   },
   {

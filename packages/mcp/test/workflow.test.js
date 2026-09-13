@@ -110,8 +110,10 @@ test('the surface is fourteen tools with --allow-writes, and every write is one 
       'delete',
       'fmt',
       'frontmatter',
+      'measure',
       'merge_files',
       'move',
+      'query',
       'rename',
       'rename_tag',
       'resolve',
@@ -132,7 +134,7 @@ test('a read-only server lists only the tools that can succeed', async (t) => {
   const {tools} = await client.listTools()
   assert.deepEqual(
     tools.map((tool) => tool.name).sort(),
-    ['check', 'connections', 'fmt', 'frontmatter', 'resolve', 'search', 'workspace_info'],
+    ['check', 'connections', 'fmt', 'frontmatter', 'measure', 'query', 'resolve', 'search', 'workspace_info'],
   )
 
   // A write is not there to call.

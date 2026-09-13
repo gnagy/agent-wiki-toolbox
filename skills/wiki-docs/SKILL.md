@@ -33,6 +33,8 @@ with counts, and is the call that tells servers apart.
 | `connections`    | Links out of and into a note, optionally several hops                                                            |
 | `resolve`        | What a link points at, and what else matched when it is ambiguous                                                |
 | `check`          | Everything wrong with the graph, in one call                                                                     |
+| `query`          | Inside one note's body by address: the outline, a section, a table as rows keyed by header, a column, a block    |
+| `measure`        | Words, ISO dates and a pattern's hits, per note, in one call. Front matter is not counted                        |
 | `frontmatter`    | What a note's front matter holds, and whether it satisfies its schema. Its write half needs `--allow-writes`     |
 
 `check` returns `problems`, and separately `placeholders`, `orphans`, `deadends` and

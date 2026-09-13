@@ -163,3 +163,68 @@ test('a wiki that appears after the server started is found on the next call', a
   assert.equal(after.notesDir, box.root)
   assert.ok(after.notes > 0, 'the wiki that appeared has notes')
 })
+
+const BODY = `---
+title: Fields
+---
+
+# Fields
+
+## Options
+
+| Option       | Gives us | Cost |
+|--------------|----------|------|
+| aliasDivider | a seam   | low  |
+| strict       | refusals | high |
+
+Decided 2026-09-11 and 2026-09-12.
+`
+
+/**
+ * The body reads are reads, so a read-only mount serves them. `query` and
+ * `measure` write nothing at all — there is no dryRun to strip and no half to
+ * refuse, which is what makes them unlike `fmt` and `frontmatter`.
+ */
+test('query and measure are served by a read-only server', async (t) => {
+  const box = wiki({...NOTES, 'design/fields.md': BODY})
+  t.after(() => box.cleanup())
+  const server = createServer({notesDir: box.root})
+
+  const table = textOf(await call(server, 'query', {note: 'design/fields.md', path: [{table: {}}]}))
+  assert.equal(table.ok, true)
+  assert.deepEqual(table.targets[0].rows[1], {Option: 'strict', 'Gives us': 'refusals', Cost: 'high'})
+
+  const outline = textOf(await call(server, 'query', {note: 'design/fields.md'}))
+  assert.deepEqual(outline.outline.map((entry) => entry.text), ['Fields', 'Options'])
+
+  const measured = textOf(await call(server, 'measure', {paths: ['design/fields.md'], pattern: '\\brefusals\\b'}))
+  assert.equal(measured.notes[0].dates, 2)
+  assert.equal(measured.notes[0].matches, 1)
+})
+
+/**
+ * **A zod object strips what it does not declare**, and an empty segment spec is a
+ * wildcard in read mode — so a misspelled segment type would arrive as `{}` and
+ * come back as every section in the note, which reads as an answer. The segment
+ * schema passes unknown keys through so the resolver can refuse them by name.
+ */
+test('a misspelled segment type is refused rather than read as a wildcard', async (t) => {
+  const box = wiki({...NOTES, 'design/fields.md': BODY})
+  t.after(() => box.cleanup())
+  const server = createServer({notesDir: box.root})
+
+  const typo = textOf(await call(server, 'query', {note: 'design/fields.md', path: [{sections: 'Options'}]}))
+  assert.equal(typo.ok, false)
+  assert.equal(typo.code, 'PATH_BAD_SEGMENT')
+  assert.match(typo.message, /sections/)
+})
+
+/** A query names a note and a path, and a miss on the first is not a path failure. */
+test('query says which half was wrong when the note is not there', async (t) => {
+  const box = wiki(NOTES)
+  t.after(() => box.cleanup())
+  const server = createServer({notesDir: box.root})
+
+  const missing = textOf(await call(server, 'query', {note: 'nope.md', path: [{table: {}}]}))
+  assert.equal(missing.code, 'QUERY_NOTE_NOT_FOUND')
+})

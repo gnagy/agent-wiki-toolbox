@@ -1,5 +1,5 @@
 /**
- * The agent-facing surface: fourteen tools. Each answers something that cannot be
+ * The agent-facing surface: sixteen tools. Each answers something that cannot be
  * answered by opening a file; reading a note and writing prose into it are left
  * to the agent's own file tools.
  *
@@ -9,7 +9,7 @@
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {z} from 'zod'
 
-import {check, loadWorkspace} from '@agent-wiki-toolbox/core'
+import {check, loadWorkspace, measure, query} from '@agent-wiki-toolbox/core'
 import {
   buildListing,
   deleteNote,
@@ -25,6 +25,62 @@ import {connections} from './connections.js'
 import {fmt} from './fmt-tool.js'
 import {resolve} from './resolve-tool.js'
 import {search} from './search.js'
+
+const ordinal = z.number().int().min(0)
+
+/** A heading segment: the text alone, or both halves. */
+const named = z.union([z.string(), z.object({text: z.string().optional(), nth: ordinal.optional()})])
+
+/**
+ * One segment of a body path, as far as a schema can carry it.
+ *
+ * Every key is optional and exactly one is given — a constraint zod's union would
+ * express at the cost of a schema no model can read, so the resolver enforces it
+ * and reports `PATH_BAD_SEGMENT` when a caller sends two.
+ *
+ * **`passthrough` is load-bearing.** zod strips a key it does not declare, so a
+ * misspelled segment type — `{sections: 'Fields'}` — would arrive as `{}`, which
+ * is a *wildcard* in read mode: the typo would silently become "every section"
+ * and come back as a plausible answer. Passed through, it reaches the resolver and
+ * is refused by name.
+ */
+const SEGMENT = z
+  .object({
+    section: named.optional().describe('a heading and everything under it, to the next heading of equal or shallower depth'),
+    heading: named.optional().describe('the heading line alone; nothing can be reached inside it'),
+    table: z.object({header: z.array(z.string()).optional(), nth: ordinal.optional()}).optional(),
+    row: z
+      .object({
+        where: z.object({column: z.union([z.string(), z.number()]), eq: z.any()}).optional(),
+        index: ordinal.optional(),
+      })
+      .optional()
+      .describe('a body row of a table, by a key column\'s value or by index'),
+    column: z.object({header: z.string().optional(), index: ordinal.optional()}).optional(),
+    cell: z
+      .object({
+        row: z.union([z.number(), z.object({}).passthrough()]).optional(),
+        column: z.union([z.string(), z.number(), z.object({}).passthrough()]).optional(),
+      })
+      .optional()
+      .describe('under a table, takes row and column; under a row, column alone'),
+    list: z.object({nth: ordinal.optional()}).optional(),
+    list_item: z.object({term: z.string().optional(), nth: ordinal.optional()}).optional(),
+    block: z
+      .object({prefix: z.string().optional(), nth: ordinal.optional()})
+      .optional()
+      .describe('a paragraph, code block or quote — the one address with no name, so pass prefix as well as nth'),
+  })
+  .passthrough()
+
+const PATH_DESCRIPTION =
+  'The segment path into the body: an array of {type: spec}, each resolving inside what the one before ' +
+  'it found. Types and their fields: section {text, nth} (or a bare heading string), heading {text, nth}, ' +
+  'table {header, nth}, row {where: {column, eq}, index}, column {header, index}, cell {row, column}, ' +
+  'list {nth}, list_item {term, nth}, block {prefix, nth}. Each segment carries a name and a position and ' +
+  'prefers the name; pass both and a disagreement is reported rather than hidden. An empty spec — {} or ' +
+  '{"row": {}} — is every candidate, so a shorter path answers more. Example: ' +
+  '[{"section": "Fields"}, {"table": {}}, {"row": {"where": {"column": "Option", "eq": "strict"}}}].'
 
 /** JSON as an MCP tool result. Structured, because the caller is a program. */
 function reply(value) {
@@ -125,6 +181,40 @@ export function createServer({
         from: z.string().optional().describe('the note it is written in, for a bare #anchor'),
       },
       (args, w) => resolve(w.index(), args),
+    ],
+    /**
+     * The body domain's read. It is a read of the same addressing scheme the body
+     * writes use, so the path a query returned is the path an edit takes — which
+     * is the whole reason the scheme is one scheme rather than a selector and an
+     * address.
+     */
+    [
+      'query',
+      "Read inside a note's markdown body by address rather than by reading the file: a section, a " +
+        'table as rows keyed by its header, one column, one row, a list, a list item, or a block. Use it ' +
+        'instead of a regex over rendered pipes — a table whose columns were re-aligned by the formatter ' +
+        'matches no string you computed from an earlier reading. With no path it answers the outline: ' +
+        'every heading with its depth, its ordinal among its siblings, and the path that reaches it, so ' +
+        'ask for that first and read your next call off it. ' +
+        PATH_DESCRIPTION +
+        ' Front matter is a separate domain and is not reachable from here; use frontmatter.',
+      {
+        note: z.string().describe('workspace-relative path, e.g. design/foo.md'),
+        path: z.array(SEGMENT).optional().describe(PATH_DESCRIPTION),
+        outline: z.boolean().optional().describe('the headings and nothing else, whatever path was passed'),
+      },
+      (args, w) => query(w.index(), args),
+    ],
+    [
+      'measure',
+      'Words, ISO dates and an optional pattern\'s hit count, per note, in one call — the loop of wc and ' +
+        'grep -c this replaces counts front matter as prose and counts lines rather than hits. Paths are ' +
+        'notes or folders; no path measures the whole wiki.',
+      {
+        paths: z.array(z.string()).optional().describe('workspace-relative notes or folders; empty is the whole wiki'),
+        pattern: z.string().optional().describe('a regex, bare or as /pattern/flags; every hit is counted, not every line'),
+      },
+      (args, w) => measure(w.index(), args),
     ],
     [
       'workspace_info',

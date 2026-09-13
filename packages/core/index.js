@@ -28,3 +28,5 @@ export {
   PATH_CODES,
   SEGMENT_TYPES,
 } from './lib/segments.js'
+export {query, outlineOf, QUERY_CODES} from './lib/query.js'
+export {measure, bodyOf} from './lib/measure.js'

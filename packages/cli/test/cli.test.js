@@ -1154,3 +1154,88 @@ test('site setup passes --json through to its own parser', (t) => {
   assert.match(stderr, /no site directory at/)
   assert.doesNotMatch(stderr, /Unknown option/)
 })
+
+const BODY_NOTE = `---
+title: Fields
+---
+
+# Fields
+
+## Options
+
+| Option       | Gives us | Cost |
+|--------------|----------|------|
+| aliasDivider | a seam   | low  |
+| strict       | refusals | high |
+
+Decided 2026-09-11 and 2026-09-12.
+`
+
+/**
+ * The outline is what a caller reads before it can write a path for anything
+ * else, so it is what `query` answers when asked for nothing in particular.
+ */
+test('query with no path is the outline, and a path reads what it addresses', (t) => {
+  const box = wiki({'design/fields.md': BODY_NOTE})
+  t.after(() => box.cleanup())
+
+  const outline = awt(['query', 'design/fields.md', '-w', box.root])
+  assert.equal(outline.status, 0)
+  assert.match(outline.stdout, /# Fields/)
+  assert.match(outline.stdout, /## Options/)
+
+  const table = JSON.parse(
+    awt(['query', 'design/fields.md', '-w', box.root, '--path', '[{"table":{}}]', '--json']).stdout,
+  )
+  assert.deepEqual(table.targets[0].rows[0], {Option: 'aliasDivider', 'Gives us': 'a seam', Cost: 'low'})
+})
+
+/**
+ * A path is a coordinate, so argv is right for it — but a path a program
+ * generated is one nobody should have to quote through a shell, and `-` is the
+ * door that does not exist for the payload-carrying writes at all.
+ */
+test('query takes its path from stdin with --path -', (t) => {
+  const box = wiki({'design/fields.md': BODY_NOTE})
+  t.after(() => box.cleanup())
+
+  const {status, stdout} = awt(['query', 'design/fields.md', '-w', box.root, '--path', '-'], {
+    input: '[{"table":{}},{"column":{"header":"Cost"}}]',
+  })
+  assert.equal(status, 0)
+  assert.match(stdout, /low/)
+  assert.match(stdout, /high/)
+})
+
+test('a path that reaches nothing exits non-zero and names the segment it stopped at', (t) => {
+  const box = wiki({'design/fields.md': BODY_NOTE})
+  t.after(() => box.cleanup())
+
+  const {status, stdout} = awt(['query', 'design/fields.md', '-w', box.root, '--path', '[{"section":"Nowhere"}]'])
+  assert.equal(status, 1)
+  assert.match(stdout, /segment 0/)
+  assert.match(stdout, /PATH_NO_MATCH/)
+
+  // A path that is not JSON is the caller's mistake, and exits the way every
+  // other argument mistake on this binary does.
+  const bad = awt(['query', 'design/fields.md', '-w', box.root, '--path', '{oops'])
+  assert.equal(bad.status, 2)
+  assert.match(bad.stderr, /--path is not JSON/)
+})
+
+test('measure counts the body and not the front matter, and a folder expands', (t) => {
+  const box = wiki({'design/fields.md': BODY_NOTE, 'design/other.md': '# Other\n\nShort.\n'})
+  t.after(() => box.cleanup())
+
+  const measured = JSON.parse(awt(['measure', 'design', '-w', box.root, '--pattern', 'refusals', '--json']).stdout)
+  assert.equal(measured.ok, true)
+  assert.equal(measured.totals.notes, 2)
+  assert.equal(measured.totals.dates, 2)
+  assert.equal(measured.totals.matches, 1)
+  // `title: Fields` is not two of the note's words.
+  assert.ok(!JSON.stringify(measured).includes('"words":0'))
+
+  const missing = awt(['measure', 'design/nope.md', '-w', box.root])
+  assert.equal(missing.status, 1)
+  assert.match(missing.stdout, /MISSING design\/nope.md/)
+})
