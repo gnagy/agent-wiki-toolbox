@@ -113,6 +113,17 @@ test('anchors are checked against the target note\'s headings', () => {
   assert.equal(checkAnchor(target, null), 'none')
 })
 
+test('an anchor naming a heading by its literal text is the heading it renders to', () => {
+  const target = note('b/two.md', '# Two\n\n### FR-03 – Lokációk kezelése\n\n## Same\n\n## Same\n')
+  assert.equal(checkAnchor(target, 'FR-03 – Lokációk kezelése'), 'ok')
+  assert.equal(checkAnchor(target, 'fr-03--lokációk-kezelése'), 'ok')
+  assert.equal(checkAnchor(target, 'Same'), 'ok')
+  assert.equal(checkAnchor(target, 'same-1'), 'ok')
+  assert.equal(checkAnchor(target, 'FR-04 – Lokációk kezelése'), 'missing')
+  const workspace = wiki({'a/one.md': 'see [[two#FR-03 – Lokációk kezelése]]', 'b/two.md': '# Two\n\n### FR-03 – Lokációk kezelése\n'})
+  assert.deepEqual(workspace.brokenAnchors, [])
+})
+
 test('a broken anchor is reported but the link still resolves', () => {
   const workspace = wiki({'a/one.md': 'see [[two#gone]]', 'b/two.md': '# Two\n\n## Here\n'})
   assert.equal(workspace.edges.length, 1)

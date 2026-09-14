@@ -7,7 +7,7 @@
  */
 export {loadWorkspace, buildWorkspace} from './lib/workspace.js'
 export {createResolver, canonicaliseTarget, normaliseTarget, checkAnchor, joinRelative} from './lib/resolve.js'
-export {slugifyPath, slugifySegment, sluggify, simplifySlug, isFolderPath, createAnchorSlugger} from './lib/slug.js'
+export {slugifyPath, slugifySegment, sluggify, simplifySlug, isFolderPath, createAnchorSlugger, slugAnchor} from './lib/slug.js'
 export {parseNote} from './lib/note.js'
 export {walkNotes} from './lib/walk.js'
 export {check} from './lib/check.js'

@@ -7,7 +7,7 @@
  *
  * Read from the installed `@quartz-community/crawl-links` bundle on 2026-08-21.
  */
-import GithubSlugger from 'github-slugger'
+import GithubSlugger, {slug} from 'github-slugger'
 
 /** One path segment, per Quartz's `slugifyPath`. */
 export function slugifySegment(segment) {
@@ -77,4 +77,13 @@ export function stripSlashes(value) {
 export function createAnchorSlugger() {
   const slugger = new GithubSlugger()
   return (text) => slugger.slug(text)
+}
+
+/**
+ * A link's anchor to the id it lands on. Quartz slugs the anchor as written, so
+ * `[[note#A Heading]]` reaches `#a-heading` and a link may name a heading by its
+ * literal text. Stateless: a link is not a heading and takes no dedup suffix.
+ */
+export function slugAnchor(anchor) {
+  return slug(anchor)
 }

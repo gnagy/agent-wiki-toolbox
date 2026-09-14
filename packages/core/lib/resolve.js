@@ -13,7 +13,7 @@
  * edit time. There is no confidence threshold and no "best" candidate: one match
  * is a link, anything else is reported.
  */
-import {isFolderPath, simplifySlug, slugifyPath, stripSlashes} from './slug.js'
+import {isFolderPath, simplifySlug, slugAnchor, slugifyPath, stripSlashes} from './slug.js'
 
 const RELATIVE_SEGMENT = /^\.{0,2}$/
 
@@ -123,11 +123,13 @@ function byPath(a, b) {
 }
 
 /**
- * Does the target note have this heading? A `^blockid` is Obsidian's block
- * reference, which is not modelled, so it is skipped rather than reported.
+ * Does the target note have this heading? The anchor is slugged before it is
+ * compared, as the renderer slugs it, so literal heading text passes exactly when
+ * the rendered link lands. A `^blockid` is Obsidian's block reference, which is
+ * not modelled, so it is skipped rather than reported.
  */
 export function checkAnchor(resource, anchor) {
   if (!anchor) return 'none'
   if (anchor.startsWith('^')) return 'blockReference'
-  return resource.headings.some((heading) => heading.anchor === anchor) ? 'ok' : 'missing'
+  return resource.headings.some((heading) => heading.anchor === slugAnchor(anchor)) ? 'ok' : 'missing'
 }
