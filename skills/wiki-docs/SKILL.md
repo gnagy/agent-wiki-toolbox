@@ -24,6 +24,16 @@ A project can run more than one server: its own wiki, plus other projects' wikis
 read-only. `workspace_info` reports `notesDir`, `rootDir`, `allowWrites` and the tag vocabulary
 with counts, and is the call that tells servers apart.
 
+## Before the first note
+
+**Read the wiki's own choices before writing a note in it**: `index.md` at the root of the notes,
+and `meta/` when there is one, or whatever the index points at instead. This file cannot say what
+belongs in that wiki, how its notes are written, what its front-matter values mean or how it lays
+out its folders. A note written without that reading follows the conventions of whatever wiki the
+session saw last. `/awt:orient` is the same pass as one command.
+
+Once per wiki per session is enough, and a session that only reads notes may skip it.
+
 ## Reading
 
 | Tool             | What it answers                                                                                                  |
