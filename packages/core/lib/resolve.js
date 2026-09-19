@@ -13,7 +13,7 @@
  * edit time. There is no confidence threshold and no "best" candidate: one match
  * is a link, anything else is reported.
  */
-import {isFolderPath, simplifySlug, slugAnchor, slugifyPath, stripSlashes} from './slug.js'
+import {isFolderPath, simplifySlug, slugAnchor, slugifyFilePath, slugifyPath, stripSlashes} from './slug.js'
 
 const RELATIVE_SEGMENT = /^\.{0,2}$/
 
@@ -105,6 +105,26 @@ export function createResolver(resources) {
       return resource ? {status: 'resolved', resource} : {status: 'missing'}
     },
   }
+}
+
+/**
+ * Where the renderer lands a relative link it cannot resolve: the slug it marks
+ * broken. `crawl-links` hoists every `.` and `..` segment to the front and then
+ * resolves the rest from the site root, so none of them count, wherever the link
+ * was written; the path is decoded and slugged as a file, extension and all.
+ */
+export function landingSlug(target) {
+  let written = String(target ?? '')
+  try {
+    written = decodeURI(written)
+  } catch {
+    // Left as written: the renderer would throw on it, and this is only a report.
+  }
+  const path = written
+    .split('/')
+    .filter((segment) => !RELATIVE_SEGMENT.test(segment))
+    .join('/')
+  return slugifyFilePath(path)
 }
 
 /** `..` and `.` resolved against the linking note's directory. */

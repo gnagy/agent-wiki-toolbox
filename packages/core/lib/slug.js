@@ -45,6 +45,23 @@ export function slugifyPath(relativePath) {
   return slug
 }
 
+/**
+ * Any file under the notes to the slug Quartz publishes it at: its
+ * `slugifyFilePath`, of which `slugifyPath` is the markdown case.
+ *
+ * Quartz globs every file with an extension, not only notes, and a link to a CSV
+ * or an image lands on one of those slugs. The extension stays on, except `.md`
+ * and `.html`, which Quartz drops. It comes off *before* the folder collapse and
+ * goes back on after, so `menu/menu.yaml` is `menu/index.yaml`.
+ */
+export function slugifyFilePath(relativePath) {
+  const path = stripSlashes(relativePath)
+  const extension = path.match(/\.[A-Za-z0-9]+$/)?.[0]
+  if (extension === undefined || extension === '.md') return slugifyPath(path)
+  const slug = slugifyPath(path.slice(0, -extension.length))
+  return extension === '.html' ? slug : slug + extension
+}
+
 /** Quartz's `simplifySlug`: a trailing `index` is the folder it sits in. */
 export function simplifySlug(slug) {
   const trimmed = endsWithSegment(slug, 'index') ? slug.slice(0, -'index'.length) : slug

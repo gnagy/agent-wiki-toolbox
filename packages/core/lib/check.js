@@ -52,6 +52,19 @@ export function check(workspace) {
     })
   }
 
+  // A warning rather than a broken link: the file may well be there, a source
+  // file beside the wiki, and on disk the link works. The site publishes only
+  // what is under the notes, so there it renders broken.
+  for (const site of workspace.outsideLinks) {
+    problems.push({
+      severity: 'warning',
+      rule: 'link-outside-wiki',
+      path: site.from,
+      line: site.line,
+      message: `${site.target} climbs out of the wiki; it is not checked, and the site renders it broken`,
+    })
+  }
+
   for (const site of workspace.brokenAnchors) {
     problems.push({
       severity: 'error',

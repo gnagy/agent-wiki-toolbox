@@ -61,6 +61,9 @@ does not exist; the tool reports it and attaches no meaning.
   names differing only in case. `check` reports every file in the group.
 - `[[stem|label]]` is reported as a problem. `rename` rewrites the target and leaves the label.
 - `![[embed]]` is a link: a node, an edge, and rewritten by `rename` and `move`.
+- A relative markdown link to a file that is not a note, `[table](menu/codes.csv)`, is no edge,
+  but `check` reports `broken-link` when no file is there. `move` does not rewrite it, so run
+  `check` after moving a note that links to one.
 - `[text](prefix:path.md)` is a reference into another wiki. `resolve` reports it as `crossWiki`
   and `check` counts it apart from placeholders. See `interop.md` beside this file.
 

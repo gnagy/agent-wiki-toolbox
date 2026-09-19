@@ -21,7 +21,7 @@ import process from 'node:process'
  * memo of *this* code's output; served to a later version it is a wrong answer
  * delivered fast, which is the worst kind.
  */
-export const INDEX_VERSION = 2
+export const INDEX_VERSION = 3
 
 export function hashSource(source) {
   return createHash('sha256').update(source).digest('hex')

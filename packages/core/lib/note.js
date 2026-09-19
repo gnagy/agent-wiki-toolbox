@@ -13,7 +13,9 @@ import {createAnchorSlugger, slugifyPath} from './slug.js'
  * A link into another note, whatever syntax it was written in.
  *
  * `wiki` and `embed` are `[[…]]` and `![[…]]`; `markdown` is an ordinary relative
- * link to a `.md` file, which this estate uses rarely but does use; `crossWiki` is
+ * link to a `.md` file, which this estate uses rarely but does use; `attachment` is
+ * the same kind of link to any other file, which is checked but is not an edge;
+ * `crossWiki` is
  * `prefix:path.md`, which is deliberately *not* a graph edge — it names a note in
  * another workspace, and registering it here would poison the placeholder signal.
  */
@@ -43,9 +45,15 @@ function markdownLinkOf(node) {
   // Absolute URLs, mailto:, and in-page anchors are not edges between notes.
   if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('#') || url === '') return null
   const [path, anchor = null] = url.split('#')
-  if (!path || !/\.md$/i.test(path)) return null
+  if (!path) return null
+  const line = node.position?.start.line ?? 0
+  if (/\.md$/i.test(path)) return {kind: 'markdown', target: path, anchor: anchor || null, line}
 
-  return {kind: 'markdown', target: path, anchor: anchor || null, line: node.position?.start.line ?? 0}
+  // `[the table](menu/sensys-menu.csv)`: a relative path to a file that is not a
+  // note. Not a graph edge, but it names one file exactly as a `.md` path does, so
+  // it is checked against the tree, and the renderer links it to a page of its own.
+  if (/\.[A-Za-z0-9]+$/.test(path)) return {kind: 'attachment', target: path, anchor: anchor || null, line}
+  return null
 }
 
 /**

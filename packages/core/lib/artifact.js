@@ -56,6 +56,21 @@ export function materialiseIndex(workspace) {
     if (!page.links.includes(slug)) page.links.push(slug)
   }
 
+  // A link to an attachment is no edge, but the renderer publishes the file as a
+  // page of its own and links to it there, so the index says so too.
+  for (const link of workspace.attachmentLinks) {
+    const page = pages[workspace.get(link.from).slug]
+    if (!page.links.includes(link.slug)) page.links.push(link.slug)
+  }
+
+  // A relative path that names no file is a broken link to `awt check`, and one
+  // that climbs out of the notes names nothing the site publishes. Both render
+  // broken, landed where the renderer lands them.
+  for (const site of [...workspace.brokenLinks, ...workspace.outsideLinks]) {
+    const page = pages[workspace.get(site.from).slug]
+    if (!page.unresolved.includes(site.landing)) page.unresolved.push(site.landing)
+  }
+
   for (const placeholder of workspace.placeholders()) {
     for (const site of placeholder.sites) {
       const page = pages[workspace.get(site.from).slug]

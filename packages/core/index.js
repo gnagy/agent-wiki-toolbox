@@ -6,10 +6,10 @@
  * with no watcher.
  */
 export {loadWorkspace, buildWorkspace} from './lib/workspace.js'
-export {createResolver, canonicaliseTarget, normaliseTarget, checkAnchor, joinRelative} from './lib/resolve.js'
-export {slugifyPath, slugifySegment, sluggify, simplifySlug, isFolderPath, createAnchorSlugger, slugAnchor} from './lib/slug.js'
+export {createResolver, canonicaliseTarget, normaliseTarget, checkAnchor, joinRelative, landingSlug} from './lib/resolve.js'
+export {slugifyPath, slugifyFilePath, slugifySegment, sluggify, simplifySlug, isFolderPath, createAnchorSlugger, slugAnchor} from './lib/slug.js'
 export {parseNote} from './lib/note.js'
-export {walkNotes} from './lib/walk.js'
+export {walkNotes, walkFiles} from './lib/walk.js'
 export {check} from './lib/check.js'
 export {computeAddresses} from './lib/address.js'
 export {materialiseIndex, writeIndexArtifact, ARTIFACT_VERSION} from './lib/artifact.js'

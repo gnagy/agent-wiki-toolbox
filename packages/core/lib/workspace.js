@@ -13,10 +13,10 @@ import {createParser} from '@agent-wiki-toolbox/syntax'
 
 import {computeAddresses} from './address.js'
 import {hashSource, readCache, writeCache} from './cache.js'
-import {checkAnchor, createResolver, normaliseTarget} from './resolve.js'
-import {slugifyPath} from './slug.js'
+import {checkAnchor, createResolver, landingSlug, normaliseTarget} from './resolve.js'
+import {slugifyFilePath, slugifyPath} from './slug.js'
 import {parseNote} from './note.js'
-import {walkNotes} from './walk.js'
+import {walkFiles} from './walk.js'
 
 const parser = createParser()
 
@@ -39,7 +39,8 @@ export function loadWorkspace(notesDir, {cache = true} = {}) {
   // then on, and is re-read and re-hashed forever.
   let restatted = false
 
-  for (const path of walkNotes(notesDir)) {
+  const {notes, attachments} = walkFiles(notesDir)
+  for (const path of notes) {
     const absolute = join(notesDir, path)
     const {size, mtimeMs} = statSync(absolute)
     const known = previous.get(path)
@@ -74,13 +75,19 @@ export function loadWorkspace(notesDir, {cache = true} = {}) {
 
   if (cache && (stats.parsed > 0 || restatted || entries.size !== previous.size)) writeCache(notesDir, entries)
 
-  return buildWorkspace(notesDir, resources, stats)
+  return buildWorkspace(notesDir, resources, stats, attachments)
 }
 
-/** The graph over an already-parsed set of resources. Pure, and the unit tests' door in. */
-export function buildWorkspace(notesDir, resources, stats = {}) {
+/**
+ * The graph over an already-parsed set of resources. Pure, and the unit tests' door in.
+ *
+ * `attachments` is every other file under the notes, as notes-relative paths: what a
+ * relative link to a CSV or an image is checked against. Not notes, so never nodes.
+ */
+export function buildWorkspace(notesDir, resources, stats = {}, attachments = []) {
   const byPath = new Map(resources.map((resource) => [resource.path, resource]))
   const {resolve, resolveRelative, bySlug} = createResolver(resources)
+  const attachmentsBySlug = new Map(attachments.map((path) => [slugifyFilePath(path), path]))
 
   const edges = []
   const placeholders = new Map()
@@ -88,6 +95,8 @@ export function buildWorkspace(notesDir, resources, stats = {}) {
   const unreachableNotes = []
   const brokenAnchors = []
   const brokenLinks = []
+  const attachmentLinks = []
+  const outsideLinks = []
   const crossWikiLinks = []
   const aliasedLinks = []
   const backlinks = new Map()
@@ -104,6 +113,27 @@ export function buildWorkspace(notesDir, resources, stats = {}) {
         crossWikiLinks.push({...site, prefix: link.prefix, anchor: link.anchor})
         continue
       }
+
+      // A relative path to a file that is not a note. It names one file, as a
+      // `.md` path does, so a miss is a broken link; a hit is no edge, because an
+      // attachment is not a note, but the renderer links it to the file's own page
+      // and the index has to say so for the shadow to agree.
+      if (link.kind === 'attachment') {
+        const joined = joinWithin(resource.path, decodePath(link.target))
+        // Above the notes: a file in the repo, perhaps, but nothing the site
+        // publishes, and nothing this index can say exists.
+        if (joined === null) {
+          outsideLinks.push({...site, landing: landingSlug(link.target)})
+          continue
+        }
+        const path = attachmentsBySlug.get(slugifyFilePath(joined))
+        if (path === undefined) {
+          brokenLinks.push({...site, landing: landingSlug(link.target)})
+          continue
+        }
+        attachmentLinks.push({...site, to: path, slug: slugifyFilePath(path)})
+        continue
+      }
       if (!INTERNAL.has(link.kind)) continue
 
       // A relative markdown link names a file; a wikilink names a stem. Only the
@@ -118,7 +148,7 @@ export function buildWorkspace(notesDir, resources, stats = {}) {
       const outcome = found.status === 'empty' ? {status: 'resolved', resource} : found
 
       if (outcome.status === 'missing') {
-        brokenLinks.push(site)
+        brokenLinks.push({...site, landing: landingSlug(link.target)})
         continue
       }
 
@@ -224,6 +254,8 @@ export function buildWorkspace(notesDir, resources, stats = {}) {
     resolve,
     resolveRelative,
     edges,
+    attachmentLinks,
+    outsideLinks,
     crossWikiLinks,
     aliasedLinks,
     ambiguities,
@@ -278,5 +310,29 @@ export function buildWorkspace(notesDir, resources, stats = {}) {
     unreferenced() {
       return resources.filter((resource) => !backlinks.has(resource.path)).map((resource) => resource.path)
     },
+  }
+}
+
+/**
+ * `..` and `.` resolved against the linking note's directory, or `null` when the
+ * path climbs out of the notes.
+ */
+function joinWithin(from, target) {
+  const out = from.split('/').slice(0, -1)
+  for (const segment of target.split('/')) {
+    if (segment === '' || segment === '.') continue
+    if (segment !== '..') out.push(segment)
+    else if (out.length === 0) return null
+    else out.pop()
+  }
+  return out.join('/')
+}
+
+/** `%20` and the like, decoded as the renderer decodes a link before it slugs it. */
+function decodePath(target) {
+  try {
+    return decodeURI(target)
+  } catch {
+    return target
   }
 }
