@@ -116,14 +116,14 @@ test('moveNote names a note that lands on its own folder in a form that resolves
   assert.deepEqual(index.placeholders(), [])
 })
 
-test('splitByHeading names its children in a form that resolves', (t) => {
+test('splitByHeading names its children in a form that resolves', async (t) => {
   const box = wiki({
     'index.md': `${front('Wiki')}Root.\n`,
     'design/parent.md': `${front('Parent')}## Toolbox\n\nThe toolbox section.\n`,
   })
   t.after(() => box.cleanup())
 
-  splitByHeading(box.root, {
+  await splitByHeading(box.root, {
     path: 'design/parent.md',
     plan: [{heading: 'Toolbox', path: 'design/toolbox/toolbox.md'}],
     source: 'stub',
@@ -160,7 +160,7 @@ test('mergeFiles names its target in a form that resolves', (t) => {
  * outright, and a note named after its own folder tripped both, because its slug
  * ends `/index` and every wiki's root note is called `index`.
  */
-test('a name that would become ambiguous is refused, by move and split alike', (t) => {
+test('a name that would become ambiguous is refused, by move and split alike', async (t) => {
   const notes = {
     'index.md': `${front('Wiki')}Root.\n`,
     'analysis/thing.md': `${front('Thing')}Body.\n`,
@@ -182,7 +182,7 @@ test('a name that would become ambiguous is refused, by move and split alike', (
 
   const splitting = wiki(notes)
   t.after(() => splitting.cleanup())
-  assert.throws(
+  await assert.rejects(
     () =>
       splitByHeading(splitting.root, {
         path: 'design/other.md',
@@ -552,25 +552,25 @@ test('deleteNote takes the path as the shell shows it, and refuses one outside t
   assert.throws(() => deleteNote(box.root, {path: '../elsewhere.md'}), /is not a note in/)
 })
 
-test('splitByHeading needs a plan and a decision about the source', (t) => {
+test('splitByHeading needs a plan and a decision about the source', async (t) => {
   const box = wiki({'a/big.md': `${front('Big')}## One\n\nText.\n`})
   t.after(() => box.cleanup())
 
-  assert.throws(() => splitByHeading(box.root, {path: 'a/big.md', source: 'delete'}), /explicit heading-to-path plan/)
-  assert.throws(
+  await assert.rejects(() => splitByHeading(box.root, {path: 'a/big.md', source: 'delete'}), /explicit heading-to-path plan/)
+  await assert.rejects(
     () => splitByHeading(box.root, {path: 'a/big.md', plan: [{heading: 'One', path: 'a/one.md'}]}),
     /delete, stub or keep/,
   )
 })
 
-test('splitByHeading extracts sections, derives front matter, and rewrites anchored links', (t) => {
+test('splitByHeading extracts sections, inherits front matter, and rewrites anchored links', async (t) => {
   const box = wiki({
     'design/big.md': `${front('Big', 'type: note\ntopic: things\nstatus: draft\ntags: [a]\n')}Intro.\n\n## First part\n\nOne.\n\n### Deeper\n\nDeep.\n\n## Second part\n\nTwo.\n`,
     'analysis/ref.md': `${front('Ref')}See [[big#first-part]] and [[big#second-part]].\n`,
   })
   t.after(() => box.cleanup())
 
-  const report = splitByHeading(box.root, {
+  const report = await splitByHeading(box.root, {
     path: 'design/big.md',
     plan: [
       {heading: 'First part', path: 'design/first-part.md'},
@@ -583,7 +583,9 @@ test('splitByHeading extracts sections, derives front matter, and rewrites ancho
   assert.deepEqual(report.created.sort(), ['design/first-part.md', 'design/second-part.md'])
 
   const first = box.read('design/first-part.md')
-  assert.match(first, /^---\ntitle: First part\ntype: note\narea: design\ntopic: things\nstatus: draft\ntags:\n {2}- a\n---/)
+  // The source's block, title aside, as written: no `area` read off the folder,
+  // and the flow sequence still a flow sequence.
+  assert.match(first, /^---\ntitle: First part\ntype: note\ntopic: things\nstatus: draft\ntags: \[a]\n---/)
   assert.match(first, /^# First part$/m)
   assert.match(first, /^## Deeper$/m, 'the section keeps its shape, one level shallower')
 
@@ -597,14 +599,14 @@ test('splitByHeading extracts sections, derives front matter, and rewrites ancho
   assert.equal(box.index().placeholders().length, 0)
 })
 
-test('splitByHeading refuses a basename already in the wiki, and writes nothing', (t) => {
+test('splitByHeading refuses a basename already in the wiki, and writes nothing', async (t) => {
   const box = wiki({
     'design/big.md': `${front('Big')}## Taken\n\nText.\n`,
     'analysis/taken.md': `${front('Taken')}Elsewhere.\n`,
   })
   t.after(() => box.cleanup())
 
-  assert.throws(
+  await assert.rejects(
     () =>
       splitByHeading(box.root, {
         path: 'design/big.md',
@@ -616,14 +618,14 @@ test('splitByHeading refuses a basename already in the wiki, and writes nothing'
   assert.equal(box.exists('design/taken.md'), false)
 })
 
-test('splitByHeading escalates a bare link to a note it deleted', (t) => {
+test('splitByHeading escalates a bare link to a note it deleted', async (t) => {
   const box = wiki({
     'design/big.md': `${front('Big')}## One\n\nText.\n`,
     'analysis/ref.md': `${front('Ref')}See [[big]].\n`,
   })
   t.after(() => box.cleanup())
 
-  const report = splitByHeading(box.root, {
+  const report = await splitByHeading(box.root, {
     path: 'design/big.md',
     plan: [{heading: 'One', path: 'design/one.md'}],
     source: 'delete',

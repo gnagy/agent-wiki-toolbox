@@ -357,7 +357,7 @@ function apply(tree, {operation, scope, key, value, derived, notes}) {
  * Which schema would be applied to this path, absolute, or null. Same config
  * lookup as the check, so the two cannot disagree about which file is in play.
  */
-async function schemaFor(notesDir, path, source) {
+export async function schemaFor(notesDir, path, source) {
   const {config, filepath} = await loadProjectConfig(notesDir)
   if (!config.schemas || !filepath) return null
   const layout = layoutFrom(config, filepath)
@@ -377,7 +377,7 @@ async function schemaFor(notesDir, path, source) {
  * called from a server started wherever the agent happened to be, and from a CLI
  * run from anywhere inside the project.
  */
-async function schemaCheck(notesDir, path, source) {
+export async function schemaCheck(notesDir, path, source) {
   const {config, filepath} = await loadProjectConfig(notesDir)
   if (!config.schemas || !filepath) return []
   const layout = layoutFrom(config, filepath)

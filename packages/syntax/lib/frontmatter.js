@@ -14,8 +14,9 @@ export function getFrontmatter(tree) {
  *
  * This **reformats**: the data goes back through `stringify`, so comments are
  * gone and every style choice becomes the serializer's. That is right for front
- * matter this toolbox is deriving — a new note out of `splitByHeading` — and
- * wrong for front matter an author wrote. Use `editFrontmatter` for that.
+ * matter this toolbox is deriving — a derived listing, or the bare title a
+ * `splitByHeading` child gets from a source with no block — and wrong for front
+ * matter an author wrote. Use `editFrontmatter` for that.
  */
 export function setFrontmatter(tree, data) {
   const value = stringifyYaml(data).replace(/\n$/, '')
