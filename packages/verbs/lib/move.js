@@ -18,7 +18,7 @@ import {join} from 'node:path'
 
 import {createResolver, slugifyPath} from '@agent-wiki-toolbox/core'
 
-import {createContext, finish, parseNote, refuse, serialize} from './context.js'
+import {createContext, finish, parseNote, refuse, resolveNotePath, serialize} from './context.js'
 import {ambiguousStems, retargetLinksInTree} from './rewrite.js'
 
 /** Move every note in a plan of `{from, to}` pairs, rewriting links against the end state. */
@@ -41,12 +41,25 @@ export function renameNote(notesDir, {path, name, workspace, dryRun} = {}) {
   return relocate('renameNote', notesDir, {pairs: [{from: path, to}], workspace, dryRun})
 }
 
-function relocate(verb, notesDir, {pairs, workspace, dryRun}) {
-  validatePlan(verb, pairs)
+function relocate(verb, notesDir, {pairs: typedPairs, workspace, dryRun}) {
+  validatePlan(verb, typedPairs)
 
   const context = createContext(notesDir, {workspace, dryRun})
   const index = context.workspace
   const notes = []
+
+  // The paths as this wiki names them, so a caller who types them the way the
+  // shell shows them — `wiki/notes/…` from the repo root — moves the note they
+  // meant to where they meant. `splitByHeading`, `mergeFiles` and `deleteNote`
+  // read them the same way. The plan is checked again once read, because two
+  // spellings of one path are one path.
+  const named = (typed) => {
+    const found = resolveNotePath(notesDir, index, typed)
+    if (found !== typed) notes.push(`read ${typed} as ${found}, relative to the notes directory`)
+    return found
+  }
+  const pairs = typedPairs.map(({from, to}) => ({from: named(from), to: named(to)}))
+  validatePlan(verb, pairs)
 
   // Still to move, keyed by where the index holds the note now; and the ones a
   // previous run already moved, whose inbound links are what is left.

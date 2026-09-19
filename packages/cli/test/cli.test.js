@@ -627,6 +627,27 @@ test('split reads project-root paths for the source and for the children', (t) =
   assert.ok(!existsSync(join(box.root, 'notes/wiki')), 'nothing nested under a second wiki/notes')
 })
 
+/** `move` typed from the project root, which it refused the same way `split` did. */
+test('move reads project-root paths for the note and its destination', (t) => {
+  const box = wiki({
+    'notes/index.md': '# Wiki\n\nSee [[big]].\n',
+    'notes/design/big.md': '---\ntitle: Big\n---\n\n# Big\n',
+  })
+  t.after(() => box.cleanup())
+
+  // Into a folder not made yet, where only the depth of each reading can decide.
+  const moved = awt(
+    ['move', 'wiki/notes/design/big.md', 'wiki/notes/design/archive/big-old.md', '-w', 'wiki/notes'],
+    {cwd: box.dir},
+  )
+  assert.equal(moved.status, 0, moved.stdout + moved.stderr)
+  assert.match(moved.stdout, /read wiki\/notes\/design\/big\.md as design\/big\.md/)
+  assert.ok(existsSync(join(box.root, 'notes/design/archive/big-old.md')))
+  assert.ok(!existsSync(join(box.root, 'notes/design/big.md')))
+  assert.ok(!existsSync(join(box.root, 'notes/wiki')), 'nothing nested under a second wiki/notes')
+  assert.match(readFileSync(join(box.root, 'notes/index.md'), 'utf8'), /\[\[big-old]]/)
+})
+
 test('index writes the artifact a Quartz build reads', (t) => {
   const box = wiki({'a/one.md': '# One\n\nSee [[two]].\n', 'a/two.md': '# Two\n'})
   t.after(() => box.cleanup())
