@@ -15,7 +15,9 @@ export function search(workspace, {query, fields, tag, type, area, topic, limit 
   for (const resource of workspace.resources) {
     if (tag && !resource.tags.includes(tag)) continue
     if (type && resource.properties.type !== type) continue
-    if (area && (resource.properties.area ?? resource.path.split('/')[0]) !== area) continue
+    // What `area:` says, like `type` and `topic` — never the top folder, which in a
+    // nested layout is `projects` for every note. `buildListing` reads it the same way.
+    if (area && resource.properties.area !== area) continue
     if (topic && resource.properties.topic !== topic) continue
 
     if (!matcher) {

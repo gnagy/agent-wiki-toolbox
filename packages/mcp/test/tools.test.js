@@ -52,6 +52,25 @@ test('search takes a regex, and filters by tag, type and area', (t) => {
   assert.deepEqual(search(index, {area: 'meta'}).results.map((r) => r.path), ['meta/conventions.md'])
 })
 
+/**
+ * The area is what `area:` says. It used to fall back to the top folder, so in a
+ * nested layout every note without an `area` matched `projects`, and a note in
+ * `meta/` without one matched `meta` although nothing said so.
+ */
+test('search filters by the area front matter declares, not by folder', (t) => {
+  const box = wiki({
+    'meta/unlabelled.md': '---\ntitle: Unlabelled\n---\n\n# Unlabelled\n',
+    'projects/p/design/nested.md': '---\ntitle: Nested\narea: design\n---\n\n# Nested\n',
+    'projects/p/loose.md': '---\ntitle: Loose\n---\n\n# Loose\n',
+  })
+  t.after(() => box.cleanup())
+  const index = box.index()
+
+  assert.deepEqual(search(index, {area: 'design'}).results.map((r) => r.path), ['projects/p/design/nested.md'])
+  assert.deepEqual(search(index, {area: 'projects'}).results, [])
+  assert.deepEqual(search(index, {area: 'meta'}).results, [])
+})
+
 test('connections answers what cites this, and how far it reaches', (t) => {
   const box = wiki(NOTES)
   t.after(() => box.cleanup())
