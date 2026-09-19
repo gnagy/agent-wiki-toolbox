@@ -3,7 +3,7 @@
  * area, one row per note. Only the region between the markers is touched;
  * everything else in the file is left exactly as it is.
  */
-import {createContext, finish, refuse} from './context.js'
+import {createContext, finish, refuse, resolveNotePath} from './context.js'
 import {shortestResolvingForm} from './rewrite.js'
 
 export const MARKER_START = '<!-- awt:listing:start -->'
@@ -17,10 +17,16 @@ const RESERVED = new Set(['index.md', 'log.md'])
  * @param areas    the order areas appear in; anything else follows, sorted.
  * @param columns  `['note', 'about']` by default; `topic` and `area` are opt-in.
  */
-export function buildListing(notesDir, {path = 'index.md', areas, columns, workspace, dryRun} = {}) {
+export function buildListing(notesDir, {path: typedPath = 'index.md', areas, columns, workspace, dryRun} = {}) {
   const verb = 'buildListing'
   const context = createContext(notesDir, {workspace, dryRun})
   const index = context.workspace
+  const notes = []
+
+  // The path as this wiki names it, so `--path wiki/notes/index.md` typed from the
+  // repo root finds the listing file, as every other verb that takes a path does.
+  const path = resolveNotePath(notesDir, index, typedPath)
+  if (path !== typedPath) notes.push(`read ${typedPath} as ${path}, relative to the notes directory`)
 
   if (!context.edit.exists(path)) throw refuse(verb, `no listing file at ${path}`)
 
@@ -77,7 +83,6 @@ export function buildListing(notesDir, {path = 'index.md', areas, columns, works
   // the comparison below is against what would actually be written.
   const next = formatDocument(context, source.slice(0, start) + body + source.slice(end + MARKER_END.length))
 
-  const notes = []
   if (unnameable.length > 0) {
     notes.push(
       `${unnameable.length} note(s) have no link form that resolves to them, so their row names the path ` +

@@ -648,6 +648,23 @@ test('move reads project-root paths for the note and its destination', (t) => {
   assert.match(readFileSync(join(box.root, 'notes/index.md'), 'utf8'), /\[\[big-old]]/)
 })
 
+/** `listing --path` typed from the project root, refused the same way before. */
+test('listing reads a project-root --path', (t) => {
+  const box = wiki({
+    'notes/index.md': '# Wiki\n\n<!-- awt:listing:start -->\n<!-- awt:listing:end -->\n',
+    'notes/design/a.md': '---\ntitle: A\ndescription: The a note.\n---\n\n# A\n',
+  })
+  t.after(() => box.cleanup())
+
+  const listed = awt(['listing', '-w', 'wiki/notes', '--path', 'wiki/notes/index.md'], {cwd: box.dir})
+  assert.equal(listed.status, 0, listed.stdout + listed.stderr)
+  assert.match(listed.stdout, /read wiki\/notes\/index\.md as index\.md/)
+  const index = readFileSync(join(box.root, 'notes/index.md'), 'utf8')
+  assert.match(index, /\[\[a]]/)
+  // The listing file is not a row of its own listing, however its path was typed.
+  assert.doesNotMatch(index, /\[\[index]]/)
+})
+
 test('index writes the artifact a Quartz build reads', (t) => {
   const box = wiki({'a/one.md': '# One\n\nSee [[two]].\n', 'a/two.md': '# Two\n'})
   t.after(() => box.cleanup())
