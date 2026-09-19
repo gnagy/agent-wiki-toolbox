@@ -575,6 +575,13 @@ test('a schema violation is reported beside the write, and --validate is what fa
   // realpath, because the working directory is a temp dir behind a symlink on macOS.
   assert.equal(fromRoot.stdout.trim(), realpathSync(join(box.root, 'schemas', 'note.schema.json')))
 
+  // **And in a folder not made yet**, where neither reading's directory exists.
+  // The repo-root reading gets as far as `meta/`; the notes-relative one finds no
+  // `wiki/` under the notes at all, so the deeper reading is the one meant.
+  const newFolder = awt(['frontmatter', 'wiki/notes/meta/not-made/yet.md', '--schema'], {cwd: box.dir})
+  assert.equal(newFolder.status, 0)
+  assert.equal(newFolder.stdout.trim(), realpathSync(join(box.root, 'schemas', 'note.schema.json')))
+
   // A path outside the globs is unclaimed, and --validate says so rather than
   // calling it valid.
   writeFileSync(join(notes, 'elsewhere.md'), '---\ntitle: Elsewhere\ntype: bogus\n---\n\n# Elsewhere\n')

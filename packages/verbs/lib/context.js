@@ -72,20 +72,43 @@ export function fromWorkingDirectory(notesDir, path) {
  * the repo root — `wiki/notes/projects/a/analysis/new.md` — read as
  * notes-relative would sit under a `wiki/notes/` inside the notes directory,
  * which is not there; read from the working directory it lands in a folder that
- * is. Where both exist or neither does, nothing has been learned and the typed
- * path stands.
+ * is. Where both exist, nothing has been learned and the typed path stands.
+ *
+ * **A note in a folder not made yet has neither directory**, and that is the
+ * ordinary case for a question asked before writing. There the comparison is how
+ * far each reading gets into the tree before it runs out: the repo-root form
+ * reaches `projects/a/` and stops at `analysis/`, while the notes-relative form
+ * stops at once, because the notes directory holds no `wiki/`. Whichever gets
+ * deeper is the one that describes this wiki. Where they get equally far, the
+ * typed path stands.
  */
 export function resolveNotePath(notesDir, index, path) {
   if (index.get(path)) return path
   const asTyped = fromWorkingDirectory(notesDir, path)
   if (!asTyped || asTyped === path) return path
   if (index.get(asTyped) || !namesANote(notesDir, path)) return asTyped
-  return holdsThePath(notesDir, asTyped) && !holdsThePath(notesDir, path) ? asTyped : path
+  if (holdsThePath(notesDir, path)) return path
+  if (holdsThePath(notesDir, asTyped)) return asTyped
+  return existingDepth(notesDir, asTyped) > existingDepth(notesDir, path) ? asTyped : path
 }
 
 /** Is there a directory under the notes to hold a note at this notes-relative path? */
 function holdsThePath(notesDir, path) {
   return existsSync(dirname(resolve(notesDir, path)))
+}
+
+/**
+ * How many of this notes-relative path's directories exist under the notes, counted
+ * from the top and stopping at the first that does not.
+ */
+function existingDepth(notesDir, path) {
+  const folders = dirname(path).split(/[\\/]/).filter((segment) => segment && segment !== '.')
+  let depth = 0
+  for (const folder of folders) {
+    if (!existsSync(resolve(notesDir, ...folders.slice(0, depth), folder))) break
+    depth++
+  }
+  return depth
 }
 
 /**
