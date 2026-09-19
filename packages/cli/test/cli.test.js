@@ -592,6 +592,41 @@ test('a schema violation is reported beside the write, and --validate is what fa
   assert.doesNotMatch(unchecked.stdout, /^valid$/m)
 })
 
+/**
+ * `split` typed from the project root, the way `git status` shows the paths. It
+ * used to look the source up as notes-relative, find nothing under a `wiki/notes/`
+ * inside the notes, and refuse with "no note at" a note that was right there.
+ */
+test('split reads project-root paths for the source and for the children', (t) => {
+  const box = wiki({
+    'notes/index.md': '# Wiki\n',
+    'notes/design/big.md': '---\ntitle: Big\n---\n\n# Big\n\n## One\n\nOne.\n\n## Two\n\nTwo.\n',
+  })
+  t.after(() => box.cleanup())
+
+  const split = awt(
+    [
+      'split',
+      'wiki/notes/design/big.md',
+      '-w',
+      'wiki/notes',
+      '--source',
+      'keep',
+      '--section',
+      'One=wiki/notes/design/one.md',
+      // A folder not made yet, where only the depth of each reading can decide.
+      '--section',
+      'Two=wiki/notes/design/parts/two.md',
+    ],
+    {cwd: box.dir},
+  )
+  assert.equal(split.status, 0, split.stdout + split.stderr)
+  assert.match(split.stdout, /read wiki\/notes\/design\/big\.md as design\/big\.md/)
+  assert.ok(existsSync(join(box.root, 'notes/design/one.md')))
+  assert.ok(existsSync(join(box.root, 'notes/design/parts/two.md')))
+  assert.ok(!existsSync(join(box.root, 'notes/wiki')), 'nothing nested under a second wiki/notes')
+})
+
 test('index writes the artifact a Quartz build reads', (t) => {
   const box = wiki({'a/one.md': '# One\n\nSee [[two]].\n', 'a/two.md': '# Two\n'})
   t.after(() => box.cleanup())

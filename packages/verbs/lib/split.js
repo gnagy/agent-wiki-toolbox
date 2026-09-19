@@ -25,7 +25,7 @@ import {createAnchorSlugger, createResolver, slugifyPath} from '@agent-wiki-tool
 import {readSchema} from '@agent-wiki-toolbox/format'
 import {editFrontmatter, getFrontmatter, setFrontmatter} from '@agent-wiki-toolbox/syntax'
 
-import {createContext, finish, parseNote, refuse, serialize} from './context.js'
+import {createContext, finish, parseNote, refuse, resolveNotePath, serialize} from './context.js'
 import {FRONTMATTER_CODES, schemaCheck, schemaFor} from './frontmatter.js'
 import {ambiguousStems, shortestResolvingForm, visitLinks} from './rewrite.js'
 
@@ -73,26 +73,38 @@ function promoteHeadings(nodes, depth) {
  * @param plan   `[{heading, path}]` — every section to extract, and where it goes.
  * @param source `'delete' | 'stub' | 'keep'` — the source note's fate. No default.
  */
-export async function splitByHeading(notesDir, {path, plan, source, workspace, dryRun} = {}) {
+export async function splitByHeading(notesDir, {path: typedPath, plan: typedPlan, source, workspace, dryRun} = {}) {
   const verb = 'splitByHeading'
   const context = createContext(notesDir, {workspace, dryRun})
   const index = context.workspace
   const notes = []
   const unresolved = []
 
-  if (!Array.isArray(plan) || plan.length === 0) {
+  if (!Array.isArray(typedPlan) || typedPlan.length === 0) {
     throw refuse(verb, 'splitByHeading needs an explicit heading-to-path plan; it invents no names')
   }
   if (!['delete', 'stub', 'keep'].includes(source)) {
     throw refuse(verb, `the source note's fate is part of the plan: source must be delete, stub or keep`)
   }
 
-  const parent = index.get(path)
-  if (!parent) throw refuse(verb, `no note at ${path}`)
-
-  for (const step of plan) {
+  for (const step of typedPlan) {
     if (!step.path?.endsWith('.md')) throw refuse(verb, `plan entry for "${step.heading}" needs a .md path`)
   }
+
+  // The paths as this wiki names them, so a caller who types them the way the
+  // shell shows them — `wiki/notes/…` from the repo root — gets the note and puts
+  // the children where they meant. `mergeFiles` and `deleteNote` read them the
+  // same way; the children do not exist yet, so for them the folders decide.
+  const named = (typed) => {
+    const found = resolveNotePath(notesDir, index, typed)
+    if (found !== typed) notes.push(`read ${typed} as ${found}, relative to the notes directory`)
+    return found
+  }
+  const path = named(typedPath)
+  const plan = typedPlan.map((step) => ({...step, path: named(step.path)}))
+
+  const parent = index.get(path)
+  if (!parent) throw refuse(verb, `no note at ${path}`)
 
   // The children do not exist yet, so the wiki they are checked and named against
   // is the one this split produces — them included, and the source note dropped
