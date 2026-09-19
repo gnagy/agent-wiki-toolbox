@@ -841,7 +841,7 @@ test('buildListing renders a topic column when asked for one', (t) => {
 test('buildListing renders an area column as the area, headed like the others', (t) => {
   const box = wiki({
     'index.md': `# Index\n\n${MARKER_START}\n${MARKER_END}\n`,
-    'design/one.md': front('One', 'description: The first note.\n'),
+    'design/one.md': front('One', 'area: design\ndescription: The first note.\n'),
   })
   t.after(() => box.cleanup())
 
@@ -849,6 +849,62 @@ test('buildListing renders an area column as the area, headed like the others', 
   const listing = box.read('index.md')
   assert.match(listing, /\| Note +\| Area +\| About +\|\n/)
   assert.match(listing, /\| \[\[one]] +\| design +\| The first note\. +\|/)
+})
+
+/**
+ * The area is what `area:` says. It used to fall back to the top folder, which in a
+ * nested layout — `projects/<project>/<area>/` — filed every note under `projects`.
+ */
+test('buildListing groups a nested layout by area, not by top folder', (t) => {
+  const box = wiki({
+    'index.md': `# Index\n\n${MARKER_START}\n${MARKER_END}\n`,
+    'projects/p/design/one.md': front('One', 'area: design\ndescription: d\n'),
+    'projects/p/analysis/two.md': front('Two', 'area: analysis\ndescription: a\n'),
+    'projects/p/loose.md': front('Loose', 'description: l\n'),
+  })
+  t.after(() => box.cleanup())
+
+  const report = buildListing(box.root, {columns: ['note', 'area', 'about']})
+  const listing = box.read('index.md')
+  assert.doesNotMatch(listing, /### projects/)
+  // No built-in order: a fresh listing is sorted, and the unassigned group is last.
+  assert.match(listing, /### analysis\n[\s\S]*### design\n[\s\S]*### \(no area\)\n[\s\S]*\[\[loose]]/)
+  // The area column says what front matter says, which for `loose` is nothing.
+  assert.match(listing, /\| \[\[loose]] +\| +\| l +\|/)
+  assert.match(report.notes.join('\n'), /1 note\(s\) have no front-matter area.*projects\/p\/loose\.md/)
+})
+
+test('buildListing gives a wiki with no areas one table and no headings', (t) => {
+  const box = wiki({
+    'index.md': `# Index\n\n${MARKER_START}\n${MARKER_END}\n`,
+    'design/one.md': front('One', 'description: d\n'),
+    'meta/two.md': front('Two', 'description: m\n'),
+  })
+  t.after(() => box.cleanup())
+
+  const report = buildListing(box.root)
+  const listing = box.read('index.md')
+  assert.doesNotMatch(listing, /###/)
+  assert.match(listing, /\[\[one]][\s\S]*\[\[two]]/)
+  assert.doesNotMatch(report.notes.join('\n'), /no front-matter area/, 'nothing to report where nothing has one')
+})
+
+test('buildListing keeps the order its own headings already have', (t) => {
+  const box = wiki({
+    'index.md': `# Index\n\n${MARKER_START}\n\n### worklog\n\nold\n\n### design\n\nold\n\n${MARKER_END}\n`,
+    'a/one.md': front('One', 'area: design\ndescription: d\n'),
+    'a/two.md': front('Two', 'area: worklog\ndescription: w\n'),
+    'a/three.md': front('Three', 'area: analysis\ndescription: a\n'),
+  })
+  t.after(() => box.cleanup())
+
+  buildListing(box.root)
+  // worklog before design, as the file had them; analysis is new, so it follows.
+  assert.match(box.read('index.md'), /### worklog\n[\s\S]*### design\n[\s\S]*### analysis\n/)
+
+  // An explicit order still wins.
+  buildListing(box.root, {areas: ['analysis', 'design']})
+  assert.match(box.read('index.md'), /### analysis\n[\s\S]*### design\n[\s\S]*### worklog\n/)
 })
 
 test('buildListing skips the OKF reserved files at the root instead of listing a blank row', (t) => {
