@@ -85,6 +85,8 @@ awt mcp --allow-writes           # the MCP server, over stdio
 
 awt site setup                   # install or re-pin the renderer a site builds from
 awt site serve                   # emit the index and the config, then Quartz's dev server
+awt site proxy                   # several wikis behind one port, each at /<prefix>/
+awt site proxy --install         # …as a user service: launchd, systemd or a logon task
 awt site publish                 # build, then swap into wiki/site/release
 awt site index                   # just the artifact the Quartz plugin reads
 awt site migrate                 # lift a tracked quartz.config.yaml into awt.config.mjs
@@ -114,6 +116,18 @@ the declaration does not expose tracks its own `wiki/site/quartz.config.yaml`, w
 derived base wholesale; the toolbox still injects its one plugin entry into it. The one Quartz plugin,
 `quartz-plugins/awt`, is named in that entry by absolute path into the install, and Quartz links it
 itself; nothing of the toolbox is symlinked into a project any more.
+
+**`awt site proxy` keeps every wiki at one bookmarkable address.** It reads a config listing wikis
+by prefix — `~/.config/awt/proxy.json` unless `--config` names another — and serves each at
+`http://localhost:<port>/<prefix>/`. A wiki's own `awt site serve` starts on the first request for
+it, on ports the proxy picks, and stops after `idleMinutes` without a request; the proxy itself stays
+up whatever the wikis do. `/` lists the wikis and their state, and a wiki that is starting, has
+exited or is not listed gets a page saying so, with the serve's own last lines when it exited. It
+works because every link Quartz emits is relative, so an unmodified dev server does not know which
+prefix it is behind. One config is one proxy: a second config on a second port is a second set of
+wikis. `--install` makes it a service that starts at login and restarts when it exits; `--dry-run`
+shows the file and the commands first. Quartz's hot-reload socket bypasses the proxy, so a page left
+open across a wiki's restart needs a manual refresh.
 
 **`site` is the one group, and a group is a namespace rather than an alias** — there is no flat
 `awt serve` kept working beside `awt site serve`. It is grouped because its four commands share a

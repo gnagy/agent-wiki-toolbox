@@ -23,6 +23,7 @@
 import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs'
 import {dirname, resolve as resolvePath} from 'node:path'
 import process from 'node:process'
+import {fileURLToPath} from 'node:url'
 
 import {parse as parseYaml, stringify as stringifyYaml} from 'yaml'
 
@@ -1374,6 +1375,88 @@ export const COMMANDS = [
         ...(values['ws-port'] ? ['--ws-port', values['ws-port']] : []),
         ...(await siteArgs(layout)),
       ], {reindex})
+    },
+  },
+  {
+    name: 'proxy',
+    server: true,
+    writes: true,
+    group: 'site',
+    section: 'Publish',
+    declines: ['wiki', 'site'],
+    summary: 'Serve several wikis behind one port, each at /<prefix>/, starting and stopping them itself',
+    usage: 'awt site proxy [--config file.json] [--port N] [--install | --uninstall]',
+    positionals: 0,
+    notes: [
+      "Reads the wikis from a config, then answers on one port whatever happens to them: a list of",
+      'the wikis at /, and a page saying why for one that is starting, has exited or is not listed.',
+      "A wiki's `awt site serve` starts on the first request for it, on ports the proxy picks, and",
+      'stops after idleMinutes without one. The config is the one argument; its default is',
+      '~/.config/awt/proxy.json (%APPDATA%\\awt\\proxy.json on Windows):',
+      '',
+      '    {',
+      '      "port": 8090,',
+      '      "idleMinutes": 30,',
+      '      "wikis": {',
+      '        "aisandbox": {"project": "~/Dev/AiSandbox", "title": "AiSandbox wiki"}',
+      '      }',
+      '    }',
+      '',
+      'A relative project resolves against the config file. One config is one proxy: run two on',
+      'two ports for two sets of wikis.',
+      '',
+      '--install makes it a user service that starts at login and restarts if it exits: a launchd',
+      'agent on macOS, a systemd user unit on Linux, a logon task on Windows. It runs this awt,',
+      'with the PATH of the shell that installed it. --uninstall removes it.',
+    ],
+    options: {
+      config: {type: 'string'},
+      port: {type: 'string'},
+      install: {type: 'boolean', default: false},
+      uninstall: {type: 'boolean', default: false},
+      'dry-run': {type: 'boolean', default: false},
+    },
+    async run({values}) {
+      const {proxy, defaultConfigFile, readProxyConfig, serviceFor, installService, uninstallService} =
+        await import('@agent-wiki-toolbox/publish')
+      // This awt, by path, under the runtime running it now: a service has no PATH to
+      // find `awt` on, and on Windows `awt` is a shim a plain spawn cannot run.
+      const command = [process.execPath, fileURLToPath(new URL('../bin/awt.mjs', import.meta.url))]
+
+      if (values.install && values.uninstall) {
+        process.stderr.write('awt site proxy: --install and --uninstall together do not mean anything\n')
+        return 2
+      }
+      if (!values.install && !values.uninstall) {
+        if (values['dry-run']) {
+          process.stderr.write('awt site proxy: --dry-run goes with --install or --uninstall\n')
+          return 2
+        }
+        return proxy([...(values.config ? ['--config', values.config] : []), ...(values.port ? ['--port', values.port] : [])], {command})
+      }
+      if (values.port) {
+        process.stderr.write('awt site proxy: the port of an installed proxy is the one in its config\n')
+        return 2
+      }
+
+      const configFile = resolvePath(values.config ?? defaultConfigFile())
+      if (values.install) {
+        try {
+          readProxyConfig(configFile)
+        } catch (error) {
+          process.stderr.write(`${error.message}\n`)
+          return 1
+        }
+      }
+      let service
+      try {
+        service = serviceFor({platform: process.platform, configFile, command})
+      } catch (error) {
+        process.stderr.write(`awt site proxy: ${error.message}\n`)
+        return 1
+      }
+      const act = values.install ? installService : uninstallService
+      return act(service, {dryRun: values['dry-run']}) ? 0 : 1
     },
   },
   {
