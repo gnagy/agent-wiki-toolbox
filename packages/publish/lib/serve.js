@@ -13,6 +13,12 @@
  * subcommand exists so the two cannot come apart; the emitting happens in `cli`,
  * before this is called.
  *
+ * **And again after every edit, for as long as it serves.** Emitting once was not
+ * enough: the first save made the index older than the notes, the plugin refused
+ * every rebuild from then on, and the server kept serving the page as it was.
+ * `cli` hands over `reindex`, this watches the wiki and calls it, and the plugin
+ * is told to wait for it — `follow.js` has why the two watchers need that.
+ *
  * **`--serve`, always.** A build without it is publish mode, which resolves
  * cross-wiki links to their published URLs rather than to localhost, and Quartz
  * emits extensionless URLs that only the dev server serves.
@@ -52,6 +58,7 @@ import { requireProjectRoot } from "./project-root.js"
 import { ensureQuartz, quartzDir } from "./bootstrap.js"
 import { readDeclaration } from "./declaration.js"
 import { writeSiteConfig } from "./site-config.js"
+import { followNotes, FOLLOWING } from "./follow.js"
 
 /**
  * The port a wiki is served on when the project has not said. High enough to clear
@@ -99,7 +106,12 @@ function heldBy(port) {
 
 const show = (p) => path.relative(process.cwd(), p) || "."
 
-export async function serve(argv = process.argv.slice(2)) {
+/**
+ * `reindex`, when given, re-emits the index; it is called after each burst of
+ * changes under the wiki for as long as the server runs. Without it the index
+ * is whatever was emitted before the start, and goes stale on the first edit.
+ */
+export async function serve(argv = process.argv.slice(2), { reindex } = {}) {
   const { values } = parseArgs({
     args: argv,
     options: {
@@ -182,7 +194,9 @@ export async function serve(argv = process.argv.slice(2)) {
 
   // Inherited stdio and no wait: Quartz's dev server owns the terminal from here,
   // and Ctrl-C should reach it rather than this process.
-  const child = spawn("node", args, { cwd: quartz, stdio: "inherit" })
+  const stopFollowing = reindex ? followNotes(wiki, reindex) : () => {}
+  const env = reindex ? { ...process.env, [FOLLOWING]: "1" } : process.env
+  const child = spawn("node", args, { cwd: quartz, stdio: "inherit", env })
 
   // Ctrl-C in a terminal signals the whole process group and needs none of this.
   // A programmatic kill of *this* process does not, and the dev server outlives
@@ -195,6 +209,9 @@ export async function serve(argv = process.argv.slice(2)) {
     })
   }
 
-  child.on("exit", (code) => process.exit(code ?? 0))
+  child.on("exit", (code) => {
+    stopFollowing()
+    process.exit(code ?? 0)
+  })
   return 0
 }

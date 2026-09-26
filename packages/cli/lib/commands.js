@@ -551,15 +551,26 @@ async function emitIndexForSite(command, values) {
   if (layout === undefined) return {code: 2}
   const wiki = values.wiki ? resolvePath(values.wiki) : layout.notesDir
   const site = values.site ? resolvePath(values.site) : layout.siteDir
-  const workspace = loadWorkspace(wiki)
   const out = resolvePath(site, '.awt-index.json')
-  writeIndexArtifact(workspace, out)
+  const workspace = writeSiteIndex(wiki, out)
   const summary = indexSummary(workspace, out)
   // Publish and serve emit the index before they run, so this line is a step in
   // someone else's report. Under --json it would be a second document above the
   // first, which is the one thing a --json caller cannot be handed.
   if (!values.json) process.stdout.write(`index: ${summary.notes} notes, ${summary.links} links\n`)
   return {code: 0, ...summary}
+}
+
+/**
+ * Read the wiki and write its index to `out`, stamped with the moment the read
+ * began, so an edit that lands while the tree is being read leaves the index
+ * visibly stale rather than looking covered.
+ */
+function writeSiteIndex(wiki, out) {
+  const asOf = new Date()
+  const workspace = loadWorkspace(wiki)
+  writeIndexArtifact(workspace, out, {asOf})
+  return workspace
 }
 
 /**
@@ -1304,8 +1315,9 @@ export const COMMANDS = [
     usage: 'awt site serve [--out path] [--port N] [--ws-port N] [--skip-index]',
     positionals: 0,
     notes: [
-      "Emits the link-graph index, then runs Quartz's dev server over the wiki. The awt-links",
-      'plugin compares the rendered pages against that index.',
+      "Emits the link-graph index, then runs Quartz's dev server over the wiki, and re-emits the",
+      'index after every change to the wiki while it serves. The awt plugin compares the rendered',
+      'pages against that index, and waits for a re-emit rather than failing on a stale one.',
       '',
       "Ports come from `serve` in the project's awt.config.mjs, and what the site says about",
       'itself from `site` in the same file:',
@@ -1342,6 +1354,16 @@ export const COMMANDS = [
       const layout = await layoutFor('serve', values)
       if (layout === undefined) return 2
 
+      // Kept current for as long as the server runs, --skip-index or not: that
+      // flag skips the emit before the start, and the first edit would make any
+      // index stale all the same.
+      const wiki = values.wiki ? resolvePath(values.wiki) : layout.notesDir
+      const out = resolvePath(values.site ? resolvePath(values.site) : layout.siteDir, '.awt-index.json')
+      const reindex = () => {
+        const {resources} = writeSiteIndex(wiki, out)
+        process.stdout.write(`index: re-emitted, ${resources.length} notes\n`)
+      }
+
       return serve([
         '--wiki',
         values.wiki ?? layout.notesDir,
@@ -1351,7 +1373,7 @@ export const COMMANDS = [
         ...(values.port ? ['--port', values.port] : []),
         ...(values['ws-port'] ? ['--ws-port', values['ws-port']] : []),
         ...(await siteArgs(layout)),
-      ])
+      ], {reindex})
     },
   },
   {

@@ -10,7 +10,7 @@
  * sorted, so two runs over an unchanged wiki produce the same bytes and a diff of
  * two artifacts means something.
  */
-import {mkdirSync, renameSync, writeFileSync} from 'node:fs'
+import {mkdirSync, renameSync, utimesSync, writeFileSync} from 'node:fs'
 import {dirname} from 'node:path'
 import process from 'node:process'
 
@@ -100,12 +100,21 @@ export function materialiseIndex(workspace) {
   }
 }
 
-/** Write it where a build can read it. Temp-and-rename, like the cache. */
-export function writeIndexArtifact(workspace, outputPath) {
+/**
+ * Write it where a build can read it. Temp-and-rename, like the cache.
+ *
+ * `asOf` is when the notes were read, and becomes the file's mtime. The build
+ * decides whether the index is current by comparing that mtime with the notes',
+ * and a write stamped with the moment it *finished* would claim to cover an edit
+ * that landed while the tree was being read. Stamped before the rename, so the
+ * file is never visible with the wrong time.
+ */
+export function writeIndexArtifact(workspace, outputPath, {asOf} = {}) {
   const artifact = materialiseIndex(workspace)
   const temporary = `${outputPath}.${process.pid}.tmp`
   mkdirSync(dirname(outputPath), {recursive: true})
   writeFileSync(temporary, `${JSON.stringify(artifact, null, 1)}\n`)
+  if (asOf) utimesSync(temporary, asOf, asOf)
   renameSync(temporary, outputPath)
   return artifact
 }

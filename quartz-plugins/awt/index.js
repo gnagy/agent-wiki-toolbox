@@ -21,7 +21,10 @@
  * implementation free to disagree, and the failure mode is a link that renders and
  * points somewhere wrong. `awt site serve` and `awt site publish` emit the index
  * immediately before the build; a build started any other way has to run
- * `awt site index` first.
+ * `awt site index` first. `awt site serve` also re-emits it after every edit, so
+ * the file is re-read whenever it changes: Quartz keeps one plugin instance for
+ * the life of a dev server, and an index read once would be the pre-edit one
+ * for every rebuild after.
  *
  * A MISSING INDEX IS AN ERROR, ONE POLICY, EVERYWHERE. Four plugins had three
  * answers to that file being absent — refuse, warn, stay silent — and the reasoning
@@ -30,6 +33,16 @@
  * stale index is the same error: it reports disagreements that are not real and
  * hides ones that are. The staleness check runs once, in the emitter, where the
  * whole tree is in view.
+ *
+ * UNDER `awt site serve`, STALE MEANS "WAIT", NOT "FAIL". A save reaches Quartz's
+ * watcher and the one `awt site serve` re-emits the index from, and which of them
+ * finishes first is not decided anywhere. So when the server was started with
+ * `AWT_INDEX_FOLLOWS` set — which says an index is on its way — every read waits,
+ * synchronously and for a bounded time, until the index is at least as new as the
+ * notes; only then, if it still is not, does the emitter throw. Synchronously
+ * because Quartz calls `markdownPlugins` synchronously, and the transformer needs
+ * the new index to put a new folder note at its address. Blocking Quartz's thread
+ * blocks nothing that writes the index: that is a different process.
  *
  * ZERO DEPENDENCIES. Quartz symlinks a local plugin directory into
  * `.quartz/plugins/` and imports it from there, so a bare specifier would have to
@@ -84,6 +97,8 @@ import path from 'path'
 
 const DEFAULTS = {
   index: './.awt-index.json',
+  // How long a read under `awt site serve` waits for the index to catch up.
+  followTimeoutMs: 30000,
   self: null,
   registry: {},
   shadow: true,
@@ -137,9 +152,13 @@ function readArtifact(file) {
 }
 
 /**
- * The newest mtime among the wiki's notes, or `null` when the tree cannot be read
- * — an index emitted on another machine, which is a reason to say so rather than
- * to fail.
+ * The newest mtime among the wiki's notes and the directories holding them, or
+ * `null` when the tree cannot be read — an index emitted on another machine,
+ * which is a reason to say so rather than to fail.
+ *
+ * Directories count because a deleted or renamed note leaves no file mtime
+ * behind, and its old address in the index is as stale as an edited note's links.
+ * `awt site serve` re-emits on the same set of changes (`packages/publish/lib/follow.js`).
  */
 function newestNote(root) {
   let newest = null
@@ -147,6 +166,8 @@ function newestNote(root) {
     let entries
     try {
       entries = fs.readdirSync(dir, {withFileTypes: true})
+      const {mtimeMs} = fs.statSync(dir)
+      if (newest === null || mtimeMs > newest) newest = mtimeMs
     } catch {
       return
     }
@@ -162,6 +183,52 @@ function newestNote(root) {
   }
   walk(root)
   return newest
+}
+
+/** Whether `awt site serve` started this build and is keeping the index current. */
+const following = () => Boolean(process.env.AWT_INDEX_FOLLOWS)
+
+/** A synchronous sleep, for the one caller that cannot await (see the header). */
+function pause(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * The index, re-read whenever the file changes. Stat before read: a rename
+ * between the two then leaves an mtime that is older than the data, which the
+ * next call re-reads, rather than one that is newer and never re-read.
+ */
+function indexReader(options) {
+  let cached = null
+  const read = () => {
+    const file = indexPath(options)
+    let mtimeMs = null
+    try {
+      mtimeMs = fs.statSync(file).mtimeMs
+    } catch {
+      // readArtifact says what is wrong.
+    }
+    if (cached && cached.file === file && cached.mtimeMs === mtimeMs) return cached
+    cached = {file, mtimeMs, data: readArtifact(file)}
+    return cached
+  }
+
+  /**
+   * `{file, mtimeMs, data, newest}`, where `newest` is the notes' newest mtime.
+   * When following, waits for `mtimeMs >= newest` for up to `followTimeoutMs`
+   * and then returns whatever it has; deciding that stale is fatal is the
+   * emitter's call, not every reader's.
+   */
+  return () => {
+    const deadline = Date.now() + options.followTimeoutMs
+    for (;;) {
+      const current = read()
+      const newest = current.data.notesDir ? newestNote(current.data.notesDir) : null
+      const stale = newest !== null && newest > current.mtimeMs
+      if (!stale || !following() || Date.now() >= deadline) return {...current, newest}
+      pause(50)
+    }
+  }
 }
 
 // ------------------------------------------------------------ folder notes
@@ -451,8 +518,31 @@ function difference(left, right) {
 }
 
 /**
+ * Whether the note behind `page` changed after Quartz read it, so the page
+ * Quartz rendered is not the note the index describes.
+ *
+ * Under `awt site serve` the index follows every save, and Quartz's content does
+ * not always: a save during a rebuild is re-read by the next one, and a save
+ * during the *first* build is not re-read at all, because Quartz's watcher starts
+ * after it. Comparing such a page would fail the build over a disagreement that
+ * is only timing — and a failed first build ends the server. `awtReadAt` is set
+ * by the markdown pass below, which runs on the file just after Quartz reads it.
+ */
+function changedSinceRead(artifact, page, vfile) {
+  const readAt = vfile.data?.awtReadAt
+  if (typeof readAt !== 'number' || !artifact.notesDir || !page.path) return false
+  try {
+    return fs.statSync(path.join(artifact.notesDir, page.path)).mtimeMs > readAt
+  } catch {
+    // Gone since: the index already says so, and Quartz has the old page.
+    return true
+  }
+}
+
+/**
  * Compare what Quartz rendered against what the index says, page by page.
- * Returns the report lines, empty when the resolvers agree.
+ * Returns the report lines, empty when the resolvers agree, and the pages set
+ * aside because their note changed after Quartz read it.
  */
 function shadowReport(artifact, content) {
   // Keyed by the address a page is *served* at, which is not always its slug:
@@ -465,6 +555,7 @@ function shadowReport(artifact, content) {
   }
 
   const disagreements = []
+  const unsettled = []
   let compared = 0
 
   for (const [tree, vfile] of content) {
@@ -472,6 +563,10 @@ function shadowReport(artifact, content) {
     const page = byAddress.get(slug)
     // Tag pages, folder pages and the 404 are Quartz's own, not notes.
     if (!page) continue
+    if (changedSinceRead(artifact, page, vfile)) {
+      unsettled.push(slug)
+      continue
+    }
     compared++
 
     const rendered = new Set()
@@ -508,7 +603,7 @@ function shadowReport(artifact, content) {
     }
   }
 
-  return {compared, disagreements}
+  return {compared, disagreements, unsettled: unsettled.sort()}
 }
 
 function formatDisagreements(rows) {
@@ -529,10 +624,11 @@ function formatDisagreements(rows) {
 export const Awt = (userOptions) => {
   const options = {...DEFAULTS, ...userOptions}
 
-  // Read once per instance. Two instances exist per build (one per category
-  // bucket) and one per worker thread besides; each reads for itself.
-  let artifact = null
-  const index = () => (artifact ??= readArtifact(indexPath(options)))
+  // Read per instance, and again whenever the file changes. Two instances exist
+  // per build (one per category bucket) and one per worker thread besides; each
+  // reads for itself.
+  const current = indexReader(options)
+  const index = () => current().data
 
   return {
     name: 'Awt',
@@ -542,6 +638,7 @@ export const Awt = (userOptions) => {
       const crossWiki = crossWikiPass(ctx, options)
       return [
         () => (tree, file) => {
+          if (file?.data) file.data.awtReadAt = Date.now()
           const address = moved.get(file?.data?.slug)
           if (address) file.data.slug = address
           crossWiki(tree, file)
@@ -570,19 +667,21 @@ export const Awt = (userOptions) => {
     },
 
     async emit(ctx, content) {
-      const file = indexPath(options)
-      const data = index()
+      const {file, data, mtimeMs, newest} = current()
 
       // Stale is as wrong as missing, and this is the one place the whole tree is
       // in view to say so.
-      const newest = data.notesDir ? newestNote(data.notesDir) : null
       if (newest === null) {
         console.warn(`⚠ awt: cannot read ${data.notesDir} to tell whether ${file} is current; continuing anyway.`)
-      } else if (newest > fs.statSync(file).mtimeMs) {
+      } else if (newest > mtimeMs) {
         throw new Error(
-          `awt: ${file} is older than the newest note in ${data.notesDir}.\n` +
-            '  A stale index moves pages to old addresses and reports disagreements that are not real.\n' +
-            '  Build with `awt site serve` or `awt site publish`, which emit it first.',
+          following()
+            ? `awt: ${file} did not catch up with the notes in ${data.notesDir} ` +
+                `within ${options.followTimeoutMs / 1000}s.\n` +
+                '  `awt site serve` re-emits it after every edit; its output above says why this one did not land.'
+            : `awt: ${file} is older than the newest note in ${data.notesDir}.\n` +
+                '  A stale index moves pages to old addresses and reports disagreements that are not real.\n' +
+                '  Build with `awt site serve` or `awt site publish`, which emit it first.',
         )
       }
 
@@ -607,7 +706,14 @@ export const Awt = (userOptions) => {
       }
 
       if (options.shadow) {
-        const {compared, disagreements} = shadowReport(data, content)
+        const {compared, disagreements, unsettled} = shadowReport(data, content)
+        if (unsettled.length) {
+          console.warn(
+            `⚠ awt: not compared, changed after Quartz read them: ${unsettled.join(', ')}\n` +
+              "  A rebuild re-reads them; changes made during a dev server's first build are not seen\n" +
+              '  until the note is saved again.',
+          )
+        }
         if (disagreements.length) {
           throw new Error(
             `awt: the two resolvers disagree on ${disagreements.length} of ${compared} pages\n` +
