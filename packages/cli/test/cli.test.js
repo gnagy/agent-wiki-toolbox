@@ -1369,3 +1369,40 @@ test('a wiki is registered from its project, listed with its addresses, and unre
   assert.equal(awt(['site', 'unregister', 'dios'], {cwd: dir, env}).status, 1)
   rmSync(dir, {recursive: true, force: true})
 })
+
+/** `awt site host`: what it writes, and the refusals that need no Docker to be made. */
+test('host writes the config and the page, a dry run writes nothing, and a bad request is refused first', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'awt-host-'))
+  const config = join(dir, 'config')
+  const site = join(dir, 'dios', 'wiki', 'site')
+  mkdirSync(join(config, 'registry.d'), {recursive: true})
+  mkdirSync(site, {recursive: true})
+  writeFileSync(join(config, 'targets.yaml'), 'local:\n  base: http://localhost:8088/wikis\npublic:\n  base: https://example.org/docs\n')
+  writeFileSync(join(config, 'registry.d', 'shelton.yaml'), `dios:\n  mount: shelton\n  name: dios\n  site: ${site}\n`)
+  const env = {...process.env, AWT_CONFIG_DIR: config}
+  delete env.AWT_TARGET
+
+  assert.equal(awt(['site', 'host'], {cwd: dir, env}).status, 2, 'with no target named and no default there is nothing to serve')
+  writeFileSync(join(config, 'default-target'), 'local\n')
+
+  const dry = awt(['site', 'host', '--dry-run'], {cwd: dir, env})
+  assert.equal(dry.status, 0, dry.stderr)
+  assert.match(dry.stdout, /would write:/)
+  assert.ok(!existsSync(join(config, 'host')), 'a dry run wrote nothing')
+
+  const ran = awt(['site', 'host'], {cwd: dir, env})
+  assert.equal(ran.status, 0, ran.stderr)
+  assert.match(ran.stdout, /shelton\/dios {2,}hosted {4}no release for this target yet/)
+  assert.match(ran.stdout, /docker run -d --name awt-host-local --label awt\.host=local/)
+  assert.match(readFileSync(join(config, 'host', 'local', 'conf', 'default.conf'), 'utf8'), /location \/wikis\/shelton\/dios\//)
+  assert.ok(existsSync(join(config, 'host', 'local', 'www', 'index.html')))
+
+  const remote = awt(['site', 'host', '--target', 'public', '--up'], {cwd: dir, env})
+  assert.equal(remote.status, 2)
+  assert.match(remote.stderr, /not local/)
+  assert.ok(!existsSync(join(config, 'host', 'public')), 'refused before anything was written')
+  assert.equal(awt(['site', 'host', '--up', '--down'], {cwd: dir, env}).status, 2)
+  assert.equal(awt(['site', 'host', '--port', 'x'], {cwd: dir, env}).status, 2)
+  assert.equal(awt(['site', 'host', '--target', 'nope'], {cwd: dir, env}).status, 1)
+  rmSync(dir, {recursive: true, force: true})
+})

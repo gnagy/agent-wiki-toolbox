@@ -1518,6 +1518,106 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'host',
+    group: 'site',
+    section: 'Publish',
+    writes: true,
+    declines: ['wiki', 'site'],
+    summary: "Generate an nginx config and a landing page for a target's releases, and run them in Docker",
+    usage: 'awt site host [--target name] [--port N] [--up | --down] [--dry-run]',
+    positionals: 0,
+    notes: [
+      "Serves every registered wiki's release for one target from one address, so a target's base such",
+      'as http://localhost:8088/wikis lists the wikis at its root and each at <mount>/<name>/. The',
+      'wikis, their mounts and where their releases are come from the machine layer: awt site wikis.',
+      '',
+      'Writes conf/default.conf and www/index.html under ~/.config/awt/host/<target>/. Without --up that',
+      'is all, and the docker command to run is printed. --up runs nginx:alpine in a container named',
+      'awt-host-<target>, replacing one that awt started and refusing to touch any other, bound to',
+      "127.0.0.1 on the target's port, then asks the server what it serves. --down removes the container.",
+      '',
+      "Each wiki's site directory is mounted read-only and the release is served from inside it, so a",
+      'release replaced by awt site publish --watch is the one served, and a wiki published after this ran',
+      'needs nothing done. A wiki added to the registry, or one whose release went somewhere else, needs',
+      'this run again. Docker has to be able to read the site directories: on macOS it shares /Users.',
+      'The target\'s base has to be local for --up. The target is --target, $AWT_TARGET or default-target.',
+    ],
+    options: {
+      ...OUTPUT_OPTIONS,
+      target: {type: 'string'},
+      port: {type: 'string'},
+      up: {type: 'boolean', default: false},
+      down: {type: 'boolean', default: false},
+      'dry-run': {type: 'boolean', default: false},
+    },
+    async run({values}) {
+      const {loadMachine, configDir, planHost, writeHost, up, down, probe} = await import('@agent-wiki-toolbox/publish')
+      const path = await import('node:path')
+      if (values.up && values.down) {
+        process.stderr.write('awt site host: --up and --down are opposites; pass one.\n')
+        return 2
+      }
+      if (values.port !== undefined && !/^\d+$/.test(values.port)) {
+        process.stderr.write(`awt site host: --port takes a number, not ${values.port}.\n`)
+        return 2
+      }
+      try {
+        const machine = loadMachine({})
+        const name = values.target ?? process.env.AWT_TARGET ?? machine.defaultTarget
+        if (!name) {
+          process.stderr.write('awt site host: no target: pass --target, set $AWT_TARGET or write default-target.\n')
+          return 2
+        }
+        if (values.down) {
+          const result = down(name)
+          emit(values, {ok: true, ...result}, (v) => (v.removed ? `removed the container ${v.name}` : `no container ${v.name} to remove`))
+          return 0
+        }
+
+        const plan = planHost({machine, targetName: name, dir: path.join(configDir(), 'host', name), port: values.port})
+        if (values.up && !plan.local) {
+          process.stderr.write(
+            `awt site host: --up runs a server on this machine, and the base of "${name}" is ${plan.base}, which is not local.\n`,
+          )
+          return 2
+        }
+        const written = values['dry-run'] ? [] : writeHost(plan)
+        let served = null
+        if (values.up && !values['dry-run']) {
+          up(plan)
+          served = await probe(plan)
+        }
+
+        const failed = served && (served.landing !== 200 || served.wikis.some((w) => !w.serving && w.note.includes('does not see')))
+        emit(values, {ok: !failed, target: name, base: plan.base, port: plan.port, dryRun: values['dry-run'], written, wikis: plan.wikis, docker: plan.docker, served}, () => {
+          const show = (p) => (p.startsWith(configDir()) ? `~/.config/awt${p.slice(configDir().length)}`.replace(/^~\/\.config\/awt/, '<config>') : p)
+          const lines = [`target ${name}  ${plan.base}  (port ${plan.port})`]
+          lines.push(values['dry-run'] ? 'would write:' : 'wrote:')
+          for (const file of values['dry-run'] ? Object.keys(plan.files).map((f) => path.join(plan.dir, f)) : written) lines.push(`  ${show(file)}`)
+          lines.push(plan.wikis.length ? 'wikis:' : 'wikis: none registered (awt site register)')
+          for (const w of plan.wikis) {
+            const where = w.mount ? `${w.mount}/${w.name}` : w.key
+            const answer = served?.wikis.find((x) => x.key === w.key)
+            const state =
+              w.state === 'hosted'
+                ? `hosted    ${answer ? answer.note : w.published ? `release at ${w.release}` : 'no release for this target yet'}`
+                : w.state === 'external'
+                  ? `external  ${w.url}`
+                  : `skipped   ${w.reason}`
+            lines.push(`  ${where.padEnd(28)}${state}`)
+          }
+          if (served) lines.push(served.landing === 200 ? `\nserving at http://localhost:${plan.port}${new URL(plan.base).pathname.replace(/\/+$/, '')}/` : `\nthe server answered ${served.landing || 'nothing'} for the landing page`)
+          else if (!values['dry-run']) lines.push(`\nto serve it: awt site host --target ${name} --up\n  or: docker ${plan.docker.args.join(' ')}`)
+          return lines.join('\n')
+        })
+        return failed ? 1 : 0
+      } catch (error) {
+        process.stderr.write(`awt site host: ${error.message}\n`)
+        return 1
+      }
+    },
+  },
+  {
     name: 'serve',
     server: true,
     group: 'site',

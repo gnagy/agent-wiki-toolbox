@@ -96,6 +96,7 @@ awt site verify                  # does the release carry the address this proje
 awt site register                # record this wiki in ~/.config/awt/registry.d, so links to it resolve
 awt site wikis                   # the machine's targets and wikis, and where each field came from
 awt site unregister dios         # take a wiki out of the registry
+awt site host --up               # serve every registered wiki's release from one address: nginx in Docker
 awt site index                   # just the artifact the Quartz plugin reads
 awt site migrate                 # lift a tracked quartz.config.yaml into awt.config.mjs
 ```
