@@ -167,7 +167,7 @@ function absoluteSource(source, projectDir) {
  * base is the port, the published base is the declared host, and both indexes
  * sit at fixed names under the site.
  */
-function pluginEntry(declaration, { port, baseUrl }) {
+function pluginEntry(declaration, { port, baseUrl, serving }) {
   const registry = { ...(declaration.registry ?? {}) }
   if (declaration.self && !registry[declaration.self]) {
     registry[declaration.self] = {
@@ -182,6 +182,7 @@ function pluginEntry(declaration, { port, baseUrl }) {
     order: PLUGIN_ORDER,
     options: {
       index: "./.awt-index.json",
+      target: serving ? "dev" : "published",
       self: declaration.self ?? null,
       registry,
       shadow: true,
@@ -236,7 +237,7 @@ export async function deriveSiteConfig(
   // The toolbox's entry, whichever base was taken. A project file carrying one
   // already (a hand-wired install, say) keeps its own.
   if (!findEntry(config, (source) => source === PLUGIN_SOURCE || source.split("/").pop() === "awt")) {
-    config.plugins.push(pluginEntry(declaration, { port, baseUrl }))
+    config.plugins.push(pluginEntry(declaration, { port, baseUrl, serving }))
   }
 
   // Declared plugins: replace by source, else append.

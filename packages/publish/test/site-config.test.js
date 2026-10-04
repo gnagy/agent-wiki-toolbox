@@ -134,6 +134,16 @@ test('the declaration reaches the title, host, registry, properties and footer',
   assert.equal(published.config.configuration.baseUrl, 'wiki.example.org', 'publishing: the declared host')
 })
 
+test('the plugin is told which build it is deriving for, so it does not have to guess from a flag', async () => {
+  const site = tmp()
+  const optionsOf = (derived) => derived.config.plugins.find((one) => one.source === PLUGIN_SOURCE).options
+
+  const served = await deriveSiteConfig(site, fakeQuartz(), {self: 'dios'}, {port: 8101, serving: true, die})
+  const published = await deriveSiteConfig(site, fakeQuartz(), {self: 'dios'}, {port: 8101, serving: false, die})
+  assert.equal(optionsOf(served).target, 'dev')
+  assert.equal(optionsOf(published).target, 'published')
+})
+
 test('a declared plugin is appended with a local source made absolute, or replaces one by source', async () => {
   const site = tmp()
   const project = tmp()

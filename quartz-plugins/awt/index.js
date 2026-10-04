@@ -62,7 +62,8 @@
  *     the last segment of each slug, and a moved entry's last segment is `index`.
  *   - Cross-wiki references. `[text](prefix:path.md#anchor)` becomes the URL the
  *     target wiki actually serves, read from that wiki's own `contentIndex.json`
- *     and never computed. Mode comes from the build itself (`ctx.argv.serve`):
+ *     and never computed. Which registry address is used comes from the `target`
+ *     option `awt` derives with the config (`ctx.argv.serve` for a hand-wired one):
  *     a dev server links to registry `dev` bases, a publish build to `published`
  *     ones. Everything unresolvable is a warning, never a failure, because a wiki
  *     has to build before the wikis it depends on have ever been built.
@@ -380,9 +381,37 @@ function walkLinks(node, visit) {
   }
 }
 
+/**
+ * Which registry address cross-wiki links are written against: `dev` or `published`.
+ *
+ * `awt` writes the answer into the plugin's options (`target`) when it derives the
+ * config, so the choice belongs to the command that asked for the build and not to a
+ * flag that happens to be on Quartz's command line. A config with no `target` is a
+ * hand-wired one, and keeps what it always did: `--serve` means dev.
+ *
+ * The two are checked against each other when both are there. A derived config left
+ * over from a dev server and then built by hand without `--serve` would otherwise
+ * produce a release full of localhost links that every page serves and every link
+ * answers 200 to, which is the failure the old coupling existed to prevent.
+ */
+function linkTarget(ctx, options) {
+  const fromFlag = ctx?.argv?.serve ? 'dev' : 'published'
+  if (options.target === undefined) return fromFlag
+  if (options.target !== 'dev' && options.target !== 'published') {
+    throw new Error(`awt: plugin option target is "${options.target}", expected "dev" or "published"`)
+  }
+  if (ctx?.argv && options.target !== fromFlag) {
+    throw new Error(
+      `awt: the derived config is for a ${options.target} build, but this build ${ctx.argv.serve ? 'has' : 'lacks'} --serve. ` +
+        'Run it through `awt site serve` or `awt site publish`, which derive the config for the build they start.',
+    )
+  }
+  return options.target
+}
+
 /** The cross-wiki rewriter over one build, with its per-build caches. */
 function crossWikiPass(ctx, options) {
-  const serving = Boolean(ctx?.argv?.serve)
+  const serving = linkTarget(ctx, options) === 'dev'
 
   // `null` means "already tried and failed" — a missing index warns once, not
   // once per reference.
