@@ -21,7 +21,7 @@
  * and `og:` tag.
  */
 
-const SEGMENT = /^[a-z0-9][a-z0-9._-]*$/
+export const SEGMENT = /^[a-z0-9][a-z0-9._-]*$/
 
 /**
  * The target, or `null` when no base is given anywhere, which is a build with nowhere

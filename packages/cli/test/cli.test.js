@@ -1327,3 +1327,45 @@ test('measure counts the body and not the front matter, and a folder expands', (
   assert.equal(missing.status, 1)
   assert.match(missing.stdout, /MISSING design\/nope.md/)
 })
+
+/**
+ * The machine's wikis, through the command and not the library: register from inside a project,
+ * look at them, and take one out again, with a configuration directory that is this test's own.
+ */
+test('a wiki is registered from its project, listed with its addresses, and unregistered', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'awt-register-'))
+  const config = join(dir, 'config')
+  const project = join(dir, 'shelton-dios')
+  mkdirSync(join(project, 'wiki', 'notes'), {recursive: true})
+  mkdirSync(join(project, 'wiki', 'site'), {recursive: true})
+  writeFileSync(join(project, 'wiki', 'notes', 'index.md'), '# x\n')
+  writeFileSync(join(project, 'awt.config.mjs'), "export default {site: {self: 'dios', mount: 'shelton'}, serve: {port: 8101}}\n")
+  mkdirSync(config, {recursive: true})
+  writeFileSync(join(config, 'targets.yaml'), 'local:\n  base: http://localhost:8088/wikis\n')
+  const env = {...process.env, AWT_CONFIG_DIR: config}
+
+  const registered = awt(['site', 'register'], {cwd: project, env})
+  assert.equal(registered.status, 0, registered.stderr)
+  assert.match(registered.stdout, /registered dios as shelton\/dios/)
+  const file = join(config, 'registry.d', 'shelton.yaml')
+  const written = readFileSync(file, 'utf8')
+  assert.match(written, /dios:\n {2}mount: shelton\n {2}name: dios\n {2}site: /)
+  assert.doesNotMatch(written, /dev:/, 'a dev address is recorded only when asked for')
+
+  assert.match(awt(['site', 'register'], {cwd: project, env}).stdout, /already registered .*unchanged/)
+  assert.equal(awt(['site', 'register', '--dev', '--force'], {cwd: project, env}).status, 0)
+  assert.match(readFileSync(file, 'utf8'), /dev: http:\/\/localhost:8101/)
+
+  const listed = awt(['site', 'wikis'], {cwd: dir, env})
+  assert.equal(listed.status, 0, listed.stderr)
+  assert.match(listed.stdout, /local {5}http:\/\/localhost:8088\/wikis/)
+  assert.match(listed.stdout, /local {3}http:\/\/localhost:8088\/wikis\/shelton\/dios\//)
+  assert.equal(JSON.parse(awt(['site', 'wikis', '--key', 'dios', '--json'], {cwd: dir, env}).stdout).wikis[0].mount, 'shelton')
+  assert.equal(awt(['site', 'wikis', '--key', 'nope'], {cwd: dir, env}).status, 1)
+
+  const removed = awt(['site', 'unregister', 'dios'], {cwd: dir, env})
+  assert.equal(removed.status, 0, removed.stderr)
+  assert.ok(!existsSync(file), 'the file held no other wiki and is gone')
+  assert.equal(awt(['site', 'unregister', 'dios'], {cwd: dir, env}).status, 1)
+  rmSync(dir, {recursive: true, force: true})
+})

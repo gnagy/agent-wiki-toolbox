@@ -91,7 +91,11 @@ awt site publish                 # build, then swap into wiki/site/release
 awt site publish --base http://localhost:8088/wikis --mount shelton --name dios
                                  # …for one address: <base>/<mount>/<name>/, into site/releases/<base>
 awt site publish --watch         # keep the release current while you edit: a save is live in about a second
+awt site publish --target local  # …for a deployment named in ~/.config/awt/targets.yaml
 awt site verify                  # does the release carry the address this project says it is built for?
+awt site register                # record this wiki in ~/.config/awt/registry.d, so links to it resolve
+awt site wikis                   # the machine's targets and wikis, and where each field came from
+awt site unregister dios         # take a wiki out of the registry
 awt site index                   # just the artifact the Quartz plugin reads
 awt site migrate                 # lift a tracked quartz.config.yaml into awt.config.mjs
 ```

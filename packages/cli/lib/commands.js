@@ -175,7 +175,7 @@ const OUTPUT_OPTIONS = {json: {type: 'boolean', default: false}}
 const SITE_OPTIONS = {wiki: {type: 'string'}, site: {type: 'string'}}
 // The address a release is built for. `--wiki` is taken by the notes to render, so the wiki's
 // own name under its mount is `--name`.
-const TARGET_OPTIONS = {base: {type: 'string'}, mount: {type: 'string'}, name: {type: 'string'}}
+const TARGET_OPTIONS = {base: {type: 'string'}, mount: {type: 'string'}, name: {type: 'string'}, target: {type: 'string'}}
 
 /**
  * The one group. A group is a namespace, not an alias — `awt serve` is gone, not
@@ -1260,8 +1260,9 @@ export const COMMANDS = [
     section: 'Publish',
     summary: 'Build the site into a release, or a handoff copy with --offline. Emits the index first',
     usage:
-      'awt site publish [--base url] [--mount name] [--name name] [--out path] [--watch]\n' +
-      '                 [--offline] [--diagrams png|none] [--nginx] [--skip-index]',
+      'awt site publish [--target name | --base url] [--mount name] [--name name]\n' +
+      '                 [--out path] [--watch] [--offline] [--diagrams png|none]\n' +
+      '                 [--nginx] [--skip-index]',
     positionals: 0,
     notes: [
       'Builds without --serve, so cross-wiki links resolve to published URLs, into a staging',
@@ -1272,7 +1273,10 @@ export const COMMANDS = [
       'at <base>/<mount>/<name>/. They come from --base, --mount and --name, else from site.baseUrl,',
       'site.mount and site.self in awt.config.mjs. A base may carry a scheme and a path',
       '(http://localhost:8088/wikis); with no scheme it is https. A project with a base and no mount',
-      'is served at the base itself. Any of the three flags builds into site/releases/<base> instead',
+      'is served at the base itself. --target names one of the deployments in ~/.config/awt/targets.yaml',
+      'for the base instead, and with no base anywhere the target is $AWT_TARGET, site.target or the',
+      'machine\'s default-target; a named target hosts several wikis, so the wiki needs a mount. Any of',
+      'these flags builds into site/releases/<base> instead',
       'of site/release, so two bases built from one checkout do not overwrite each other, and the',
       'release records its address in static/awtRelease.json for `awt site verify`.',
       '',
@@ -1331,6 +1335,7 @@ export const COMMANDS = [
         ...(values.base ? ['--base', values.base] : []),
         ...(values.mount ? ['--mount', values.mount] : []),
         ...(values.name ? ['--name', values.name] : []),
+        ...(values.target ? ['--target', values.target] : []),
         ...(values.offline ? ['--offline'] : []),
         ...(values.watch ? ['--watch'] : []),
         ...(values.diagrams ? ['--diagrams', values.diagrams] : []),
@@ -1345,7 +1350,7 @@ export const COMMANDS = [
     group: 'site',
     section: 'Publish',
     summary: 'Check that a release carries the address its project says it is built for',
-    usage: 'awt site verify [--base url] [--mount name] [--name name] [--out path]',
+    usage: 'awt site verify [--target name | --base url] [--mount name] [--name name] [--out path]',
     positionals: 0,
     notes: [
       'Reads static/awtRelease.json from the release, site/release or the one a flag names, and',
@@ -1368,9 +1373,148 @@ export const COMMANDS = [
         ...(values.base ? ['--base', values.base] : []),
         ...(values.mount ? ['--mount', values.mount] : []),
         ...(values.name ? ['--name', values.name] : []),
+        ...(values.target ? ['--target', values.target] : []),
         ...(values.json ? ['--json'] : []),
         ...(await siteArgs(layout)),
       ])
+    },
+  },
+  {
+    name: 'register',
+    group: 'site',
+    section: 'Publish',
+    writes: true,
+    summary: "Record this wiki in the machine's registry, so other wikis' links to it resolve",
+    usage: 'awt site register [--key name] [--mount name] [--name name] [--dev] [--force] [--dry-run]',
+    positionals: 0,
+    notes: [
+      "Writes this wiki's entry into ~/.config/awt/registry.d/<mount>.yaml: its mount and name (from",
+      "site.mount and site.self, or the flags), the site directory its releases are under, and the",
+      "address of its running serve with --dev, which needs serve.port. Without --dev a dev server's links",
+      "to this wiki go to its release for the default target, which is always up. The key is the link key other wikis write before the",
+      'colon, site.self unless --key says otherwise. Comments in the file are kept.',
+      '',
+      'Registering what is already registered changes nothing. A different entry under the same key is',
+      'replaced only with --force, and a key already registered under another mount is refused:',
+      'unregister it first.',
+    ],
+    options: {
+      ...OUTPUT_OPTIONS,
+      key: {type: 'string'},
+      mount: {type: 'string'},
+      name: {type: 'string'},
+      dev: {type: 'boolean', default: false},
+      force: {type: 'boolean', default: false},
+      'dry-run': {type: 'boolean', default: false},
+    },
+    async run({values}) {
+      const {registerWiki, configDir} = await import('@agent-wiki-toolbox/publish')
+      const layout = await layoutFor('register', values)
+      if (layout === undefined || layout === null) return 2
+      const {config} = await loadProjectConfig(layout.projectDir ?? process.cwd())
+      const site = config.site ?? {}
+      const mount = values.mount ?? site.mount
+      const name = values.name ?? site.self
+      if (!mount || !name) {
+        process.stderr.write(
+          `awt site register: ${!mount ? 'no mount' : 'no name'} for this wiki: declare site.${!mount ? 'mount' : 'self'} in awt.config.mjs or pass --${!mount ? 'mount' : 'name'}.\n`,
+        )
+        return 2
+      }
+      const port = config.serve?.port
+      if (values.dev && port === undefined) {
+        process.stderr.write('awt site register: --dev records the address of this wiki\'s serve, and serve.port is not set in awt.config.mjs.\n')
+        return 2
+      }
+      try {
+        const result = registerWiki({
+          key: values.key ?? site.self ?? name,
+          entry: {mount, name, site: layout.siteDir, ...(values.dev ? {dev: `http://localhost:${port}`} : {})},
+          force: values.force,
+          dryRun: values['dry-run'],
+        })
+        emit(values, {ok: true, key: values.key ?? site.self ?? name, ...result, dir: configDir()}, (value) =>
+          value.changed
+            ? `${value.dryRun ? 'would have ' : ''}${value.created ? 'created ' : 'updated '}${value.file}\n${value.dryRun ? 'would register' : 'registered'} ${value.key} as ${mount}/${name}`
+            : `${value.key} is already registered as ${mount}/${name}, unchanged`,
+        )
+        return 0
+      } catch (error) {
+        process.stderr.write(`awt site register: ${error.message}\n`)
+        return 1
+      }
+    },
+  },
+  {
+    name: 'unregister',
+    group: 'site',
+    section: 'Publish',
+    writes: true,
+    declines: ['wiki', 'site'],
+    summary: "Remove a wiki from the machine's registry",
+    usage: 'awt site unregister <key> [--dry-run]',
+    positionals: 1,
+    notes: ['Removes the entry from the registry file that holds it, and the file too when it held no other.'],
+    options: {...OUTPUT_OPTIONS, 'dry-run': {type: 'boolean', default: false}},
+    async run({values, positionals}) {
+      const {unregisterWiki} = await import('@agent-wiki-toolbox/publish')
+      try {
+        const result = unregisterWiki({key: positionals[0], dryRun: values['dry-run']})
+        emit(values, {ok: true, key: positionals[0], ...result}, (value) =>
+          `${value.dryRun ? 'would remove' : 'removed'} ${value.key} from ${value.file}${value.fileRemoved ? ' (the file held no other wiki and is removed)' : ''}`,
+        )
+        return 0
+      } catch (error) {
+        process.stderr.write(`awt site unregister: ${error.message}\n`)
+        return 1
+      }
+    },
+  },
+  {
+    name: 'wikis',
+    group: 'site',
+    section: 'Publish',
+    declines: ['wiki', 'site'],
+    summary: "The machine's targets and registered wikis, with the address each has per target and where each field came from",
+    usage: 'awt site wikis [--key name]',
+    positionals: 0,
+    notes: [
+      'Reads ~/.config/awt (or $AWT_CONFIG_DIR): targets.yaml, default-target, registry.d and',
+      'overrides.d, and merges the overrides over the registry. A field set by an override says so.',
+      'The wiki-level overrides in a project\'s awt.config.mjs are not shown: this is the machine.',
+    ],
+    options: {...OUTPUT_OPTIONS, key: {type: 'string'}},
+    async run({values}) {
+      const {loadMachine, describeMachine, configDir} = await import('@agent-wiki-toolbox/publish')
+      try {
+        const dir = configDir()
+        const view = describeMachine(loadMachine({dir}), values.key ?? null)
+        if (values.key && view.wikis.length === 0) {
+          process.stderr.write(`awt site wikis: no wiki "${values.key}" in ${dir}.\n`)
+          return 1
+        }
+        emit(values, view, (value) => {
+          const where = (file) => (file ? `  <- ${file.startsWith(value.dir) ? file.slice(value.dir.length + 1) : file}` : '')
+          const lines = [`config: ${value.dir}`]
+          lines.push(value.targets.length ? 'targets:' : 'targets: none (targets.yaml)')
+          for (const t of value.targets) lines.push(`  ${t.name.padEnd(10)}${t.base}${t.default ? '  (default)' : ''}`)
+          lines.push(value.wikis.length ? 'wikis:' : 'wikis: none registered')
+          for (const w of value.wikis) {
+            lines.push(`  ${w.key}${w.mount ? `  ${w.mount}/${w.name}` : ''}`)
+            for (const field of ['mount', 'name', 'site', 'dev']) {
+              if (w[field] && w.from[field] && !['mount', 'name'].includes(field)) lines.push(`    ${field.padEnd(8)}${w[field]}${where(w.from[field])}`)
+            }
+            for (const [target, url] of Object.entries(w.addresses)) {
+              if (url) lines.push(`    ${target.padEnd(8)}${url}${where(w.from[`urls.${target}`])}`)
+            }
+          }
+          return lines.join('\n')
+        })
+        return 0
+      } catch (error) {
+        process.stderr.write(`awt site wikis: ${error.message}\n`)
+        return 1
+      }
     },
   },
   {

@@ -16,6 +16,17 @@ export {extractDeclaration, renderDeclaration} from './lib/migrate.js'
 export {deriveSiteConfig, writeSiteConfig, DERIVED_CONFIG, PROJECT_CONFIG, PLUGIN_SOURCE} from './lib/site-config.js'
 export {publish, verifyRelease, planRelease, RELEASE_RECORD} from './lib/release.js'
 export {resolveTarget, releaseRecord, compareRecord, retargetScheme} from './lib/target.js'
+export {
+  configDir,
+  loadMachine,
+  loadMachineIfPresent,
+  registerWiki,
+  unregisterWiki,
+  describeMachine,
+  pluginRegistry,
+  addressOf,
+  releaseFor,
+} from './lib/machine.js'
 export {serve, DEFAULT_PORT, wsPortFor} from './lib/serve.js'
 export {proxy, createProxy, readProxyConfig, defaultConfigFile, DEFAULT_PROXY_PORT} from './lib/proxy.js'
 export {serviceFor, serviceName, installService, uninstallService} from './lib/proxy-service.js'

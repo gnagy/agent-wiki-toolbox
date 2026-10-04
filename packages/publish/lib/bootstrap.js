@@ -149,6 +149,12 @@ release/
 .release-staging/
 .release-prev/
 
+# Releases built for a named or explicit target, one directory per base, and the work
+# directories awt site publish --watch keeps beside a release while it runs.
+releases/
+.release-work/
+.release-next/
+
 # The config Quartz reads, derived by awt before every build from the pinned
 # install's own default and the site declaration in awt.config.mjs. A project
 # that takes it over tracks quartz.config.yaml beside it instead.

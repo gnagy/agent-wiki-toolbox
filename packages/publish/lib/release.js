@@ -68,6 +68,7 @@ import { DEFAULT_PORT } from "./serve.js"
 import { readDeclaration } from "./declaration.js"
 import { DERIVED_CONFIG, writeSiteConfig } from "./site-config.js"
 import { compareRecord, releaseRecord, resolveTarget, retargetScheme } from "./target.js"
+import { configDir, loadMachine, machineRegistryFor, readDefaultTarget } from "./machine.js"
 
 /** The toolbox root: packages/publish/lib -> packages/publish -> packages -> root. */
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
@@ -587,16 +588,51 @@ export function verifyFileUrls(root) {
 export const RELEASE_RECORD = path.join("static", "awtRelease.json")
 
 /**
- * The target a build is for and where it lands, from the flags and the declaration.
+ * The target a build is for and where it lands, from the flags, the declaration and the machine.
  *
- * A target named only by the declaration is the project's standing one and lands in
- * `site/release`, which other wikis' registries name by path. Any flag makes the build for
- * an explicit target, and an explicit target lands in `site/releases/<base>`, so two bases
- * built from one checkout do not overwrite each other.
+ * A base comes from `--base`, or from `site.baseUrl`, which is the project's standing target. With
+ * neither, a target is named: `--target`, then `$AWT_TARGET`, then `site.target`, then the machine's
+ * `default-target`, and its base is read from `targets.yaml`. A named target hosts several wikis, so
+ * the wiki needs a mount under it.
+ *
+ * A target named only by the declaration's `baseUrl` is the standing one and lands in `site/release`,
+ * which other wikis' registries name by path. Anything else is an explicit target and lands in
+ * `site/releases/<base>`, so two bases built from one checkout do not overwrite each other.
  */
-export function planRelease(values, site, declaration) {
-  const target = resolveTarget({ base: values.base, mount: values.mount, name: values.name }, declaration, die)
-  const explicit = values.base !== undefined || values.mount !== undefined || values.name !== undefined
+export function planRelease(values, site, declaration, { env = process.env, dir = configDir(env) } = {}) {
+  const declaredBase = declaration.baseUrl !== undefined && declaration.baseUrl !== null && String(declaration.baseUrl).trim() !== ""
+  if (values.target !== undefined && values.base !== undefined) {
+    die("--target and --base both say where the release is served from; pass one.")
+  }
+  if (declaration.target !== undefined && declaredBase) {
+    die("site.target and site.baseUrl both say where the release is served from; declare one.")
+  }
+
+  let name = values.target
+  if (name === undefined && values.base === undefined && !declaredBase) {
+    name = env.AWT_TARGET || declaration.target || readDefaultTarget(dir) || undefined
+  }
+
+  let target
+  if (name !== undefined) {
+    const machine = loadMachine({ dir, die })
+    const named = machine.targets.get(name)
+    if (!named) {
+      die(
+        `no target "${name}" in ${path.join(dir, "targets.yaml")}` +
+          (machine.targets.size ? `; it has ${[...machine.targets.keys()].join(", ")}.` : ", which defines none."),
+      )
+    }
+    target = resolveTarget({ base: named.base, mount: values.mount, name: values.name }, declaration, die)
+    if (!target.mount) {
+      die(`target "${name}" hosts several wikis, so this one needs a mount under it: declare site.mount or pass --mount.`)
+    }
+    target.targetName = name
+  } else {
+    target = resolveTarget({ base: values.base, mount: values.mount, name: values.name }, declaration, die)
+  }
+
+  const explicit = name !== undefined || values.base !== undefined || values.mount !== undefined || values.name !== undefined
   const out = values.out
     ? path.resolve(values.out)
     : path.join(site, values.offline ? "handoff" : explicit && target ? path.join("releases", target.slug) : "release")
@@ -670,6 +706,7 @@ export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
         base: { type: "string" },
         mount: { type: "string" },
         name: { type: "string" },
+        target: { type: "string" },
         offline: { type: "boolean", default: false },
         watch: { type: "boolean", default: false },
         diagrams: { type: "string" },
@@ -709,8 +746,8 @@ export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
       if (values[flag]) die(`--watch and --${flag} do not go together: ${why}.`)
     }
   }
-  if (values.offline && (values.base !== undefined || values.mount !== undefined || values.name !== undefined)) {
-    die("--offline builds a copy that opens from disk and has no address; --base, --mount and --name do not apply to it.")
+  if (values.offline && (values.base !== undefined || values.mount !== undefined || values.name !== undefined || values.target !== undefined)) {
+    die("--offline builds a copy that opens from disk and has no address; --base, --mount, --name and --target do not apply to it.")
   }
   const { target, out } = planRelease(values, site, declaration)
 
@@ -762,6 +799,7 @@ export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
     serving: false,
     target,
     releaseDir: releaseDirIn(site, out),
+    machineRegistry: machineRegistryFor(target, die),
     die,
   })
   say(`config: ${DERIVED_CONFIG} (${derived.own ? "from this project's own quartz.config.yaml" : "derived"})`)
@@ -909,6 +947,7 @@ export function verifyRelease(argv = process.argv.slice(2)) {
         base: { type: "string" },
         mount: { type: "string" },
         name: { type: "string" },
+        target: { type: "string" },
         json: { type: "boolean", default: false },
         "site-config": { type: "string" },
         project: { type: "string" },

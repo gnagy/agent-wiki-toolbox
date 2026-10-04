@@ -13,7 +13,8 @@
     "@resvg/resvg-js": "^2.6.2",
     "fontkit": "^2.0.4",
     "jsdom": "^27.4.0",
-    "mermaid": "^11.17.0"
+    "mermaid": "^11.17.0",
+    "yaml": "^2.9.0"
   },
   "license": "MIT"
 }

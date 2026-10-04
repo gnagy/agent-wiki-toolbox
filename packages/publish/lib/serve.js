@@ -58,6 +58,7 @@ import { requireProjectRoot } from "./project-root.js"
 import { ensureQuartz, quartzDir } from "./bootstrap.js"
 import { readDeclaration } from "./declaration.js"
 import { writeSiteConfig } from "./site-config.js"
+import { machineRegistryFor } from "./machine.js"
 import { followNotes, FOLLOWING } from "./follow.js"
 
 /**
@@ -163,6 +164,7 @@ export async function serve(argv = process.argv.slice(2), { reindex } = {}) {
     projectDir: values.project ? path.resolve(values.project) : path.dirname(site),
     port: httpPort,
     serving: true,
+    machineRegistry: machineRegistryFor(null, die),
     die,
   })
 
