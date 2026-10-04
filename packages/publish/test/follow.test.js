@@ -74,35 +74,55 @@ test('a change counts unless it is inside a dot-directory', () => {
   assert.equal(counts(''), true)
 })
 
+/**
+ * Wait until the watcher has gone quiet: `emits` has not moved for two settle windows. fs.watch on macOS
+ * reports events from just before it was started, and under file-system load it reports the writes of
+ * one burst late and apart, so counting from a fixed delay after starting counts the wrong thing.
+ */
+const quiet = async (counter, settle) => {
+  let seen = -1
+  while (seen !== counter()) {
+    seen = counter()
+    await new Promise((resolve) => setTimeout(resolve, settle * 2))
+  }
+}
+
 test('an edit re-emits, a burst re-emits once, and an edit during an emit re-emits after it', async (t) => {
   const {notes} = project(t)
+  // Far longer than the file system takes to deliver the five writes of a burst, even loaded: a burst
+  // whose events arrive further apart than this is, correctly, two bursts, and that is not what is tested.
+  const settle = 200
   let emits = 0
+  let hold = false
   let release = null
   const stop = followNotes(
     notes,
     () => {
       emits++
-      if (emits === 2) return new Promise((resolve) => (release = resolve))
+      // Whether this emit blocks is decided by the test, not by how many came before it: a replayed
+      // event from before the watch started would otherwise move the count.
+      if (hold) return new Promise((resolve) => (release = resolve))
     },
-    {settle: 50},
+    {settle},
   )
   t.after(stop)
-  // fs.watch on macOS can report events from just before it was started.
-  await new Promise((resolve) => setTimeout(resolve, 200))
+  await quiet(() => emits, settle)
   emits = 0
 
   for (let i = 0; i < 5; i++) writeFileSync(join(notes, 'area', 'one.md'), `# One ${i}\n`)
-  await until(() => emits === 1)
-  await new Promise((resolve) => setTimeout(resolve, 200))
+  await until(() => emits >= 1)
+  await quiet(() => emits, settle)
   assert.equal(emits, 1, 'a burst of writes is one emit')
 
+  hold = true
   writeFileSync(join(notes, 'area', 'two.md'), '# Two\n')
   await until(() => emits === 2)
   // Emit 2 is still running; this edit has to be covered by an emit that
   // starts after it, not folded into the one already reading the tree.
   writeFileSync(join(notes, 'area', 'two.md'), '# Two, again\n')
-  await new Promise((resolve) => setTimeout(resolve, 200))
+  await new Promise((resolve) => setTimeout(resolve, settle * 3))
   assert.equal(emits, 2, 'never two emits at once')
+  hold = false
   release()
   await until(() => emits === 3)
 })

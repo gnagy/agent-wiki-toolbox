@@ -22,6 +22,17 @@ const made = []
 after(() => {
   for (const dir of made) rmSync(dir, {recursive: true, force: true})
 })
+
+// `planRelease` and `verifyRelease` read the machine's own configuration unless told where it is. A machine
+// that has a real one, with a default target, would change every answer here, so these tests have none.
+const realConfig = process.env.AWT_CONFIG_DIR
+process.env.AWT_CONFIG_DIR = mkdtempSync(join(tmpdir(), 'awt-target-noconfig-'))
+made.push(process.env.AWT_CONFIG_DIR)
+after(() => {
+  if (realConfig === undefined) delete process.env.AWT_CONFIG_DIR
+  else process.env.AWT_CONFIG_DIR = realConfig
+})
+
 function tmp() {
   const dir = mkdtempSync(join(tmpdir(), 'awt-target-'))
   made.push(dir)

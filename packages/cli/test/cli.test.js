@@ -32,8 +32,13 @@ const AWT = new URL('../bin/awt.mjs', import.meta.url).pathname
  * fails, and `fmt` writes its verdict to stdout and its report to stderr on runs
  * that succeed — so a helper that drops one of them cannot see the split at all.
  */
+// A machine's own configuration directory would answer for any test that does not name one, so the default
+// is an empty one. A test that cares passes its own AWT_CONFIG_DIR in `env`, which wins.
+const NO_CONFIG = mkdtempSync(join(tmpdir(), 'awt-cli-noconfig-'))
+
 function awt(args, options = {}) {
-  const result = spawnSync(process.execPath, [AWT, ...args], {encoding: 'utf8', ...options})
+  const env = {AWT_CONFIG_DIR: NO_CONFIG, ...(options.env ?? process.env)}
+  const result = spawnSync(process.execPath, [AWT, ...args], {encoding: 'utf8', ...options, env})
   return {status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? ''}
 }
 
