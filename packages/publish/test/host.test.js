@@ -101,6 +101,18 @@ test('what cannot be served is said, and a wiki hosted elsewhere is listed and n
   assert.ok(!plan.files[join('conf', 'default.conf')].includes('partner'), 'nothing is served for it')
 })
 
+test('a wiki whose site directory is missing is not mounted, since Docker would create it in its project', () => {
+  const {m, cfg} = machine()
+  writeFileSync(join(cfg, 'registry.d', 'gone.yaml'), 'gone:\n  mount: gone\n  name: gone\n  site: /nowhere/at/all/wiki/site\n')
+  const plan = planHost({machine: loadMachine({dir: cfg}), targetName: 'local', dir: '/h'})
+  const gone = plan.wikis.find((w) => w.key === 'gone')
+  assert.equal(gone.state, 'skipped')
+  assert.match(gone.reason, /does not exist; run awt site setup in it/)
+  assert.ok(!plan.docker.args.some((a) => a.includes('/nowhere/at/all')), 'it is not among the mounts')
+  assert.ok(!plan.files[join('conf', 'default.conf')].includes('/gone/gone/'))
+  void m
+})
+
 test('a base with no path serves at the root, and a target that is not local cannot be run', () => {
   const {m} = machine()
   const root = planHost({machine: m, targetName: 'root', dir: '/h'})

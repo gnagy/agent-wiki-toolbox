@@ -277,6 +277,25 @@ export function machineRegistryFor(target, die = throwing) {
   return machine ? pluginRegistry(machine, { target }) : {}
 }
 
+/**
+ * The registered wiki whose site directory is `site`, or null. This is how a wiki that declares no mount
+ * and name still has them: the machine that registered it knows who it is.
+ */
+export function registeredAt(machine, site) {
+  const real = (p) => {
+    try {
+      return fs.realpathSync(p)
+    } catch {
+      return path.resolve(p)
+    }
+  }
+  const here = real(site)
+  for (const entry of machine.registry.values()) {
+    if (entry.site && real(entry.site) === here) return entry
+  }
+  return null
+}
+
 // ------------------------------------------------------------------------- writing
 
 function writeAtomic(file, text) {

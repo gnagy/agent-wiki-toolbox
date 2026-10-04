@@ -1406,3 +1406,39 @@ test('host writes the config and the page, a dry run writes nothing, and a bad r
   assert.equal(awt(['site', 'host', '--target', 'nope'], {cwd: dir, env}).status, 1)
   rmSync(dir, {recursive: true, force: true})
 })
+
+/** `awt site register` with nothing declared: the mount from the atlas, else the wiki's name. */
+test('register takes a mount from the atlas when the wiki declares none, and says where each value came from', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'awt-register-atlas-'))
+  const config = join(dir, 'config')
+  const bin = join(dir, 'bin')
+  mkdirSync(bin, {recursive: true})
+  mkdirSync(config, {recursive: true})
+  // A stand-in atlas that puts everything under a Shelton workspace.
+  writeFileSync(join(bin, 'atlas'), "#!/bin/sh\nprintf 'atlas: environment maci, catalog /x\\ntype\\tname\\tproject\\tentry\\nworkspace\\tShelton\\tshelton\\t/e/s.md\\n'\n")
+  chmodSync(join(bin, 'atlas'), 0o755)
+
+  const wikiAt = (name) => {
+    const project = join(dir, name)
+    mkdirSync(join(project, 'wiki', 'notes'), {recursive: true})
+    mkdirSync(join(project, 'wiki', 'site'), {recursive: true})
+    writeFileSync(join(project, 'wiki', 'notes', 'index.md'), '# x\n')
+    writeFileSync(join(project, 'awt.config.mjs'), 'export default {}\n')
+    return project
+  }
+  const withAtlas = {...process.env, AWT_CONFIG_DIR: config, PATH: `${bin}:${process.env.PATH}`}
+  const without = {...process.env, AWT_CONFIG_DIR: config, PATH: '/usr/bin:/bin'}
+
+  const dios = awt(['site', 'register'], {cwd: wikiAt('shelton-dios'), env: withAtlas})
+  assert.equal(dios.status, 0, dios.stderr)
+  assert.match(dios.stdout, /registered dios as shelton\/dios \(mount from the atlas, name from the directory name\)/, 'the mount is taken off the front of the name')
+
+  const photo = awt(['site', 'register'], {cwd: wikiAt('photo-cli'), env: withAtlas})
+  assert.match(photo.stdout, /registered photo-cli as shelton\/photo-cli/)
+
+  const alone = awt(['site', 'register'], {cwd: wikiAt('Ghostbusters'), env: without})
+  assert.equal(alone.status, 0, alone.stderr)
+  assert.match(alone.stdout, /registered ghostbusters as ghostbusters\/ghostbusters \(mount from the wiki's own name/, 'with no atlas the wiki is its own mount')
+  assert.ok(existsSync(join(config, 'registry.d', 'shelton.yaml')) && existsSync(join(config, 'registry.d', 'ghostbusters.yaml')))
+  rmSync(dir, {recursive: true, force: true})
+})

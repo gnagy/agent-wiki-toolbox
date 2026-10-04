@@ -327,3 +327,40 @@ test('a machine with no targets file builds exactly as before', () => {
   assert.equal(plan.target, null)
   assert.equal(plan.out, join('/p/site', 'release'))
 })
+
+// ---------------------------------------------- a wiki that does not name itself is named by its registration
+
+/** A registered wiki's site directory, a configuration for it, and the plan for a build of it. */
+function registered() {
+  const cfg = config({'targets.yaml': TARGETS})
+  const site = mkdtempSync(join(tmpdir(), 'awt-machine-reg-'))
+  made.push(site)
+  mkdirSync(join(cfg, 'registry.d'))
+  writeFileSync(join(cfg, 'registry.d', 'shelton.yaml'), `dios:\n  mount: shelton\n  name: dios\n  site: ${site}\n`)
+  const plan = (values, declaration = {}) => planRelease(values, site, declaration, {env: {}, dir: cfg})
+  return {plan, site, cfg}
+}
+
+test('a named target uses the mount and name the machine registered, and the declaration still wins', () => {
+  const {plan} = registered()
+  const named = plan({target: 'local'})
+  assert.equal(named.target.url, 'http://localhost:8088/wikis/shelton/dios')
+  assert.equal(named.registered.key, 'dios', 'and the registration is handed back, for the wiki\'s own prefix')
+
+  assert.equal(plan({target: 'local'}, {mount: 'other', self: 'renamed'}).target.url, 'http://localhost:8088/wikis/other/renamed', 'declared identity beats registered')
+  assert.equal(plan({target: 'local', mount: 'm'}).target.url, 'http://localhost:8088/wikis/m/dios', 'a flag beats both, per field')
+})
+
+test('a base on the command line takes the registration too, and a declared base is left where it was', () => {
+  const {plan} = registered()
+  assert.equal(plan({base: 'https://example.org/docs'}).target.url, 'https://example.org/docs/shelton/dios')
+  const standing = plan({}, {baseUrl: 'wiki.example.org'})
+  assert.equal(standing.target.url, 'https://wiki.example.org', 'a project served at its own base is not moved under a mount by registering it')
+  assert.equal(standing.registered, null)
+})
+
+test('a wiki the machine has not registered gets no identity from it', () => {
+  const cfg = config({'targets.yaml': TARGETS})
+  const plan = (values) => planRelease(values, '/not/registered/site', {}, {env: {}, dir: cfg})
+  assert.match(refusal(() => plan({target: 'local'})), /hosts several wikis, so this one needs a mount/)
+})

@@ -58,7 +58,7 @@ import { requireProjectRoot } from "./project-root.js"
 import { ensureQuartz, quartzDir } from "./bootstrap.js"
 import { readDeclaration } from "./declaration.js"
 import { writeSiteConfig } from "./site-config.js"
-import { machineRegistryFor } from "./machine.js"
+import { loadMachineIfPresent, machineRegistryFor, registeredAt } from "./machine.js"
 import { followNotes, FOLLOWING } from "./follow.js"
 
 /**
@@ -160,7 +160,10 @@ export async function serve(argv = process.argv.slice(2), { reindex } = {}) {
 
   // The config Quartz reads, derived now so it reflects this declaration and
   // this port. It is what the symlink ensureQuartz wired points at.
-  await writeSiteConfig(site, quartz, readDeclaration(values["site-config"], die), {
+  // A wiki that does not name itself is named by its registration on this machine.
+  const declared = readDeclaration(values["site-config"], die)
+  const registered = declared.self ? null : registeredAt(loadMachineIfPresent({ die }) ?? { registry: new Map() }, site)
+  await writeSiteConfig(site, quartz, registered ? { ...declared, self: registered.key } : declared, {
     projectDir: values.project ? path.resolve(values.project) : path.dirname(site),
     port: httpPort,
     serving: true,

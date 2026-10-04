@@ -21,7 +21,7 @@
  * with its own names.
  */
 import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs'
-import {dirname, resolve as resolvePath} from 'node:path'
+import {basename, dirname, resolve as resolvePath} from 'node:path'
 import process from 'node:process'
 import {fileURLToPath} from 'node:url'
 
@@ -1389,7 +1389,9 @@ export const COMMANDS = [
     positionals: 0,
     notes: [
       "Writes this wiki's entry into ~/.config/awt/registry.d/<mount>.yaml: its mount and name (from",
-      "site.mount and site.self, or the flags), the site directory its releases are under, and the",
+      "the flags or site.mount and site.self; else the mount is the project the atlas puts this checkout",
+      "in, or the wiki's own name, and the name is the directory's with the mount taken off the front),",
+      "the site directory its releases are under, and the",
       "address of its running serve with --dev, which needs serve.port. Without --dev a dev server's links",
       "to this wiki go to its release for the default target, which is always up. The key is the link key other wikis write before the",
       'colon, site.self unless --key says otherwise. Comments in the file are kept.',
@@ -1408,19 +1410,36 @@ export const COMMANDS = [
       'dry-run': {type: 'boolean', default: false},
     },
     async run({values}) {
-      const {registerWiki, configDir} = await import('@agent-wiki-toolbox/publish')
+      const {registerWiki, configDir, atlasProject} = await import('@agent-wiki-toolbox/publish')
       const layout = await layoutFor('register', values)
       if (layout === undefined || layout === null) return 2
-      const {config} = await loadProjectConfig(layout.projectDir ?? process.cwd())
+      const projectDir = layout.projectDir ?? process.cwd()
+      const {config} = await loadProjectConfig(projectDir)
       const site = config.site ?? {}
-      const mount = values.mount ?? site.mount
-      const name = values.name ?? site.self
-      if (!mount || !name) {
-        process.stderr.write(
-          `awt site register: ${!mount ? 'no mount' : 'no name'} for this wiki: declare site.${!mount ? 'mount' : 'self'} in awt.config.mjs or pass --${!mount ? 'mount' : 'name'}.\n`,
-        )
-        return 2
+
+      // The mount is the flag, the declaration, the project the atlas puts this checkout in, or the
+      // wiki's own name. The name is the flag, the declaration, or the directory's name with the mount
+      // taken off the front (shelton-dios under shelton is dios). Each says where it came from.
+      const slug = (text) => text.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+|[-.]+$/g, '')
+      const directory = slug(basename(projectDir))
+      let mount = values.mount ?? site.mount
+      let mountFrom = values.mount ? '--mount' : site.mount ? 'site.mount' : null
+      if (!mount) {
+        mount = atlasProject(projectDir) ?? undefined
+        if (mount) mountFrom = 'the atlas'
       }
+      let name = values.name ?? site.self
+      let nameFrom = values.name ? '--name' : site.self ? 'site.self' : null
+      if (!name) {
+        const stripped = mount && directory.startsWith(`${mount}-`) ? directory.slice(mount.length + 1) : directory
+        name = stripped || directory
+        nameFrom = 'the directory name'
+      }
+      if (!mount) {
+        mount = name
+        mountFrom = 'the wiki\'s own name'
+      }
+      const sources = {mount: mountFrom, name: nameFrom}
       const port = config.serve?.port
       if (values.dev && port === undefined) {
         process.stderr.write('awt site register: --dev records the address of this wiki\'s serve, and serve.port is not set in awt.config.mjs.\n')
@@ -1433,11 +1452,12 @@ export const COMMANDS = [
           force: values.force,
           dryRun: values['dry-run'],
         })
-        emit(values, {ok: true, key: values.key ?? site.self ?? name, ...result, dir: configDir()}, (value) =>
-          value.changed
-            ? `${value.dryRun ? 'would have ' : ''}${value.created ? 'created ' : 'updated '}${value.file}\n${value.dryRun ? 'would register' : 'registered'} ${value.key} as ${mount}/${name}`
-            : `${value.key} is already registered as ${mount}/${name}, unchanged`,
-        )
+        emit(values, {ok: true, key: values.key ?? site.self ?? name, ...result, sources, dir: configDir()}, (value) => {
+          const from = `(mount from ${sources.mount}, name from ${sources.name})`
+          return value.changed
+            ? `${value.dryRun ? 'would have ' : ''}${value.created ? 'created ' : 'updated '}${value.file}\n${value.dryRun ? 'would register' : 'registered'} ${value.key} as ${mount}/${name} ${from}`
+            : `${value.key} is already registered as ${mount}/${name}, unchanged ${from}`
+        })
         return 0
       } catch (error) {
         process.stderr.write(`awt site register: ${error.message}\n`)

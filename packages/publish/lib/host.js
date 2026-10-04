@@ -68,6 +68,13 @@ export function planHost({ machine, targetName, dir, port }) {
       wikis.push({ ...base, state: "skipped", reason: "it has no site directory to serve releases from" })
       continue
     }
+    // Docker creates a bind mount's source when it is missing, on the host, inside whatever project
+    // the path is in. A wiki that has never had `awt site setup` run has no site directory, and is
+    // listed with the way to give it one.
+    if (!nodeFs.existsSync(entry.site)) {
+      wikis.push({ ...base, state: "skipped", reason: `its site directory ${entry.site} does not exist; run awt site setup in it` })
+      continue
+    }
     const address = addressOf(entry, target)
     const found = releaseFor(entry, target, address)
     const inside = found ? path.relative(entry.site, found) : path.join("releases", target.slug)

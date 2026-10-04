@@ -68,7 +68,7 @@ import { DEFAULT_PORT } from "./serve.js"
 import { readDeclaration } from "./declaration.js"
 import { DERIVED_CONFIG, writeSiteConfig } from "./site-config.js"
 import { compareRecord, releaseRecord, resolveTarget, retargetScheme } from "./target.js"
-import { configDir, loadMachine, machineRegistryFor, readDefaultTarget } from "./machine.js"
+import { configDir, loadMachine, loadMachineIfPresent, machineRegistryFor, readDefaultTarget, registeredAt } from "./machine.js"
 
 /** The toolbox root: packages/publish/lib -> packages/publish -> packages -> root. */
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
@@ -613,6 +613,13 @@ export function planRelease(values, site, declaration, { env = process.env, dir 
     name = env.AWT_TARGET || declaration.target || readDefaultTarget(dir) || undefined
   }
 
+  // A wiki that declares no mount and name still has them if this machine registered it. That is
+  // only for a target the machine names or a base given on the command line: a project that
+  // declares its own base is served at it, and a registration must not move it under a mount.
+  const registered = name !== undefined || values.base !== undefined ? registeredAt(loadMachineIfPresent({ dir, die }) ?? { registry: new Map() }, site) : null
+  const mount = values.mount ?? declaration.mount ?? registered?.mount
+  const wikiName = values.name ?? (mount ? (declaration.self ?? registered?.name) : undefined)
+
   let target
   if (name !== undefined) {
     const machine = loadMachine({ dir, die })
@@ -623,20 +630,20 @@ export function planRelease(values, site, declaration, { env = process.env, dir 
           (machine.targets.size ? `; it has ${[...machine.targets.keys()].join(", ")}.` : ", which defines none."),
       )
     }
-    target = resolveTarget({ base: named.base, mount: values.mount, name: values.name }, declaration, die)
+    target = resolveTarget({ base: named.base, mount, name: wikiName }, declaration, die)
     if (!target.mount) {
       die(`target "${name}" hosts several wikis, so this one needs a mount under it: declare site.mount or pass --mount.`)
     }
     target.targetName = name
   } else {
-    target = resolveTarget({ base: values.base, mount: values.mount, name: values.name }, declaration, die)
+    target = resolveTarget({ base: values.base, mount: registered ? mount : values.mount, name: registered ? wikiName : values.name }, declaration, die)
   }
 
   const explicit = name !== undefined || values.base !== undefined || values.mount !== undefined || values.name !== undefined
   const out = values.out
     ? path.resolve(values.out)
     : path.join(site, values.offline ? "handoff" : explicit && target ? path.join("releases", target.slug) : "release")
-  return { target, out }
+  return { target, out, registered }
 }
 
 /** The release directory as the registry names it: relative to the site, with a leading `./`. */
@@ -749,7 +756,7 @@ export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
   if (values.offline && (values.base !== undefined || values.mount !== undefined || values.name !== undefined || values.target !== undefined)) {
     die("--offline builds a copy that opens from disk and has no address; --base, --mount, --name and --target do not apply to it.")
   }
-  const { target, out } = planRelease(values, site, declaration)
+  const { target, out, registered } = planRelease(values, site, declaration)
 
   for (const [label, p] of [
     ["wiki", wiki],
@@ -793,7 +800,10 @@ export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
   say(`wiki: ${wiki}\nsite: ${site}\n${values.offline ? "handoff" : "release"}: ${out}${target ? `\ntarget: ${target.url}/` : ""}`)
   // The config Quartz reads, derived for a publish build: cross-wiki links to
   // published bases, the declared host as the base URL.
-  const derived = await writeSiteConfig(site, quartz, declaration, {
+  // A wiki that does not name itself is named by its registration, so a reference to its own prefix
+  // is still an ordinary link and not a trip out to its own site.
+  const named = declaration.self || !registered || !target?.mount ? declaration : { ...declaration, self: registered.key }
+  const derived = await writeSiteConfig(site, quartz, named, {
     projectDir: values.project ? path.resolve(values.project) : path.dirname(site),
     port: Number(values.configPort) || DEFAULT_PORT,
     serving: false,
