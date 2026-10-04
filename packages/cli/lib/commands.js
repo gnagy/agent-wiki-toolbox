@@ -1260,7 +1260,7 @@ export const COMMANDS = [
     section: 'Publish',
     summary: 'Build the site into a release, or a handoff copy with --offline. Emits the index first',
     usage:
-      'awt site publish [--base url] [--mount name] [--name name] [--out path]\n' +
+      'awt site publish [--base url] [--mount name] [--name name] [--out path] [--watch]\n' +
       '                 [--offline] [--diagrams png|none] [--nginx] [--skip-index]',
     positionals: 0,
     notes: [
@@ -1276,6 +1276,12 @@ export const COMMANDS = [
       'of site/release, so two bases built from one checkout do not overwrite each other, and the',
       'release records its address in static/awtRelease.json for `awt site verify`.',
       '',
+      '--watch keeps the build running, for editing a wiki whose release is being read: each save is',
+      'rebuilt in about half a second and swapped into the release, which is the same release a',
+      'one-shot publish makes, for the same target. A failed rebuild leaves the last release in place.',
+      'It writes no dev links and starts no server; put a static server in front of the release.',
+      'It runs until stopped, and keeps the release that stood before it as .release-prev.',
+      '',
       '--offline builds a handoff copy into site/handoff instead: browser-only plugins off, every',
       'link rewritten to a .html file, every script removed. It opens from index.html with no server.',
       '',
@@ -1289,6 +1295,7 @@ export const COMMANDS = [
       ...TARGET_OPTIONS,
       out: {type: 'string'},
       offline: {type: 'boolean', default: false},
+      watch: {type: 'boolean', default: false},
       diagrams: {type: 'string'},
       nginx: {type: 'boolean', default: false},
       'skip-index': {type: 'boolean', default: false},
@@ -1305,6 +1312,16 @@ export const COMMANDS = [
       // `format`, which owns the layout, so its own walk is the legacy one.
       const layout = await layoutFor('publish', values)
       if (layout === undefined) return 2
+
+      // Kept current for as long as the build runs, --skip-index or not, as `serve` does: that flag
+      // skips the emit before the start, and the first edit would make any index stale all the same.
+      const wiki = values.wiki ? resolvePath(values.wiki) : layout.notesDir
+      const indexFile = resolvePath(values.site ? resolvePath(values.site) : layout.siteDir, '.awt-index.json')
+      const reindex = () => {
+        const {resources} = writeSiteIndex(wiki, indexFile)
+        process.stdout.write(`index: re-emitted, ${resources.length} notes\n`)
+      }
+
       return publish([
         '--wiki',
         values.wiki ?? layout.notesDir,
@@ -1315,11 +1332,12 @@ export const COMMANDS = [
         ...(values.mount ? ['--mount', values.mount] : []),
         ...(values.name ? ['--name', values.name] : []),
         ...(values.offline ? ['--offline'] : []),
+        ...(values.watch ? ['--watch'] : []),
         ...(values.diagrams ? ['--diagrams', values.diagrams] : []),
         ...(values.nginx ? ['--nginx'] : []),
         ...(values.json ? ['--json'] : []),
         ...(await siteArgs(layout)),
-      ])
+      ], {reindex})
     },
   },
   {

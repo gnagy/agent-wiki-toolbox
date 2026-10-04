@@ -88,6 +88,10 @@ awt site serve                   # emit the index and the config, then Quartz's 
 awt site proxy                   # several wikis behind one port, each at /<prefix>/
 awt site proxy --install         # …as a user service: launchd, systemd or a logon task
 awt site publish                 # build, then swap into wiki/site/release
+awt site publish --base http://localhost:8088/wikis --mount shelton --name dios
+                                 # …for one address: <base>/<mount>/<name>/, into site/releases/<base>
+awt site publish --watch         # keep the release current while you edit: a save is live in about a second
+awt site verify                  # does the release carry the address this project says it is built for?
 awt site index                   # just the artifact the Quartz plugin reads
 awt site migrate                 # lift a tracked quartz.config.yaml into awt.config.mjs
 ```
@@ -103,7 +107,8 @@ site: {
   title: 'DIOS wiki',                // the page title
   self: 'shelton-dios',              // this wiki's cross-wiki prefix; its registry entry is derived
   registry: {'shelton-dios-data': {dev: 'http://localhost:8102', buildIndex: '../../…/contentIndex.json'}},
-  baseUrl: 'wiki.example.org',       // the published host; localhost:<port> when serving
+  baseUrl: 'wiki.example.org',       // the base a release is served from: a host and path, https unless a scheme is written
+  mount: 'shelton',                  // with baseUrl, serves the release at <baseUrl>/<mount>/<self>/
   properties: ['type', 'status'],    // front-matter fields shown on a page
   footer: {GitHub: 'https://…'},     // footer links
   plugins: [{source: './plugins/mine', options: {}, order: 70}],   // extra Quartz plugins, passed through

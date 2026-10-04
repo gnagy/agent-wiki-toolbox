@@ -610,7 +610,7 @@ function releaseDirIn(site, out) {
 }
 
 /** Rewrite the scheme of the target's address in the sitemap, the feed and every page's meta tags. */
-function applyScheme(root, target) {
+export function applyScheme(root, target) {
   if (!target || target.scheme !== "http") return 0
   let changed = 0
   const walk = (d) => {
@@ -652,7 +652,11 @@ the links and the trail at the top of each page to move around.
 `
 }
 
-export async function publish(argv = process.argv.slice(2)) {
+/**
+ * `reindex`, when given, re-emits the link index; `--watch` calls it after each burst of changes to
+ * the notes, as `awt site serve` does. Without it the index is whatever was emitted before the start.
+ */
+export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
   let parsed
   try {
     parsed = parseArgs({
@@ -667,6 +671,7 @@ export async function publish(argv = process.argv.slice(2)) {
         mount: { type: "string" },
         name: { type: "string" },
         offline: { type: "boolean", default: false },
+        watch: { type: "boolean", default: false },
         diagrams: { type: "string" },
         nginx: { type: "boolean", default: false },
         json: { type: "boolean", default: false },
@@ -695,6 +700,15 @@ export async function publish(argv = process.argv.slice(2)) {
   // `release` is not a name this tool is free to change: other wikis' registries
   // name `…/site/release/static/contentIndex.json` by path in their own configs.
   const declaration = readDeclaration(values["site-config"], die)
+  if (values.watch) {
+    for (const [flag, why] of [
+      ["offline", "a handoff copy is built once and opens from disk"],
+      ["nginx", "it prints a server block and builds nothing"],
+      ["json", "a resident build streams its progress and has no single result to report"],
+    ]) {
+      if (values[flag]) die(`--watch and --${flag} do not go together: ${why}.`)
+    }
+  }
   if (values.offline && (values.base !== undefined || values.mount !== undefined || values.name !== undefined)) {
     die("--offline builds a copy that opens from disk and has no address; --base, --mount and --name do not apply to it.")
   }
@@ -753,6 +767,13 @@ export async function publish(argv = process.argv.slice(2)) {
   say(`config: ${DERIVED_CONFIG} (${derived.own ? "from this project's own quartz.config.yaml" : "derived"})`)
   const configName = values.offline ? await offlineConfig(site, quartz, derived.config) : null
   say()
+
+  if (values.watch) {
+    // Resident: Quartz keeps every parsed note, rebuilds the one that changed, and each finished
+    // build is swapped into the release. Nothing below runs; it is the one-shot path.
+    const { hotPublish } = await import("./hot.js")
+    return hotPublish({ quartz, wiki, out, target, applyScheme, swap, recordPath: RELEASE_RECORD, say, reindex })
+  }
 
   const staging = path.join(path.dirname(out), `.${path.basename(out)}-staging`)
   const prev = path.join(path.dirname(out), `.${path.basename(out)}-prev`)
