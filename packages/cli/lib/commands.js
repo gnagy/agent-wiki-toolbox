@@ -173,6 +173,9 @@ export const RENAMED_FLAGS = {
 const WORKSPACE_OPTION = {workspace: {type: 'string', short: 'w'}}
 const OUTPUT_OPTIONS = {json: {type: 'boolean', default: false}}
 const SITE_OPTIONS = {wiki: {type: 'string'}, site: {type: 'string'}}
+// The address a release is built for. `--wiki` is taken by the notes to render, so the wiki's
+// own name under its mount is `--name`.
+const TARGET_OPTIONS = {base: {type: 'string'}, mount: {type: 'string'}, name: {type: 'string'}}
 
 /**
  * The one group. A group is a namespace, not an alias — `awt serve` is gone, not
@@ -1257,13 +1260,21 @@ export const COMMANDS = [
     section: 'Publish',
     summary: 'Build the site into a release, or a handoff copy with --offline. Emits the index first',
     usage:
-      'awt site publish [--out path] [--offline] [--diagrams png|none]\n' +
-      '                 [--nginx] [--skip-index]',
+      'awt site publish [--base url] [--mount name] [--name name] [--out path]\n' +
+      '                 [--offline] [--diagrams png|none] [--nginx] [--skip-index]',
     positionals: 0,
     notes: [
       'Builds without --serve, so cross-wiki links resolve to published URLs, into a staging',
       'directory, then renames it into place. A failed build leaves the standing release untouched.',
       'The release it replaces is kept as .release-prev; a rollback is a rename.',
+      '',
+      'The release is built for one address: a base, a mount and the wiki\'s name under it, served',
+      'at <base>/<mount>/<name>/. They come from --base, --mount and --name, else from site.baseUrl,',
+      'site.mount and site.self in awt.config.mjs. A base may carry a scheme and a path',
+      '(http://localhost:8088/wikis); with no scheme it is https. A project with a base and no mount',
+      'is served at the base itself. Any of the three flags builds into site/releases/<base> instead',
+      'of site/release, so two bases built from one checkout do not overwrite each other, and the',
+      'release records its address in static/awtRelease.json for `awt site verify`.',
       '',
       '--offline builds a handoff copy into site/handoff instead: browser-only plugins off, every',
       'link rewritten to a .html file, every script removed. It opens from index.html with no server.',
@@ -1275,6 +1286,7 @@ export const COMMANDS = [
     ],
     options: {
       ...OUTPUT_OPTIONS,
+      ...TARGET_OPTIONS,
       out: {type: 'string'},
       offline: {type: 'boolean', default: false},
       diagrams: {type: 'string'},
@@ -1299,9 +1311,45 @@ export const COMMANDS = [
         '--site',
         values.site ?? layout.siteDir,
         ...(values.out ? ['--out', values.out] : []),
+        ...(values.base ? ['--base', values.base] : []),
+        ...(values.mount ? ['--mount', values.mount] : []),
+        ...(values.name ? ['--name', values.name] : []),
         ...(values.offline ? ['--offline'] : []),
         ...(values.diagrams ? ['--diagrams', values.diagrams] : []),
         ...(values.nginx ? ['--nginx'] : []),
+        ...(values.json ? ['--json'] : []),
+        ...(await siteArgs(layout)),
+      ])
+    },
+  },
+  {
+    name: 'verify',
+    group: 'site',
+    section: 'Publish',
+    summary: 'Check that a release carries the address its project says it is built for',
+    usage: 'awt site verify [--base url] [--mount name] [--name name] [--out path]',
+    positionals: 0,
+    notes: [
+      'Reads static/awtRelease.json from the release, site/release or the one a flag names, and',
+      'compares its address with the target the flags and awt.config.mjs describe. Builds nothing.',
+      'Exits 0 when they match, 1 when they differ or the release carries no record.',
+    ],
+    options: {
+      ...OUTPUT_OPTIONS,
+      ...TARGET_OPTIONS,
+      out: {type: 'string'},
+    },
+    async run({values}) {
+      const {verifyRelease} = await import('@agent-wiki-toolbox/publish')
+      const layout = await layoutFor('verify', values)
+      if (layout === undefined) return 2
+      return verifyRelease([
+        '--site',
+        values.site ?? layout.siteDir,
+        ...(values.out ? ['--out', values.out] : []),
+        ...(values.base ? ['--base', values.base] : []),
+        ...(values.mount ? ['--mount', values.mount] : []),
+        ...(values.name ? ['--name', values.name] : []),
         ...(values.json ? ['--json'] : []),
         ...(await siteArgs(layout)),
       ])

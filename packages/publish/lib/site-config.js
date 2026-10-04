@@ -78,7 +78,7 @@ export const PROJECT_CONFIG = "quartz.config.yaml"
 const PLUGIN_ORDER = 61
 
 /** The keys a declaration may carry. Anything else is a typo worth one line. */
-const DECLARATION_KEYS = ["title", "self", "registry", "baseUrl", "properties", "footer", "plugins"]
+const DECLARATION_KEYS = ["title", "self", "registry", "baseUrl", "mount", "properties", "footer", "plugins"]
 
 /** The `../awt-*` sources of the four plugins this one replaced. */
 const OLD_SOURCES = /^\.\.\/awt-(links|cross-wiki|headings|folder-notes)$/
@@ -167,13 +167,18 @@ function absoluteSource(source, projectDir) {
  * base is the port, the published base is the declared host, and both indexes
  * sit at fixed names under the site.
  */
-function pluginEntry(declaration, { port, baseUrl, serving }) {
+function pluginEntry(declaration, { port, baseUrl, serving, target, releaseDir }) {
   const registry = { ...(declaration.registry ?? {}) }
   if (declaration.self && !registry[declaration.self]) {
     registry[declaration.self] = {
       dev: `http://localhost:${port}`,
       buildIndex: "./public/static/contentIndex.json",
-      ...(baseUrl ? { published: `https://${baseUrl}`, publishedIndex: "./release/static/contentIndex.json" } : {}),
+      ...(baseUrl
+        ? {
+            published: target?.url ?? `https://${baseUrl}`,
+            publishedIndex: `${releaseDir ?? "./release"}/static/contentIndex.json`,
+          }
+        : {}),
     }
   }
   return {
@@ -199,13 +204,15 @@ function pluginEntry(declaration, { port, baseUrl, serving }) {
  *   projectDir    where a declared relative plugin source is resolved from
  *   port          the dev server's port, for the localhost base URL
  *   serving       dev server (true) or publish build (false)
+ *   target        the address a publish build is for (see target.js), or null
+ *   releaseDir    where that build lands, relative to the site, as `./release`
  *   warn          where a line about an unknown key goes
  */
 export async function deriveSiteConfig(
   site,
   quartz,
   declaration = {},
-  { projectDir = path.dirname(site), port, serving = true, die, warn = (m) => console.warn(m) } = {},
+  { projectDir = path.dirname(site), port, serving = true, target = null, releaseDir, die, warn = (m) => console.warn(m) } = {},
 ) {
   const { parse } = await loadFromQuartz(quartz, "yaml", die)
 
@@ -219,7 +226,9 @@ export async function deriveSiteConfig(
   config.configuration ??= {}
   config.plugins ??= []
 
-  const baseUrl = declaration.baseUrl ?? null
+  // What Quartz is told its base is: the target's address when there is one, else the
+  // declared host, which is the target a project without a mount has always had.
+  const baseUrl = target?.hostPath ?? declaration.baseUrl ?? null
   if (!own) {
     config.configuration.pageTitle = declaration.title ?? "wiki"
     config.configuration.baseUrl = serving || !baseUrl ? `localhost:${port}` : baseUrl
@@ -237,7 +246,7 @@ export async function deriveSiteConfig(
   // The toolbox's entry, whichever base was taken. A project file carrying one
   // already (a hand-wired install, say) keeps its own.
   if (!findEntry(config, (source) => source === PLUGIN_SOURCE || source.split("/").pop() === "awt")) {
-    config.plugins.push(pluginEntry(declaration, { port, baseUrl, serving }))
+    config.plugins.push(pluginEntry(declaration, { port, baseUrl, serving, target, releaseDir }))
   }
 
   // Declared plugins: replace by source, else append.

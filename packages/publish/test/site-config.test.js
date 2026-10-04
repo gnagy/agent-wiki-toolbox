@@ -144,6 +144,30 @@ test('the plugin is told which build it is deriving for, so it does not have to 
   assert.equal(optionsOf(published).target, 'published')
 })
 
+test('a target sets the base Quartz is told and the address the wiki publishes its own index under', async () => {
+  const site = tmp()
+  const target = {url: 'http://localhost:8088/wikis/shelton/dios', hostPath: 'localhost:8088/wikis/shelton/dios'}
+  const derived = await deriveSiteConfig(site, fakeQuartz(), {self: 'dios'}, {
+    port: 8101,
+    serving: false,
+    target,
+    releaseDir: './releases/localhost-8088-wikis',
+    die,
+  })
+  assert.equal(derived.config.configuration.baseUrl, 'localhost:8088/wikis/shelton/dios')
+  const entry = derived.config.plugins.find((one) => one.source === PLUGIN_SOURCE).options.registry.dios
+  assert.equal(entry.published, 'http://localhost:8088/wikis/shelton/dios', 'the scheme the target carries, not an assumed https')
+  assert.equal(entry.publishedIndex, './releases/localhost-8088-wikis/static/contentIndex.json')
+
+  const served = await deriveSiteConfig(site, fakeQuartz(), {self: 'dios'}, {port: 8101, serving: true, target, die})
+  assert.equal(served.config.configuration.baseUrl, 'localhost:8101', 'a dev server is still the localhost port')
+
+  const legacy = await deriveSiteConfig(site, fakeQuartz(), {self: 'dios', baseUrl: 'wiki.example.org'}, {port: 8101, serving: false, die})
+  const kept = legacy.config.plugins.find((one) => one.source === PLUGIN_SOURCE).options.registry.dios
+  assert.equal(kept.published, 'https://wiki.example.org', 'a declared host with no target is what it was')
+  assert.equal(kept.publishedIndex, './release/static/contentIndex.json')
+})
+
 test('a declared plugin is appended with a local source made absolute, or replaces one by source', async () => {
   const site = tmp()
   const project = tmp()

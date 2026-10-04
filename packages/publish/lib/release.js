@@ -67,6 +67,7 @@ import { quartzDir } from "./bootstrap.js"
 import { DEFAULT_PORT } from "./serve.js"
 import { readDeclaration } from "./declaration.js"
 import { DERIVED_CONFIG, writeSiteConfig } from "./site-config.js"
+import { compareRecord, releaseRecord, resolveTarget, retargetScheme } from "./target.js"
 
 /** The toolbox root: packages/publish/lib -> packages/publish -> packages -> root. */
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
@@ -147,7 +148,9 @@ function mb(bytes) {
  * clicks and a crawler always does, so a localhost value here fails silently and
  * only off-site. Read from the derived config, which is what the build used.
  */
-function checkBaseUrl(config) {
+function checkBaseUrl(config, target) {
+  // A target named on the command line or in the declaration is a deliberate address, local or not.
+  if (target) return
   const value = String(config?.configuration?.baseUrl ?? "").trim()
   if (!value || value === "null" || /^(https?:\/\/)?(localhost|127\.0\.0\.1)\b/.test(value)) {
     say(
@@ -580,6 +583,54 @@ export function verifyFileUrls(root) {
   return { total, bad }
 }
 
+/** Where a release is recorded in its own output, read back by `verify` and the server config. */
+export const RELEASE_RECORD = path.join("static", "awtRelease.json")
+
+/**
+ * The target a build is for and where it lands, from the flags and the declaration.
+ *
+ * A target named only by the declaration is the project's standing one and lands in
+ * `site/release`, which other wikis' registries name by path. Any flag makes the build for
+ * an explicit target, and an explicit target lands in `site/releases/<base>`, so two bases
+ * built from one checkout do not overwrite each other.
+ */
+export function planRelease(values, site, declaration) {
+  const target = resolveTarget({ base: values.base, mount: values.mount, name: values.name }, declaration, die)
+  const explicit = values.base !== undefined || values.mount !== undefined || values.name !== undefined
+  const out = values.out
+    ? path.resolve(values.out)
+    : path.join(site, values.offline ? "handoff" : explicit && target ? path.join("releases", target.slug) : "release")
+  return { target, out }
+}
+
+/** The release directory as the registry names it: relative to the site, with a leading `./`. */
+function releaseDirIn(site, out) {
+  const rel = path.relative(site, out).split(path.sep).join("/")
+  return rel.startsWith(".") ? rel : `./${rel}`
+}
+
+/** Rewrite the scheme of the target's address in the sitemap, the feed and every page's meta tags. */
+function applyScheme(root, target) {
+  if (!target || target.scheme !== "http") return 0
+  let changed = 0
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name)
+      if (e.isDirectory()) walk(f)
+      else if (f.endsWith(".html") || f.endsWith(".xml")) {
+        const before = fs.readFileSync(f, "utf8")
+        const after = retargetScheme(before, target)
+        if (after !== before) {
+          fs.writeFileSync(f, after)
+          changed++
+        }
+      }
+    }
+  }
+  walk(root)
+  return changed
+}
+
 /**
  * A note for the person receiving the folder, who did not ask for any of this.
  * The zip warning is not hypothetical: Windows lets you browse a zip in place
@@ -612,6 +663,9 @@ export async function publish(argv = process.argv.slice(2)) {
         wiki: { type: "string" },
         site: { type: "string" },
         out: { type: "string" },
+        base: { type: "string" },
+        mount: { type: "string" },
+        name: { type: "string" },
         offline: { type: "boolean", default: false },
         diagrams: { type: "string" },
         nginx: { type: "boolean", default: false },
@@ -640,9 +694,11 @@ export async function publish(argv = process.argv.slice(2)) {
   const site = values.site ? path.resolve(values.site) : path.join(root, "site")
   // `release` is not a name this tool is free to change: other wikis' registries
   // name `…/site/release/static/contentIndex.json` by path in their own configs.
-  const out = values.out
-    ? path.resolve(values.out)
-    : path.join(site, values.offline ? "handoff" : "release")
+  const declaration = readDeclaration(values["site-config"], die)
+  if (values.offline && (values.base !== undefined || values.mount !== undefined || values.name !== undefined)) {
+    die("--offline builds a copy that opens from disk and has no address; --base, --mount and --name do not apply to it.")
+  }
+  const { target, out } = planRelease(values, site, declaration)
 
   for (const [label, p] of [
     ["wiki", wiki],
@@ -683,13 +739,15 @@ export async function publish(argv = process.argv.slice(2)) {
   }
   assertCanonicalConfig(quartz)
 
-  say(`wiki: ${wiki}\nsite: ${site}\n${values.offline ? "handoff" : "release"}: ${out}`)
+  say(`wiki: ${wiki}\nsite: ${site}\n${values.offline ? "handoff" : "release"}: ${out}${target ? `\ntarget: ${target.url}/` : ""}`)
   // The config Quartz reads, derived for a publish build: cross-wiki links to
   // published bases, the declared host as the base URL.
-  const derived = await writeSiteConfig(site, quartz, readDeclaration(values["site-config"], die), {
+  const derived = await writeSiteConfig(site, quartz, declaration, {
     projectDir: values.project ? path.resolve(values.project) : path.dirname(site),
     port: Number(values.configPort) || DEFAULT_PORT,
     serving: false,
+    target,
+    releaseDir: releaseDirIn(site, out),
     die,
   })
   say(`config: ${DERIVED_CONFIG} (${derived.own ? "from this project's own quartz.config.yaml" : "derived"})`)
@@ -767,10 +825,17 @@ export async function publish(argv = process.argv.slice(2)) {
     fs.writeFileSync(path.join(staging, "README.txt"), handoffReadme(siteTitle(derived.config)))
   }
 
+  if (!values.offline) {
+    const retargeted = applyScheme(staging, target)
+    if (retargeted) say(`  ${retargeted} files had https:// rewritten to http:// for the target`)
+    fs.writeFileSync(path.join(staging, RELEASE_RECORD), `${JSON.stringify(releaseRecord(target), null, 1)}\n`)
+  }
+
   const replaced = swap(staging, out, prev)
   const summary = {
     ok: true,
     mode: values.offline ? "handoff" : "release",
+    target: target?.url ?? null,
     wiki,
     site,
     out,
@@ -793,7 +858,7 @@ export async function publish(argv = process.argv.slice(2)) {
     return 0
   }
 
-  checkBaseUrl(derived.config)
+  checkBaseUrl(derived.config, target)
   say(
     "\nServe it with any static host that tries $uri.html before 404:\n" +
       "    try_files $uri $uri.html $uri/index.html =404;\n" +
@@ -804,4 +869,59 @@ export async function publish(argv = process.argv.slice(2)) {
   )
   report(summary)
   return 0
+}
+
+/**
+ * `awt site verify`: does the release standing at `out` carry the address this project's
+ * target says it should? Nothing is built. A release with no record is a different answer
+ * from one with the wrong record, since it predates targets or was not made by publish.
+ */
+export function verifyRelease(argv = process.argv.slice(2)) {
+  let parsed
+  try {
+    parsed = parseArgs({
+      args: argv,
+      options: {
+        wiki: { type: "string" },
+        site: { type: "string" },
+        out: { type: "string" },
+        base: { type: "string" },
+        mount: { type: "string" },
+        name: { type: "string" },
+        json: { type: "boolean", default: false },
+        "site-config": { type: "string" },
+        project: { type: "string" },
+        configPort: { type: "string" },
+      },
+    })
+  } catch (e) {
+    die(String(e.message))
+  }
+  const { values } = parsed
+  const root = values.site ? null : requireProjectRoot(die)
+  const site = values.site ? path.resolve(values.site) : path.join(root, "site")
+  const { target, out } = planRelease(values, site, readDeclaration(values["site-config"], die))
+
+  const file = path.join(out, RELEASE_RECORD)
+  let record = null
+  if (fs.existsSync(file)) {
+    try {
+      record = JSON.parse(fs.readFileSync(file, "utf8"))
+    } catch {
+      die(`${show(file)} is not JSON; the release was not written by awt site publish, or was damaged.`)
+    }
+  } else if (!fs.existsSync(out)) {
+    die(`no release at ${show(out)}; run awt site publish for this target first.`)
+  }
+
+  const result = compareRecord(record, target)
+  const messages = {
+    match: `${show(out)} was built for ${result.recorded}/, the target this project names.`,
+    "no-target": `${show(out)} was built for ${result.recorded ?? "no address"}/; this project names no target to compare it with.`,
+    "no-record": `${show(out)} has no ${RELEASE_RECORD}: it predates targets, or was not made by awt site publish.`,
+    mismatch: `${show(out)} was built for ${result.recorded}/ but this project's target is ${result.expected}/.\nRepublish for the target: awt site publish.`,
+  }
+  if (values.json) process.stdout.write(`${JSON.stringify({ ...result, out }, null, 1)}\n`)
+  else say(messages[result.reason])
+  return result.ok ? 0 : 1
 }
