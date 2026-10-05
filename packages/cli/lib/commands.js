@@ -555,7 +555,10 @@ async function emitIndexForSite(command, values) {
   if (layout === undefined) return {code: 2}
   const wiki = values.wiki ? resolvePath(values.wiki) : layout.notesDir
   const site = values.site ? resolvePath(values.site) : layout.siteDir
-  const out = resolvePath(site, '.awt-index.json')
+  // The first thing written into build/, so it is made here, with the file that ignores it.
+  const {INDEX, ensureBuildDir} = await import('@agent-wiki-toolbox/publish')
+  ensureBuildDir(site)
+  const out = resolvePath(site, INDEX)
   const workspace = writeSiteIndex(wiki, out)
   const summary = indexSummary(workspace, out)
   // Publish and serve emit the index before they run, so this line is a step in
@@ -1267,7 +1270,7 @@ export const COMMANDS = [
     notes: [
       'Builds without --serve, so cross-wiki links resolve to published URLs, into a staging',
       'directory, then renames it into place. A failed build leaves the standing release untouched.',
-      'The release it replaces is kept as .release-prev; a rollback is a rename.',
+      'The published site it replaces is kept as a hidden -prev beside it; a rollback is a rename.',
       '',
       'The release is built for one address: a base, a mount and the wiki\'s name under it, served',
       'at <base>/<mount>/<name>/. They come from --base, --mount and --name, else from site.baseUrl,',
@@ -1276,17 +1279,17 @@ export const COMMANDS = [
       'is served at the base itself. --target names one of the deployments in ~/.config/awt/targets.yaml',
       'for the base instead, and with no base anywhere the target is $AWT_TARGET, site.target or the',
       'machine\'s default-target; a named target hosts several wikis, so the wiki needs a mount. Any of',
-      'these flags builds into site/releases/<base> instead',
-      'of site/release, so two bases built from one checkout do not overwrite each other, and the',
-      'release records its address in static/awtRelease.json for `awt site verify`.',
+      'these flags changes where the base is read from, and each target is built into',
+      'build/published/<base>, so two bases built from one checkout do not overwrite each other. The',
+      'published site records its address in static/awtRelease.json for `awt site verify`.',
       '',
       '--watch keeps the build running, for editing a wiki whose release is being read: each save is',
       'rebuilt in about half a second and swapped into the release, which is the same release a',
       'one-shot publish makes, for the same target. A failed rebuild leaves the last release in place.',
       'It writes no dev links and starts no server; put a static server in front of the release.',
-      'It runs until stopped, and keeps the release that stood before it as .release-prev.',
+      'It runs until stopped, and keeps the published site that stood before it as a hidden -prev beside it.',
       '',
-      '--offline builds a handoff copy into site/handoff instead: browser-only plugins off, every',
+      '--offline builds a handoff copy into build/handoff instead: browser-only plugins off, every',
       'link rewritten to a .html file, every script removed. It opens from index.html with no server.',
       '',
       'Mermaid diagrams are pre-rendered to PNG for --offline; --diagrams none leaves them as source',
@@ -1305,7 +1308,7 @@ export const COMMANDS = [
       'skip-index': {type: 'boolean', default: false},
     },
     async run({values}) {
-      const {publish} = await import('@agent-wiki-toolbox/publish')
+      const {publish, INDEX} = await import('@agent-wiki-toolbox/publish')
 
       if (!values.nginx && !values['skip-index']) {
         const {code} = await emitIndexForSite('publish', values)
@@ -1320,7 +1323,7 @@ export const COMMANDS = [
       // Kept current for as long as the build runs, --skip-index or not, as `serve` does: that flag
       // skips the emit before the start, and the first edit would make any index stale all the same.
       const wiki = values.wiki ? resolvePath(values.wiki) : layout.notesDir
-      const indexFile = resolvePath(values.site ? resolvePath(values.site) : layout.siteDir, '.awt-index.json')
+      const indexFile = resolvePath(values.site ? resolvePath(values.site) : layout.siteDir, INDEX)
       const reindex = () => {
         const {resources} = writeSiteIndex(wiki, indexFile)
         process.stdout.write(`index: re-emitted, ${resources.length} notes\n`)
@@ -1353,7 +1356,7 @@ export const COMMANDS = [
     usage: 'awt site verify [--target name | --base url] [--mount name] [--name name] [--out path]',
     positionals: 0,
     notes: [
-      'Reads static/awtRelease.json from the release, site/release or the one a flag names, and',
+      'Reads static/awtRelease.json from the published site, build/published/<base> or the one a flag names, and',
       'compares its address with the target the flags and awt.config.mjs describe. Builds nothing.',
       'Exits 0 when they match, 1 when they differ or the release carries no record.',
     ],
@@ -1638,6 +1641,53 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'clean',
+    group: 'site',
+    section: 'Publish',
+    writes: true,
+    declines: ['wiki'],
+    summary: 'Remove what awt generated for the site: build/, or with --legacy the loose files from before it',
+    usage: 'awt site clean [--legacy] [--dry-run]',
+    positionals: 0,
+    notes: [
+      "Everything awt generates for a site is in <site>/build/: the link index, the derived Quartz config, the",
+      'dev build, published sites and handoff copies. This removes that directory, and all of it can be built',
+      'again. A published site that a server is serving goes with it, until it is published again.',
+      '',
+      '--legacy removes only what awt used to scatter beside package.json before there was a build/:',
+      '.awt-index.json, .quartz.config.yaml, .quartz.offline.yaml, public/, release/, releases/, handoff/ and',
+      'the hidden staging directories. Nothing else in the directory is touched. node_modules/ is Quartz\'s',
+      'install and is not removed by either.',
+    ],
+    options: {
+      ...OUTPUT_OPTIONS,
+      legacy: {type: 'boolean', default: false},
+      'dry-run': {type: 'boolean', default: false},
+    },
+    async run({values}) {
+      const {cleanBuild, legacyPresent, removeLegacy, BUILD} = await import('@agent-wiki-toolbox/publish')
+      const layout = await layoutFor('clean', values)
+      if (layout === undefined || layout === null) return 2
+      const site = values.site ? resolvePath(values.site) : layout.siteDir
+      const dry = values['dry-run']
+
+      let removed
+      if (values.legacy) {
+        removed = dry ? legacyPresent(site) : removeLegacy(site)
+      } else {
+        const had = existsSync(resolvePath(site, BUILD))
+        removed = had ? [`${BUILD}/`] : []
+        if (had && !dry) cleanBuild(site)
+      }
+      emit(values, {ok: true, site, dryRun: dry, legacy: values.legacy, removed}, (value) =>
+        value.removed.length
+          ? `${dry ? 'would remove' : 'removed'} from ${value.site}: ${value.removed.join(', ')}`
+          : `nothing to remove in ${value.site}${values.legacy ? ' from before build/' : ''}`,
+      )
+      return 0
+    },
+  },
+  {
     name: 'serve',
     server: true,
     group: 'site',
@@ -1670,7 +1720,7 @@ export const COMMANDS = [
       'skip-index': {type: 'boolean', default: false},
     },
     async run({values}) {
-      const {serve} = await import('@agent-wiki-toolbox/publish')
+      const {serve, INDEX} = await import('@agent-wiki-toolbox/publish')
 
       if (!values['skip-index']) {
         const {code} = await emitIndexForSite('serve', values)
@@ -1689,7 +1739,7 @@ export const COMMANDS = [
       // flag skips the emit before the start, and the first edit would make any
       // index stale all the same.
       const wiki = values.wiki ? resolvePath(values.wiki) : layout.notesDir
-      const out = resolvePath(values.site ? resolvePath(values.site) : layout.siteDir, '.awt-index.json')
+      const out = resolvePath(values.site ? resolvePath(values.site) : layout.siteDir, INDEX)
       const reindex = () => {
         const {resources} = writeSiteIndex(wiki, out)
         process.stdout.write(`index: re-emitted, ${resources.length} notes\n`)
@@ -1797,7 +1847,7 @@ export const COMMANDS = [
     usage: 'awt site index [--out path.json]',
     positionals: 0,
     notes: [
-      'With no --out it writes <site>/.awt-index.json, which is where the build looks and what',
+      'With no --out it writes <site>/build/awt-index.json, which is where the build looks and what',
       'publish and serve emit before they run. It is grouped here because that file is read by the',
       "toolbox's Quartz plugin and by nothing else — it is not the graph offered as data.",
       '',

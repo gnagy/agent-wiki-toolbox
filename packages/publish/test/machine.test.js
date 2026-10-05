@@ -204,7 +204,27 @@ test('a release is found where an explicit build puts it, or where the declared 
   put(join(site, 'release'), {url})
   assert.equal(releaseFor(entry, t, url), join(site, 'release'))
   put(join(site, 'releases', t.slug))
-  assert.equal(releaseFor(entry, t, url), join(site, 'releases', t.slug), 'a release built for this base wins')
+  assert.equal(releaseFor(entry, t, url), join(site, 'releases', t.slug), 'a site published before build/ is still found where it was')
+  put(join(site, 'build', 'published', t.slug))
+  assert.equal(releaseFor(entry, t, url), join(site, 'build', 'published', t.slug), 'and one in build/published wins over both')
+})
+
+test('a wiki\'s dev index is in build/dev, or in public where an older serve put it', () => {
+  const dir = config({'targets.yaml': TARGETS})
+  const site = mkdtempSync(join(tmpdir(), 'awt-machine-dev-'))
+  made.push(site)
+  const wiki = {key: 'x', mount: 'm', name: 'n', site, dev: 'http://localhost:8101'}
+  const machine = {defaultTarget: null, targets: new Map(), wikis: new Map([['x', wiki]])}
+  const where = () => pluginRegistry(machine).x.buildIndex
+
+  assert.equal(where(), join(site, 'build', 'dev', 'static', 'contentIndex.json'), 'nothing built yet: where it will be')
+  mkdirSync(join(site, 'public', 'static'), {recursive: true})
+  writeFileSync(join(site, 'public', 'static', 'contentIndex.json'), '{}')
+  assert.equal(where(), join(site, 'public', 'static', 'contentIndex.json'), 'an older dev build is found')
+  mkdirSync(join(site, 'build', 'dev', 'static'), {recursive: true})
+  writeFileSync(join(site, 'build', 'dev', 'static', 'contentIndex.json'), '{}')
+  assert.equal(where(), join(site, 'build', 'dev', 'static', 'contentIndex.json'), 'and the new one wins once there is one')
+  void dir
 })
 
 test('registering writes the wiki into its mount\'s file, keeps what a person wrote there, and is idempotent', () => {
@@ -292,7 +312,7 @@ test('a named target supplies the base, and a wiki under it needs a mount', () =
   const named = plan({target: 'public', mount: 'shelton', name: 'dios'})
   assert.equal(named.target.url, 'https://example.org/docs/shelton/dios')
   assert.equal(named.target.targetName, 'public')
-  assert.equal(named.out, join('/p/site', 'releases', 'example-org-docs'), 'a named target is an explicit one')
+  assert.equal(named.out, join('/p/site', 'build', 'published', 'example-org-docs'), 'a named target lands in build/published/<base>')
 
   assert.match(refusal(() => plan({target: 'public'}, {self: 'dios'})), /hosts several wikis, so this one needs a mount/)
   assert.equal(plan({target: 'public'}, {self: 'dios', mount: 'shelton'}).target.url, 'https://example.org/docs/shelton/dios', 'site.mount and site.self supply the rest')
@@ -321,11 +341,11 @@ test('two answers to where a release is served from are refused, not ranked', ()
   assert.match(refusal(() => plan({}, {target: 'local', baseUrl: 'x.org'})), /site\.target and site\.baseUrl both say where/)
 })
 
-test('a machine with no targets file builds exactly as before', () => {
+test('a machine with no targets file has no target, and the build goes in published/default', () => {
   const dir = join(tmpdir(), 'awt-machine-none-' + process.pid)
   const plan = planRelease({}, '/p/site', {self: 'dios'}, {env: {}, dir})
   assert.equal(plan.target, null)
-  assert.equal(plan.out, join('/p/site', 'release'))
+  assert.equal(plan.out, join('/p/site', 'build', 'published', 'default'))
 })
 
 // ---------------------------------------------- a wiki that does not name itself is named by its registration

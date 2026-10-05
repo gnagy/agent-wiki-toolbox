@@ -8,7 +8,7 @@
  *
  * What is hard to remember is that **the index has to be emitted immediately
  * before it**. `awt site publish` does that; a hand-typed serve command did not, so a
- * dev build compared the rendered pages against whatever `.awt-index.json` was
+ * dev build compared the rendered pages against whatever `build/awt-index.json` was
  * last written — which after any edit is a disagreement that is not real. This
  * subcommand exists so the two cannot come apart; the emitting happens in `cli`,
  * before this is called.
@@ -35,8 +35,8 @@
  * refused a number the project had already written down would be overruling a
  * decision it was not present for.
  *
- * It refuses to build over `site/release` for the same reason `publish` refuses
- * to build over `site/public`: a build in the wrong mode rewrites every
+ * It refuses to build over a published site for the same reason `publish` refuses
+ * to build over `build/dev`: a build in the wrong mode rewrites every
  * cross-wiki link and every page still returns 200.
  *
  * **It also refuses to start on a port somebody already holds**, because Quartz
@@ -59,6 +59,7 @@ import { ensureQuartz, quartzDir } from "./bootstrap.js"
 import { readDeclaration } from "./declaration.js"
 import { writeSiteConfig } from "./site-config.js"
 import { loadMachineIfPresent, machineRegistryFor, registeredAt } from "./machine.js"
+import { DEV, PUBLISHED } from "./layout.js"
 import { followNotes, FOLLOWING } from "./follow.js"
 
 /**
@@ -136,7 +137,7 @@ export async function serve(argv = process.argv.slice(2), { reindex } = {}) {
   const root = values.wiki && values.site ? null : requireProjectRoot(die)
   const wiki = values.wiki ? path.resolve(values.wiki) : path.join(root, "docs/wiki")
   const site = values.site ? path.resolve(values.site) : path.join(root, "site")
-  const out = values.out ? path.resolve(values.out) : path.join(site, "public")
+  const out = values.out ? path.resolve(values.out) : path.join(site, DEV)
 
   if (!fs.existsSync(wiki)) die(`no wiki at ${show(wiki)}`)
 
@@ -148,8 +149,10 @@ export async function serve(argv = process.argv.slice(2), { reindex } = {}) {
 
   // The release is served by a static host, not built into. Overwriting it with a
   // dev build would leave every cross-wiki link pointing at localhost.
-  if (path.resolve(out) === path.join(site, "release")) {
-    die("refusing to build a dev server into site/release, the published copy")
+  const resolvedOut = path.resolve(out)
+  const published = path.join(site, PUBLISHED)
+  if (resolvedOut === published || resolvedOut.startsWith(published + path.sep) || resolvedOut === path.join(site, "release")) {
+    die("refusing to build a dev server into a published site: it would write dev links over every page")
   }
 
   // A flag beats the project's config, which beats the default — the flag is for a

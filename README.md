@@ -87,24 +87,31 @@ awt site setup                   # install or re-pin the renderer a site builds 
 awt site serve                   # emit the index and the config, then Quartz's dev server
 awt site proxy                   # several wikis behind one port, each at /<prefix>/
 awt site proxy --install         # …as a user service: launchd, systemd or a logon task
-awt site publish                 # build, then swap into wiki/site/release
+awt site publish                 # build, then swap into wiki/site/build/published/<base>
 awt site publish --base http://localhost:8088/wikis --mount shelton --name dios
-                                 # …for one address: <base>/<mount>/<name>/, into site/releases/<base>
-awt site publish --watch         # keep the release current while you edit: a save is live in about a second
+                                 # …for one address: <base>/<mount>/<name>/
+awt site publish --watch         # keep the published site current while you edit: a save is live in about a second
 awt site publish --target local  # …for a deployment named in ~/.config/awt/targets.yaml
-awt site verify                  # does the release carry the address this project says it is built for?
+awt site verify                  # does the published site carry the address this project says it is built for?
 awt site register                # record this wiki in ~/.config/awt/registry.d, so links to it resolve
 awt site wikis                   # the machine's targets and wikis, and where each field came from
 awt site unregister dios         # take a wiki out of the registry
+awt site clean                   # remove wiki/site/build/, which holds everything awt generates; --legacy for the old loose files
 awt site host --up               # serve every registered wiki's release from one address: nginx in Docker
 awt site index                   # just the artifact the Quartz plugin reads
 awt site migrate                 # lift a tracked quartz.config.yaml into awt.config.mjs
 ```
 
+**Everything `awt` generates for a site is in `wiki/site/build/`**, and that directory ignores itself, so a
+project's `.gitignore` needs one line, `node_modules/`, and no feature that writes something new adds another.
+It holds the link index, the derived Quartz config, `dev/` (`awt site serve`), `published/<base>/` (one per
+target) and `handoff/`. A project from before it has the old loose files beside `package.json`;
+`awt site setup` names them and `awt site clean --legacy` removes them.
+
 **The Quartz config is the toolbox's, derived before every build.** Quartz reads
 `quartz.config.yaml` from its own directory and nothing else, and every wiki's copy was Quartz's
 shipped default plus the same handful of changes, so the toolbox now writes that file
-(`wiki/site/.quartz.config.yaml`, gitignored) from the pinned install's own default, its own changes,
+(`wiki/site/build/quartz.config.yaml`) from the pinned install's own default, its own changes,
 and what the project declares under `site` in `awt.config.mjs`:
 
 ```js

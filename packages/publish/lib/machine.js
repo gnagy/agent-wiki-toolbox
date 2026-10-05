@@ -27,6 +27,7 @@ import os from "node:os"
 import path from "node:path"
 import { Document, isMap, parseDocument } from "yaml"
 
+import { DEV, PUBLISHED } from "./layout.js"
 import { resolveTarget, SEGMENT } from "./target.js"
 
 export const KEY = /^[a-z][a-z0-9+.-]*$/
@@ -210,16 +211,19 @@ export function addressOf(entry, t) {
 }
 
 /**
- * The release of `entry` that was built for `t`, which holds the index its links are checked against.
- * A release for an explicit base is in `site/releases/<slug>`; the project's declared one is in
- * `site/release`, and counts only when it records the address it would have here.
+ * The published site of `entry` that was built for `t`, which holds the index its links are checked against.
+ * It is `build/published/<slug>`. A site published before there was a `build/` is found where it was:
+ * `releases/<slug>`, or the project's declared one in `release`, which counts only when it records the
+ * address it would have here.
  */
 export function releaseFor(entry, t, expectedUrl) {
   if (!entry.site) return undefined
-  const dated = path.join(entry.site, "releases", t.slug)
-  const standing = path.join(entry.site, "release")
   const hasIndex = (d) => fs.existsSync(path.join(d, "static", "contentIndex.json"))
+  const current = path.join(entry.site, PUBLISHED, t.slug)
+  if (hasIndex(current)) return current
+  const dated = path.join(entry.site, "releases", t.slug)
   if (hasIndex(dated)) return dated
+  const standing = path.join(entry.site, "release")
   if (!hasIndex(standing)) return undefined
   try {
     const recorded = JSON.parse(fs.readFileSync(path.join(standing, "static", "awtRelease.json"), "utf8")).url
@@ -227,6 +231,13 @@ export function releaseFor(entry, t, expectedUrl) {
   } catch {
     return undefined
   }
+}
+
+/** A wiki's dev build index: in `build/dev`, or where an older `awt site serve` put it, in `public`. */
+function devIndexFor(site) {
+  const current = path.join(site, DEV, "static", "contentIndex.json")
+  const old = path.join(site, "public", "static", "contentIndex.json")
+  return !fs.existsSync(current) && fs.existsSync(old) ? old : current
 }
 
 /**
@@ -247,7 +258,7 @@ export function pluginRegistry(machine, { target = null } = {}) {
 
     if (entry.dev) {
       result.dev = entry.dev
-      if (entry.site) result.buildIndex = path.join(entry.site, "public", "static", "contentIndex.json")
+      if (entry.site) result.buildIndex = devIndexFor(entry.site)
     } else if (fallback) {
       const url = addressOf(entry, fallback)
       if (url) {

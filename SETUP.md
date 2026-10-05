@@ -201,7 +201,7 @@ the previous section in one pass, in the order below.** Until then each project 
 `quartz.config.yaml`: Quartz's own default plus four `../awt-*` plugin entries plus the project's own
 few values. The toolbox now derives that file before every build — from the pinned install's own
 default, its own changes, and a `site` declaration in `awt.config.mjs` — and writes it as the
-gitignored `.quartz.config.yaml`. The four plugins are one, `quartz-plugins/awt`, named by absolute
+`build/quartz.config.yaml`, which `build/` ignores. The four plugins are one, `quartz-plugins/awt`, named by absolute
 path into the install; nothing is symlinked into a project any more, and a change inside the toolbox
 reaches every wiki on its next build.
 
@@ -254,7 +254,7 @@ against *that* — not against Quartz's stock default, which shows the toolbox's
 
 ```shell
 awt site serve    # Ctrl-C once the build has finished
-diff <(grep -v '^\s*#' <site>/quartz.config.yaml) <(grep -v '^\s*#' <site>/.quartz.config.yaml)
+diff <(grep -v '^\s*#' <site>/quartz.config.yaml) <(grep -v '^\s*#' <site>/build/quartz.config.yaml)
 ```
 
 Plugin entries in a different order, and the `../awt-*` entries against the one absolute `awt` entry,
@@ -275,8 +275,8 @@ rm -rf <site>/.quartz-src <site>/awt-links <site>/awt-cross-wiki <site>/awt-head
 ```
 
 The last line is the old clone and the old symlinks, untracked, and a no-op where they were never
-there. Then the site's `.gitignore`: `.quartz.config.yaml` and `node_modules/` in, `.quartz-src/` and
-the four `awt-*` lines out; step 1 listed exactly what is missing. `git status` afterwards shows
+there. Then the site's `.gitignore`: `node_modules/` in, and `.quartz-src/` and the four `awt-*` lines out. No line is
+needed for anything awt generates, since `build/` ignores itself; step 1 listed exactly what is missing. `git status` afterwards shows
 `package.json` and `bun.lock` as the new tracked files, the two deletions staged, and nothing else new
 under the site.
 

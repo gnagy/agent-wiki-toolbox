@@ -29,7 +29,7 @@
  *          title: 'DIOS wiki',                // configuration.pageTitle
  *          self: 'shelton-dios',              // this wiki's own cross-wiki prefix
  *          registry: {                        // the other wikis it references
- *            'shelton-dios-data': {dev: 'http://localhost:8102', buildIndex: '../../x/site/public/static/contentIndex.json'},
+ *            'shelton-dios-data': {dev: 'http://localhost:8102', buildIndex: '../../x/site/build/dev/static/contentIndex.json'},
  *          },
  *          baseUrl: 'wiki.example.org',       // the published host; localhost:<port> when serving
  *          properties: ['type', 'status'],    // front-matter fields shown on a page
@@ -44,7 +44,7 @@
  *      against the project's root before it is written, because Quartz resolves a
  *      relative path against its own working directory under `node_modules`.
  *
- * The result is written to `<site>/.quartz.config.yaml`, gitignored, and the
+ * The result is written to `<site>/build/quartz.config.yaml`, which `build/` ignores, and the
  * symlink inside the Quartz install points at it. **A project that needs what
  * the declaration does not expose takes the file over**: a tracked
  * `<site>/quartz.config.yaml` replaces steps 1 and 2 wholesale, and only the
@@ -62,6 +62,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { loadFromQuartz } from "./quartz-deps.js"
+import { DERIVED, DEV, PUBLISHED, ensureBuildDir } from "./layout.js"
 
 /** The toolbox root: packages/publish/lib -> packages/publish -> packages -> root. */
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
@@ -70,7 +71,7 @@ const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 export const PLUGIN_SOURCE = path.join(HERE, "quartz-plugins", "awt")
 
 /** What a build reads. Gitignored; rewritten before every build. */
-export const DERIVED_CONFIG = ".quartz.config.yaml"
+export const DERIVED_CONFIG = DERIVED
 /** What a project may track to take the base over. */
 export const PROJECT_CONFIG = "quartz.config.yaml"
 
@@ -176,11 +177,11 @@ function pluginEntry(declaration, { port, baseUrl, serving, target, releaseDir, 
   if (declaration.self && !registry[declaration.self]) {
     registry[declaration.self] = {
       dev: `http://localhost:${port}`,
-      buildIndex: "./public/static/contentIndex.json",
+      buildIndex: `./${DEV}/static/contentIndex.json`,
       ...(baseUrl
         ? {
             published: target?.url ?? `https://${baseUrl}`,
-            publishedIndex: `${releaseDir ?? "./release"}/static/contentIndex.json`,
+            publishedIndex: `${releaseDir ?? `./${PUBLISHED}/default`}/static/contentIndex.json`,
           }
         : {}),
     }
@@ -190,7 +191,7 @@ function pluginEntry(declaration, { port, baseUrl, serving, target, releaseDir, 
     enabled: true,
     order: PLUGIN_ORDER,
     options: {
-      index: "./.awt-index.json",
+      index: "./build/awt-index.json",
       target: serving ? "dev" : "published",
       self: declaration.self ?? null,
       registry,
@@ -209,7 +210,7 @@ function pluginEntry(declaration, { port, baseUrl, serving, target, releaseDir, 
  *   port          the dev server's port, for the localhost base URL
  *   serving       dev server (true) or publish build (false)
  *   target        the address a publish build is for (see target.js), or null
- *   releaseDir    where that build lands, relative to the site, as `./release`
+ *   releaseDir    where that build lands, relative to the site, as `./build/published/<slug>`
  *   machineRegistry  the machine's wikis as the plugin reads them (see machine.js), under the wiki's own
  *   warn          where a line about an unknown key goes
  */
@@ -277,6 +278,7 @@ export async function deriveSiteConfig(
 export async function writeSiteConfig(site, quartz, declaration, options = {}) {
   const derived = await deriveSiteConfig(site, quartz, declaration, options)
   const { stringify } = await loadFromQuartz(quartz, "yaml", options.die)
+  ensureBuildDir(site)
   const file = path.join(site, DERIVED_CONFIG)
   fs.writeFileSync(
     file,

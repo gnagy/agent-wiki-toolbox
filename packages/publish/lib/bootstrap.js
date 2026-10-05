@@ -60,6 +60,7 @@ import { fileURLToPath } from "node:url"
 import { narrateTo, say } from "./narrate.js"
 import { requireProjectRoot } from "./project-root.js"
 import { DERIVED_CONFIG } from "./site-config.js"
+import { ensureBuildDir, legacyPresent } from "./layout.js"
 
 /** The toolbox root: packages/publish/lib -> packages/publish -> packages -> root. */
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
@@ -140,36 +141,9 @@ const GITIGNORE = `# Quartz and its dependencies are a bun-installed git depende
 # repo. package.json and bun.lock ARE tracked — they are the pin.
 node_modules/
 
-# Build output. Disposable: rebuild it with the serve command in README.md.
-public/
-
-# The last published build: the release itself (nothing about a release enters
-# git), plus awt site publish's staging directory and the release it replaced.
-release/
-.release-staging/
-.release-prev/
-
-# Releases built for a named or explicit target, one directory per base, and the work
-# directories awt site publish --watch keeps beside a release while it runs.
-releases/
-.release-work/
-.release-next/
-
-# The config Quartz reads, derived by awt before every build from the pinned
-# install's own default and the site declaration in awt.config.mjs. A project
-# that takes it over tracks quartz.config.yaml beside it instead.
-.quartz.config.yaml
-
-# The handoff copy built by awt site publish --offline, and the config it derives
-# to build it with. Both are regenerated on demand; quartz.offline.yaml, if the
-# project writes one to take that over, IS tracked.
-handoff/
-.handoff-staging/
-.handoff-prev/
-.quartz.offline.yaml
-
-# The link-graph index the Quartz plugins read, regenerated before every build.
-.awt-index.json
+# Everything awt generates, the link index, the derived Quartz config, the dev
+# build, published sites and handoff copies, is in build/. It carries its own
+# .gitignore, so nothing about it needs listing here.
 `
 
 // The lines that must be there, as opposed to the comments explaining them. A
@@ -348,8 +322,16 @@ export function bootstrap(argv = process.argv.slice(2)) {
   }
 
   ensureQuartz(site, die)
+  ensureBuildDir(site)
 
-  say("\nready. Next:\n    awt site serve       dev server\n    awt site publish     release build into site/release")
+  // Left over from before there was a build/: the files and directories this used to scatter beside
+  // package.json. They are ignored by the lines an older .gitignore still has, and nothing reads them.
+  const leftover = legacyPresent(site)
+  if (leftover.length) {
+    say(`\nfrom before build/, still here: ${leftover.join(", ")}\n    awt site clean --legacy removes them`)
+  }
+
+  say("\nready. Next:\n    awt site serve       dev server\n    awt site publish     published site into build/published")
   if (values.json) {
     process.stdout.write(
       `${JSON.stringify({ ok: true, site, pin, pinAction, gitignore }, null, 1)}\n`,

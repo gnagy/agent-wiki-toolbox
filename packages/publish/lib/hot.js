@@ -18,7 +18,7 @@
  * rename, which is what a one-shot publish does with its staging directory. A rebuild that
  * fails leaves the standing release alone.
  *
- * THE RELEASE THIS REPLACES IS KEPT ONCE. The first swap keeps what stood as `.release-prev`,
+ * THE PUBLISHED SITE THIS REPLACES IS KEPT ONCE. The first swap keeps what stood as a hidden `-prev` beside it,
  * like a one-shot publish. Later swaps do not rotate it: a previous release that is only the
  * last rebuild is no rollback at all, and the one from before the session is the one worth having.
  *

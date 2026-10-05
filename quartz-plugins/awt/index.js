@@ -17,7 +17,7 @@
  *
  * THE INDEX IS READ, NEVER RECOMPUTED. Every fact below — a note's address, the
  * headings on a page, what a link resolves to — is decided in `core` and carried
- * in `.awt-index.json`. Recomputing any of it here would be a second
+ * in `build/awt-index.json`. Recomputing any of it here would be a second
  * implementation free to disagree, and the failure mode is a link that renders and
  * points somewhere wrong. `awt site serve` and `awt site publish` emit the index
  * immediately before the build; a build started any other way has to run
@@ -97,7 +97,7 @@ import fs from 'fs'
 import path from 'path'
 
 const DEFAULTS = {
-  index: './.awt-index.json',
+  index: './build/awt-index.json',
   // How long a read under `awt site serve` waits for the index to catch up.
   followTimeoutMs: 30000,
   self: null,
@@ -113,10 +113,9 @@ const DEFAULTS = {
 // ------------------------------------------------------------------ the index
 
 /**
- * Where the site root is: the directory the config Quartz is reading actually
- * lives in, found by following the symlink Quartz's working directory always
- * holds. `<site>/…config.yaml` is the site root by definition, so this needs no
- * configured depth and cannot drift when the depth does — which it did once, when
+ * Where the site root is: found by following the symlink Quartz's working directory always
+ * holds to the config Quartz is reading, which is in `<site>/build/` (or, from an older setup, in
+ * `<site>/` itself). That needs no configured depth and cannot drift when the depth does — which it did once, when
  * Quartz moved from `site/.quartz-src` to `site/node_modules/quartz`.
  *
  * With no symlink there is no site root to find, and saying so is the useful
@@ -126,7 +125,10 @@ const DEFAULTS = {
 function siteRoot(cwd = process.cwd()) {
   const link = path.join(cwd, 'quartz.config.yaml')
   try {
-    return path.dirname(fs.realpathSync(link))
+    const dir = path.dirname(fs.realpathSync(link))
+    // The derived config is in `<site>/build/`, so that directory's parent is the site; a config beside
+    // `package.json`, as an older setup left it, is in the site itself.
+    return path.basename(dir) === 'build' ? path.dirname(dir) : dir
   } catch {
     throw new Error(
       `awt: ${link} is not a link into the site directory, so the site root cannot be found.\n` +

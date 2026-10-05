@@ -129,23 +129,23 @@ test('a release records the address it was built for, and is compared with the o
   assert.equal(releaseRecord(null).url, null, 'a build with no declared address still says so')
 })
 
-test('the declared target lands in site/release, and any flag moves the build to site/releases/<base>', () => {
+test('every target lands in build/published/<base>, a build with no target in default, and a handoff copy in build/handoff', () => {
   const site = '/p/site'
   const declared = {baseUrl: 'wiki.example.org', mount: 'aisandbox', self: 'aisandbox'}
-  assert.equal(planRelease({}, site, declared).out, join(site, 'release'))
-  assert.equal(planRelease({}, site, {}).out, join(site, 'release'), 'no target at all is the release it always was')
+  assert.equal(planRelease({}, site, declared).out, join(site, 'build', 'published', 'wiki-example-org'), 'a declared base is one target like any other')
+  assert.equal(planRelease({}, site, {}).out, join(site, 'build', 'published', 'default'), 'no target at all is `default`')
 
   const flagged = planRelease({base: 'http://localhost:8088/wikis'}, site, declared)
-  assert.equal(flagged.out, join(site, 'releases', 'localhost-8088-wikis'))
+  assert.equal(flagged.out, join(site, 'build', 'published', 'localhost-8088-wikis'))
   assert.equal(flagged.target.url, 'http://localhost:8088/wikis/aisandbox/aisandbox')
 
   assert.equal(planRelease({out: '/elsewhere'}, site, declared).out, '/elsewhere', '--out is never second-guessed')
-  assert.equal(planRelease({offline: true}, site, declared).out, join(site, 'handoff'))
+  assert.equal(planRelease({offline: true}, site, declared).out, join(site, 'build', 'handoff'))
 })
 
 test('verify answers 0 for a release built for the target, 1 for any other, and says why', () => {
   const site = tmp()
-  const out = join(site, 'release')
+  const out = join(site, 'build', 'published', 'localhost-8088-wikis')
   const record = releaseRecord(resolveTarget({base: 'http://localhost:8088/wikis', mount: 'shelton', name: 'dios'}, {}, die))
   mkdirSync(dirname(join(out, RELEASE_RECORD)), {recursive: true})
   writeFileSync(join(out, RELEASE_RECORD), JSON.stringify(record))
@@ -159,7 +159,9 @@ test('verify answers 0 for a release built for the target, 1 for any other, and 
       process.stdout.write = write
     }
   }
-  const asked = (declaration) => ['--site', site, '--site-config', JSON.stringify(declaration), '--json']
+  // The directory is named, so one published site is compared with different targets: each target has a
+  // directory of its own, and verifying a base nothing was published for is "no release there", not a mismatch.
+  const asked = (declaration) => ['--site', site, '--out', out, '--site-config', JSON.stringify(declaration), '--json']
 
   assert.equal(quiet(() => verifyRelease(asked({baseUrl: 'http://localhost:8088/wikis', mount: 'shelton', self: 'dios'}))), 0)
   assert.equal(quiet(() => verifyRelease(asked({baseUrl: 'https://example.org', mount: 'shelton', self: 'dios'}))), 1)

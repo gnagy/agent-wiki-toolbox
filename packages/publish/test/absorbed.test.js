@@ -170,25 +170,23 @@ test('shadow: false skips the comparison and nothing else', async (t) => {
 /**
  * bootstrap will not edit a `.gitignore` the project owns and tracks, so the only
  * thing standing between an adopting project and a committed hundreds-of-MB
- * node_modules is that it is told. A project on the old tooling's file ignores
- * neither that nor the index.
+ * node_modules is that it is told. That is now the one thing it is told: everything
+ * else awt generates is in `build/`, which ignores itself, so a project on the old
+ * tooling's file, or on this toolbox's earlier one with a dozen lines for generated
+ * output, is not asked for any of them.
  */
 test('an existing .gitignore is reported against rather than rewritten', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'awt-publish-'))
   t.after(() => rmSync(dir, {recursive: true, force: true}))
   const file = join(dir, '.gitignore')
 
-  assert.ok(gitignoreGaps(file).includes('.awt-index.json'), 'no file at all: everything is missing')
+  assert.deepEqual(gitignoreGaps(file), ['node_modules/'], 'no file at all: only the install is missing')
 
   writeFileSync(file, '# from the old tooling\n.quartz-src/\npublic/\nrelease/\n')
-  const missing = gitignoreGaps(file)
-  assert.ok(missing.includes('node_modules/'))
-  assert.ok(missing.includes('.awt-index.json'))
-  assert.ok(missing.includes('.quartz.config.yaml'), 'the derived config is never tracked')
-  assert.ok(!missing.includes('public/'), 'what it already has is not reported')
+  assert.deepEqual(gitignoreGaps(file), ['node_modules/'], 'old lines are neither required nor complained about')
 
-  writeFileSync(file, `${missing.join('\n')}\npublic/\nrelease/\n.quartz-src/\n`)
-  assert.deepEqual(gitignoreGaps(file), [])
+  writeFileSync(file, 'node_modules/\n')
+  assert.deepEqual(gitignoreGaps(file), [], 'and with the install ignored there is nothing to report')
 })
 
 /**

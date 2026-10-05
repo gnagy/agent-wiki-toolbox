@@ -59,13 +59,13 @@ test('each wiki is mounted by its site directory and served from a path inside i
   const dios = plan.wikis.find((w) => w.key === 'dios')
   assert.deepEqual(
     [dios.state, dios.path, dios.container, dios.release, dios.published],
-    ['hosted', '/wikis/shelton/dios/', '/srv/shelton/dios', 'releases/localhost-8088-wikis', true],
+    ['hosted', '/wikis/shelton/dios/', '/srv/shelton/dios', 'releases/localhost-8088-wikis', true], // published before build/, and still served
   )
   assert.equal(plan.wikis.find((w) => w.key === 'photo-cli').published, false, 'a wiki with no release is still hosted, at the path it will have')
 
   const conf = plan.files[join('conf', 'default.conf')]
   assert.match(conf, /location \/wikis\/shelton\/dios\/ \{\n {8}alias \/srv\/shelton\/dios\/releases\/localhost-8088-wikis\/;/)
-  assert.match(conf, /location \/wikis\/shelton\/photo-cli\/ \{\n {8}alias \/srv\/shelton\/photo-cli\/releases\/localhost-8088-wikis\/;/)
+  assert.match(conf, /location \/wikis\/shelton\/photo-cli\/ \{\n {8}alias \/srv\/shelton\/photo-cli\/build\/published\/localhost-8088-wikis\/;/, 'a wiki with no release is served from where its first one will be')
   assert.match(conf, /try_files \$uri \$uri\.html \$uri\/index\.html =404;/, 'extensionless addresses resolve')
   assert.match(conf, /location = \/wikis\/shelton\/dios \{ return 301 \/wikis\/shelton\/dios\/; \}/, 'a bookmark without the slash works')
   assert.match(conf, /absolute_redirect off;/, 'a redirect does not name the container\'s own port')

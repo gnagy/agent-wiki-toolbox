@@ -282,7 +282,7 @@ test("offlineConfig hands back the project's own file untouched when it has one"
   put(site, 'quartz.offline.yaml', 'configuration: {pageTitle: Mine}\n')
 
   assert.equal(await offlineConfig(site, fakeQuartz()), 'quartz.offline.yaml')
-  assert.equal(existsSync(join(site, '.quartz.offline.yaml')), false, 'nothing is generated beside it')
+  assert.equal(existsSync(join(site, 'build', 'quartz.offline.yaml')), false, 'nothing is generated beside it')
   assert.match(logs.join('\n'), /the project's own/)
   assert.equal(readFileSync(join(site, 'quartz.offline.yaml'), 'utf8'), 'configuration: {pageTitle: Mine}\n')
 })
@@ -302,7 +302,7 @@ test('offlineConfig derives one that turns off everything needing a browser', as
   }
 
   const name = await offlineConfig(site, fakeQuartz(), derived)
-  assert.equal(name, '.quartz.offline.yaml')
+  assert.equal(name, 'build/quartz.offline.yaml')
 
   const {parse} = await import('yaml')
   const written = readFileSync(join(site, name), 'utf8')
@@ -327,11 +327,12 @@ test('offlineConfig rewrites its generated file rather than accumulating', async
   await offlineConfig(site, quartz, {configuration: {pageTitle: 'Two'}, plugins: []})
 
   const {parse} = await import('yaml')
-  assert.equal(parse(readFileSync(join(site, '.quartz.offline.yaml'), 'utf8')).configuration.pageTitle, 'Two')
+  assert.equal(parse(readFileSync(join(site, 'build', 'quartz.offline.yaml'), 'utf8')).configuration.pageTitle, 'Two')
+  assert.deepEqual(readdirSync(site), ['build'], 'everything generated is in build/')
   assert.deepEqual(
-    readdirSync(site).sort(),
-    ['.quartz.offline.yaml'],
-    'one generated file, not one per build',
+    readdirSync(join(site, 'build')).sort(),
+    ['.gitignore', 'quartz.offline.yaml'],
+    'one generated file, not one per build, beside the file that ignores the directory',
   )
 })
 

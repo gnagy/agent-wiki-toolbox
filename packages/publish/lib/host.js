@@ -9,7 +9,7 @@
  *
  * EACH WIKI'S SITE DIRECTORY IS MOUNTED, NOT ITS RELEASE. A release is replaced by a rename, and a
  * bind mount of the directory pins the directory it was made from: after the first swap the container
- * would go on serving the release that was replaced, now `.release-prev`. Mounting the site directory
+ * would go on serving the release that was replaced, now a hidden `-prev` beside it. Mounting the site directory
  * and serving a path inside it sees every swap, and a wiki that has no release yet needs no restart
  * once it has one.
  *
@@ -21,6 +21,7 @@ import { spawnSync } from "node:child_process"
 import nodeFs from "node:fs"
 import path from "node:path"
 
+import { PUBLISHED } from "./layout.js"
 import { addressOf, releaseFor } from "./machine.js"
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"])
@@ -77,7 +78,7 @@ export function planHost({ machine, targetName, dir, port }) {
     }
     const address = addressOf(entry, target)
     const found = releaseFor(entry, target, address)
-    const inside = found ? path.relative(entry.site, found) : path.join("releases", target.slug)
+    const inside = found ? path.relative(entry.site, found) : path.join(PUBLISHED, target.slug)
     const container = `/srv/${entry.mount}/${entry.name}`
     volumes.push({ host: entry.site, container, mode: "ro" })
     wikis.push({
