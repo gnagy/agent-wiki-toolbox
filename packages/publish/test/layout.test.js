@@ -11,7 +11,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import test, {after} from 'node:test'
 
-import {BUILD, DERIVED, DEV, HANDOFF, INDEX, LEGACY, OFFLINE, PUBLISHED, cleanBuild, ensureBuildDir, legacyPresent, publishedDir, removeLegacy} from '../lib/layout.js'
+import {BUILD, DERIVED, DEV, HANDOFF, INDEX, LEGACY, OFFLINE, PUBLISHED, cleanBuild, ensureBuildDir, ensureSiteDir, legacyPresent, publishedDir, removeLegacy} from '../lib/layout.js'
 
 const made = []
 after(() => {
@@ -121,4 +121,19 @@ test('the plugin finds the index in build/ from the link Quartz reads its config
   symlinkSync('../../quartz.config.yaml', join(older, 'node_modules', 'quartz', 'quartz.config.yaml'))
   process.chdir(join(older, 'node_modules', 'quartz'))
   assert.doesNotThrow(() => crossWikiLinks({index: './.awt-index.json'}).markdownPlugins({argv: {}}))
+})
+
+test('a missing site directory is made by setup alone, and refused by everything that writes into build/', () => {
+  const root = site()
+  const missing = join(root, 'wiki', 'site')
+
+  // `ensureBuildDir` is what a build, an index or a config write calls, and none of them may invent a site: a
+  // failed attempt in a project that has none would otherwise leave a stub directory that looks like one.
+  assert.throws(() => ensureBuildDir(missing), /no site directory at .*wiki\/site\. Run `awt site setup`/)
+  assert.ok(!existsSync(missing), 'and it made nothing')
+
+  assert.equal(ensureSiteDir(missing), true, 'setup makes it, parents included')
+  assert.equal(ensureSiteDir(missing), false, 'and says when there was nothing to make')
+  assert.doesNotThrow(() => ensureBuildDir(missing))
+  assert.ok(existsSync(join(missing, 'build', '.gitignore')))
 })

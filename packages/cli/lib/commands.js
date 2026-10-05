@@ -1249,6 +1249,12 @@ export const COMMANDS = [
         )
         return 2
       }
+      // The default site directory is made here when it is missing. bootstrap treats a --site it is handed as one
+      // the person named, which has to exist, and a project that has never had a site never has one.
+      if (!values.site) {
+        const {ensureSiteDir} = await import('@agent-wiki-toolbox/publish')
+        if (ensureSiteDir(site) && !values.json) process.stdout.write(`created ${site}\n`)
+      }
       return bootstrap([
         '--site',
         site,
