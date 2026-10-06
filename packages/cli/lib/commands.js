@@ -1271,7 +1271,7 @@ export const COMMANDS = [
     usage:
       'awt site publish [--target name | --base url] [--mount name] [--name name]\n' +
       '                 [--out path] [--watch] [--offline] [--diagrams png|none]\n' +
-      '                 [--nginx] [--skip-index]',
+      '                 [--nginx] [--skip-index] [--if-stale]',
     positionals: 0,
     notes: [
       'Builds without --serve, so cross-wiki links resolve to published URLs, into a staging',
@@ -1302,6 +1302,12 @@ export const COMMANDS = [
       'text. A served site draws them in the browser.',
       '',
       '--nginx prints a server block for the release and exits without building.',
+      '',
+      '--if-stale builds only when a note is newer than the moment the standing release began building,',
+      'and never makes a first release: with none for this target it does nothing, so a wiki is published',
+      'once by hand and kept current after that. It takes a lock in build/, so two triggers do not build',
+      'into one release, and skips when another publish holds it. Exit 0 whether it built or not; made for',
+      'a hook that runs at the end of every turn.',
     ],
     options: {
       ...OUTPUT_OPTIONS,
@@ -1312,12 +1318,19 @@ export const COMMANDS = [
       diagrams: {type: 'string'},
       nginx: {type: 'boolean', default: false},
       'skip-index': {type: 'boolean', default: false},
+      'if-stale': {type: 'boolean', default: false},
     },
     async run({values}) {
       const {publish, INDEX} = await import('@agent-wiki-toolbox/publish')
 
-      if (!values.nginx && !values['skip-index']) {
+      // With --if-stale the index is emitted only once the build is known to be needed, so a skipped
+      // run writes nothing: publish asks for it through beforeBuild.
+      const emitFirst = async () => {
         const {code} = await emitIndexForSite('publish', values)
+        return code
+      }
+      if (!values.nginx && !values['skip-index'] && !values['if-stale']) {
+        const code = await emitFirst()
         if (code !== 0) return code
       }
 
@@ -1350,8 +1363,16 @@ export const COMMANDS = [
         ...(values.diagrams ? ['--diagrams', values.diagrams] : []),
         ...(values.nginx ? ['--nginx'] : []),
         ...(values.json ? ['--json'] : []),
+        ...(values['if-stale'] ? ['--if-stale'] : []),
         ...(await siteArgs(layout)),
-      ], {reindex})
+      ], {
+        reindex,
+        beforeBuild: async () => {
+          if (values['skip-index']) return
+          const code = await emitFirst()
+          if (code !== 0) process.exit(code)
+        },
+      })
     },
   },
   {

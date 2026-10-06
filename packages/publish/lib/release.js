@@ -68,6 +68,7 @@ import { DEFAULT_PORT } from "./serve.js"
 import { readDeclaration } from "./declaration.js"
 import { DERIVED_CONFIG, writeSiteConfig } from "./site-config.js"
 import { DEV, HANDOFF, OFFLINE, PUBLISHED, ensureBuildDir, publishedDir } from "./layout.js"
+import { staleness, takeLock } from "./stale.js"
 import { compareRecord, releaseRecord, resolveTarget, retargetScheme } from "./target.js"
 import { configDir, loadMachine, loadMachineIfPresent, machineRegistryFor, readDefaultTarget, registeredAt } from "./machine.js"
 
@@ -702,7 +703,10 @@ the links and the trail at the top of each page to move around.
  * `reindex`, when given, re-emits the link index; `--watch` calls it after each burst of changes to
  * the notes, as `awt site serve` does. Without it the index is whatever was emitted before the start.
  */
-export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
+export async function publish(argv = process.argv.slice(2), { reindex, beforeBuild } = {}) {
+  // When the build began, which is what the release record says it was built from: a note written
+  // while it runs is newer than this and shows as stale, instead of looking covered.
+  const startedAt = new Date()
   let parsed
   try {
     parsed = parseArgs({
@@ -721,6 +725,7 @@ export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
         watch: { type: "boolean", default: false },
         diagrams: { type: "string" },
         nginx: { type: "boolean", default: false },
+        "if-stale": { type: "boolean", default: false },
         json: { type: "boolean", default: false },
         "site-config": { type: "string" },
         project: { type: "string" },
@@ -754,8 +759,27 @@ export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
       if (values[flag]) die(`--watch and --${flag} do not go together: ${why}.`)
     }
   }
+  if (values["if-stale"]) {
+    for (const [flag, why] of [
+      ["watch", "a resident build rebuilds on every save and has no staleness to ask about"],
+      ["offline", "a handoff copy has no standing release to compare against"],
+      ["nginx", "it prints a server block and builds nothing"],
+    ]) {
+      if (values[flag]) die(`--if-stale and --${flag} do not go together: ${why}.`)
+    }
+  }
   if (values.offline && (values.base !== undefined || values.mount !== undefined || values.name !== undefined || values.target !== undefined)) {
     die("--offline builds a copy that opens from disk and has no address; --base, --mount, --name and --target do not apply to it.")
+  }
+  // Decided before the target is planned: a wiki that was never published has no release to keep
+  // current, and planning its target can refuse for the very reason it was never published.
+  const skip = (reason, out) => {
+    if (values.json) report({ ok: true, skipped: reason, out: out ?? null })
+    else say(`not publishing: ${reason}`)
+    return 0
+  }
+  if (values["if-stale"] && values.out === undefined && !fs.existsSync(path.join(site, PUBLISHED))) {
+    return skip("this wiki has no release yet; publish once by hand first")
   }
   const { target, out, registered } = planRelease(values, site, declaration)
 
@@ -764,6 +788,20 @@ export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
     ["site", site],
   ]) {
     if (!fs.existsSync(p)) die(`no ${label} directory at ${p}`)
+  }
+
+  // Build only if the release for this target is out of date, and never make its first: a first
+  // publish decides an address and a host, which is a person's decision and not a hook's.
+  let releaseLock = null
+  if (values["if-stale"]) {
+    const ask = () => staleness({ wiki, out, recordFile: RELEASE_RECORD })
+    if (ask().state === "unbuilt") return skip(`no release for this target at ${show(out)}; publish once by hand first`, out)
+    if (ask().state === "fresh") return skip("the release is up to date", out)
+    releaseLock = takeLock(site)
+    if (!releaseLock) return skip("another publish holds the lock", out)
+    // Another publish may have finished between the first look and the lock.
+    if (ask().state !== "stale") return skip("the release is up to date", out)
+    await beforeBuild?.()
   }
 
   // Pre-rendering is for the handoff copy only. A served site keeps mermaid as
@@ -899,7 +937,7 @@ export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
   if (!values.offline) {
     const retargeted = applyScheme(staging, target)
     if (retargeted) say(`  ${retargeted} files had https:// rewritten to http:// for the target`)
-    fs.writeFileSync(path.join(staging, RELEASE_RECORD), `${JSON.stringify(releaseRecord(target), null, 1)}\n`)
+    fs.writeFileSync(path.join(staging, RELEASE_RECORD), `${JSON.stringify(releaseRecord(target, { builtAt: startedAt }), null, 1)}\n`)
   }
 
   const replaced = swap(staging, out, prev)
@@ -938,6 +976,7 @@ export async function publish(argv = process.argv.slice(2), { reindex } = {}) {
       "    awt check                the links on disk\n" +
       "    the awt-links shadow     the rendered pages, during the build above",
   )
+  releaseLock?.()
   report(summary)
   return 0
 }
