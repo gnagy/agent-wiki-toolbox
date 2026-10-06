@@ -16,6 +16,9 @@
  *       site: ~/Dev/Projects/Shelton/…/wiki/site    # where its releases are
  *       dev: http://localhost:8101                  # its running `awt site serve`, if any
  *       urls: {public: https://…}                   # an address per target, for a wiki hosted elsewhere
+ *       group: Tools                                # the section of the landing page; best set in overrides.d
+ *
+ * `groups` beside them lists group names one per line, in the order the landing page shows them.
  *
  * A COLLISION IS AN ERROR, NOT AN OVERRIDE. The same key in two registry files, two keys with one
  * mount and name, and a duplicate key inside a file all stop the load and name both places.
@@ -31,7 +34,7 @@ import { DEV, PUBLISHED } from "./layout.js"
 import { resolveTarget, SEGMENT } from "./target.js"
 
 export const KEY = /^[a-z][a-z0-9+.-]*$/
-const FIELDS = ["mount", "name", "site", "dev", "urls"]
+const FIELDS = ["mount", "name", "site", "dev", "urls", "group"]
 const TARGET_NAME = /^[a-z0-9][a-z0-9._-]*$/
 
 /** The directory: `$AWT_CONFIG_DIR`, else `awt` in the user's config directory. */
@@ -107,6 +110,9 @@ function checkEntry(entry, where, die) {
       const abs = expandHome(value)
       if (!path.isAbsolute(abs)) die(`${where} site "${value}" is not an absolute path; start it with / or ~/.`)
       out.site = abs
+    } else if (field === "group") {
+      if (typeof value !== "string" || !value.trim()) die(`${where} group is not a name.`)
+      out.group = value.trim()
     } else if (field === "dev") {
       out.dev = httpUrl(value, `${where} dev`, die)
     } else {
@@ -165,6 +171,11 @@ export function loadMachine({ dir = configDir(), die = throwing } = {}) {
     }
   }
 
+  const groupsFile = path.join(dir, "groups")
+  const groupOrder = fs.existsSync(groupsFile)
+    ? fs.readFileSync(groupsFile, "utf8").split("\n").map((l) => l.replace(/#.*/, "").trim()).filter(Boolean)
+    : []
+
   const registry = new Map()
   const seenAt = new Map()
   for (const { key, file, fields, from } of readLayer(path.join(dir, "registry.d"), die)) {
@@ -194,7 +205,7 @@ export function loadMachine({ dir = configDir(), die = throwing } = {}) {
   }
   for (const entry of wikis.values()) if (!Object.keys(entry.urls ?? {}).length) delete entry.urls
 
-  return { dir, targets, defaultTarget, registry, wikis }
+  return { dir, targets, defaultTarget, registry, wikis, groupOrder }
 }
 
 // ------------------------------------------------------------------------- addresses

@@ -55,7 +55,7 @@ export function planHost({ machine, targetName, dir, port }) {
   const wikis = []
   const volumes = []
   for (const entry of [...machine.wikis.values()].sort((a, b) => a.key.localeCompare(b.key))) {
-    const base = { key: entry.key, mount: entry.mount ?? null, name: entry.name ?? null }
+    const base = { key: entry.key, mount: entry.mount ?? null, name: entry.name ?? null, ...(entry.group ? { group: entry.group } : {}) }
     const own = entry.urls?.[targetName]
     if (own) {
       wikis.push({ ...base, state: "external", url: `${own.replace(/\/+$/, "")}/` })
@@ -124,7 +124,7 @@ export function planHost({ machine, targetName, dir, port }) {
     "",
   ].join("\n")
 
-  const page = landingPage({ targetName, base: target.base, wikis })
+  const page = landingPage({ targetName, base: target.base, wikis, groupOrder: machine.groupOrder ?? [] })
 
   const name = containerName(targetName)
   const args = [
@@ -159,12 +159,12 @@ export function planHost({ machine, targetName, dir, port }) {
 }
 
 /**
- * The page at the base: every wiki, grouped by mount, with whether it has a release for this target.
+ * The page at the base: every wiki, grouped by its `group` (its mount when it has none), groups in `groupOrder`, wikis by name, with whether it has a release for this target.
  * The list is written in; the state is read in the browser from each release's own record, so the page
  * is right after a publish without being generated again.
  */
-export function landingPage({ targetName, base, wikis }) {
-  const data = wikis.map((w) => ({ key: w.key, mount: w.mount, name: w.name, state: w.state, url: w.url ?? null, path: w.path ?? null, reason: w.reason ?? null }))
+export function landingPage({ targetName, base, wikis, groupOrder = [] }) {
+  const data = wikis.map((w) => ({ key: w.key, mount: w.mount, name: w.name, group: w.group ?? null, state: w.state, url: w.url ?? null, path: w.path ?? null, reason: w.reason ?? null }))
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -200,17 +200,23 @@ export function landingPage({ targetName, base, wikis }) {
 <script>
 const TARGET = ${jsonForScript(targetName)}
 const BASE = ${jsonForScript(base)}
+const GROUP_ORDER = ${jsonForScript(groupOrder)}
 const WIKIS = ${jsonForScript(data)}
 document.getElementById('target').textContent = TARGET
 document.getElementById('base').textContent = BASE
 
 const groups = {}
-for (const wiki of WIKIS) (groups[wiki.mount ?? 'unplaced'] ??= []).push(wiki)
+for (const wiki of WIKIS) (groups[wiki.group ?? wiki.mount ?? 'unplaced'] ??= []).push(wiki)
+const rank = (g) => { const i = GROUP_ORDER.indexOf(g); return i < 0 ? GROUP_ORDER.length : i }
+const label = (w) => w.name ?? w.key
+const sections = Object.entries(groups)
+  .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+  .map(([group, wikis]) => [group, wikis.sort((a, b) => label(a).localeCompare(label(b)))])
 
 const root = document.getElementById('groups')
 const cells = new Map()
-for (const [mount, wikis] of Object.entries(groups)) {
-  const h = document.createElement('h2'); h.textContent = mount; root.append(h)
+for (const [group, wikis] of sections) {
+  const h = document.createElement('h2'); h.textContent = group; root.append(h)
   const ul = document.createElement('ul'); root.append(ul)
   for (const wiki of wikis) {
     const li = document.createElement('li')

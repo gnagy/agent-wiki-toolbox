@@ -215,3 +215,19 @@ test('the probe asks the server, waits for it to start, and explains a release i
   assert.equal(result.wikis.find((w) => w.key === 'photo-cli').note, 'no release for this target yet')
   assert.ok(!asked.some((u) => u.includes('partner')), 'a wiki hosted elsewhere is not asked for')
 })
+
+test('the landing page carries each wiki\'s group and the order the groups are shown in', () => {
+  const dir = setup({
+    'registry.d/a.yaml': 'b: {mount: m, name: b, site: /tmp/b}\na: {mount: m, name: a, site: /tmp/a}\n',
+    'overrides.d/g.yaml': 'a: {group: Tools}\nb: {group: Personal}\n',
+    groups: '# order\nPersonal\nTools\n',
+    'targets.yaml': 'local:\n  base: http://localhost:8088/wikis\n',
+  })
+  const machine = loadMachine({dir})
+  assert.deepEqual(machine.groupOrder, ['Personal', 'Tools'])
+  const plan = planHost({machine, targetName: 'local', dir: join(dir, 'out')})
+  assert.deepEqual(plan.wikis.map((w) => [w.key, w.group]), [['a', 'Tools'], ['b', 'Personal']])
+  const page = plan.files[join('www', 'index.html')]
+  assert.match(page, /const GROUP_ORDER = \["Personal","Tools"\]/)
+  assert.match(page, /"group":"Tools"/)
+})
