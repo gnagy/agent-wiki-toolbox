@@ -69,6 +69,7 @@ test('each wiki is mounted by its site directory and served from a path inside i
   assert.match(conf, /try_files \$uri \$uri\.html \$uri\/index\.html =404;/, 'extensionless addresses resolve')
   assert.match(conf, /location = \/wikis\/shelton\/dios \{ return 301 \/wikis\/shelton\/dios\/; \}/, 'a bookmark without the slash works')
   assert.match(conf, /absolute_redirect off;/, 'a redirect does not name the container\'s own port')
+  assert.match(conf, /add_header Cache-Control "no-cache" always;/, 'a replaced release is revalidated, not served from a guessed lifetime')
   assert.match(conf, /location = \/wikis\/ \{[^}]*root \/srv\/awt-host;\n\s+rewrite \^ \/index\.html break;/, 'the landing page is a root and a rewrite, not an alias on a file')
 
   // The site directory is what is mounted: a release replaced by a rename must stay visible.
